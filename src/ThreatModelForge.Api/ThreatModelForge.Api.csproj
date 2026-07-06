@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ThreatModelForge.Api</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- Minimal-API host; XML documentation output is not meaningful for an app entry point,
+         so it is disabled for this project only (mirrors ThreatModelForge.Web). -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- SA0001 fires only because XML doc generation is disabled above; suppress it here so
+         StyleCop still enforces every other rule on the hand-written source. -->
+    <NoWarn>$(NoWarn);SA0001</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Build-time OpenAPI emission (Microsoft.Extensions.ApiDescription.Server): write the document
+         to openapi/v1.json next to the project so the contract is checked in and regenerated on every
+         build (no drift). The React client's `gen:api` script reads this exact file. -->
+    <OpenApiDocumentsDirectory>openapi</OpenApiDocumentsDirectory>
+    <OpenApiGenerateDocumentsOptions>--file-name v1</OpenApiGenerateDocumentsOptions>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Serves the OpenAPI document at /openapi/v1.json; the React client is generated from it. -->
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <!-- Direct reference forces the patched transitive Microsoft.OpenApi (GHSA-v5pm-xwqc-g5wc). -->
+    <PackageReference Include="Microsoft.OpenApi" />
+    <!-- Emits openapi/v1.json at build time (GetDocument); build-only, not a runtime dependency. -->
+    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ThreatModelForge.Core\ThreatModelForge.Core.csproj" />
+    <ProjectReference Include="..\ThreatModelForge.Formats\ThreatModelForge.Formats.csproj" />
+    <ProjectReference Include="..\ThreatModelForge.Editing\ThreatModelForge.Editing.csproj" />
+    <ProjectReference Include="..\ThreatModelForge.Analysis\ThreatModelForge.Analysis.csproj" />
+    <!-- Referenced so the assembly is present in the output for Assembly.Load at runtime. -->
+    <ProjectReference Include="..\ThreatModelForge.Analysis.Rules\ThreatModelForge.Analysis.Rules.csproj" />
+    <!-- Report endpoint (HTML / SVG) renders via the reporting library. -->
+    <ProjectReference Include="..\ThreatModelForge.Reporting\ThreatModelForge.Reporting.csproj" />
+  </ItemGroup>
+
+  <!-- Build the Threat Model Forge Studio SPA (npm) and stage it into wwwroot so `dotnet build`
+       produces one hosted API + UI artifact. Incremental via Inputs/Outputs; deps are installed
+       only when node_modules is missing. Pass /p:BuildStudio=false to skip (API-only iteration). -->
+  <PropertyGroup>
+    <StudioDir>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../ThreatModelForge.Studio'))</StudioDir>
+    <BuildStudio Condition="'$(BuildStudio)' == ''">true</BuildStudio>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(BuildStudio)' == 'true'">
+    <StudioInput Include="$(StudioDir)/src/**/*" />
+    <StudioInput Include="$(StudioDir)/index.html;$(StudioDir)/package.json;$(StudioDir)/package-lock.json;$(StudioDir)/tsconfig.json;$(StudioDir)/vite.config.ts" />
+  </ItemGroup>
+
+  <Target Name="BuildStudio" BeforeTargets="Build" Condition="'$(BuildStudio)' == 'true'"
+          Inputs="@(StudioInput)" Outputs="$(MSBuildProjectDirectory)/wwwroot/index.html">
+    <Message Importance="high" Text="Building Threat Model Forge Studio SPA (npm) from $(StudioDir)" />
+    <Exec Command="npm ci" WorkingDirectory="$(StudioDir)" Condition="!Exists('$(StudioDir)/node_modules')" />
+    <Exec Command="npm run build" WorkingDirectory="$(StudioDir)" />
+    <ItemGroup>
+      <StudioDist Include="$(StudioDir)/dist/**/*" />
+    </ItemGroup>
+    <RemoveDir Directories="$(MSBuildProjectDirectory)/wwwroot" />
+    <Copy SourceFiles="@(StudioDist)" DestinationFiles="@(StudioDist->'$(MSBuildProjectDirectory)/wwwroot/%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
+
+</Project>

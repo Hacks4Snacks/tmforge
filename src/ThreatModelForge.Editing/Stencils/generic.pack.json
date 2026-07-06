@@ -1,0 +1,11 @@
+{
+  "id": "generic",
+  "name": "Generic",
+  "stencils": [
+    { "id": "process", "base": "process", "label": "Process", "category": "Generic", "blurb": "Generic compute or service", "tags": ["service", "compute", "app", "workload"] },
+    { "id": "datastore", "base": "datastore", "label": "Data Store", "category": "Generic", "blurb": "Database, queue, or file", "tags": ["database", "db", "queue", "file", "storage"] },
+    { "id": "external", "base": "external", "label": "External Entity", "category": "Generic", "blurb": "Actor or third-party system", "tags": ["actor", "third-party", "external", "system"] },
+    { "id": "boundary", "base": "boundary", "label": "Trust Boundary", "category": "Generic", "blurb": "Trust zone region", "tags": ["trust", "zone", "perimeter", "boundary"] },
+    { "id": "human-actor", "base": "external", "label": "Human Actor", "category": "Generic", "blurb": "A person interacting with the system", "tags": ["user", "person", "actor", "customer"] }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "id": "web",
+  "name": "Web & Client",
+  "stencils": [
+    { "id": "browser", "base": "external", "label": "Browser", "category": "Web & Client", "blurb": "Web browser client", "tags": ["web", "client", "spa", "frontend"] },
+    { "id": "mobile-app", "base": "external", "label": "Mobile App", "category": "Web & Client", "blurb": "Native mobile client", "tags": ["mobile", "ios", "android", "client", "app"] },
+    { "id": "third-party-api", "base": "external", "label": "Third-party API", "category": "Web & Client", "blurb": "External API dependency", "tags": ["api", "external", "integration", "dependency"] }
+  ]
+}

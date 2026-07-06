@@ -1,0 +1,16 @@
+# Keep host build artifacts (built on a different OS/arch) out of the image build context
+# so the container build is clean and reproducible.
+**/obj/
+**/bin/
+out/
+packages/
+.git/
+**/.vs/
+**/.vscode/
+**/*.user
+# Front-end dependencies and build output are rebuilt inside the image (node stage).
+**/node_modules/
+**/dist/
+build/Dockerfile
+build/Dockerfile.api
+.dockerignore

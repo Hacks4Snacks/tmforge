@@ -1,0 +1,21 @@
+{
+  "process": {
+    "RunningAs": "Standard User",
+    "AuthenticationScheme": "None",
+    "Isolation": "None",
+    "SanitizesInput": "No",
+    "SanitizesOutput": "No"
+  },
+  "datastore": {
+    "Encrypted": "No",
+    "Signed": "No",
+    "StoresCredentials": "No",
+    "StoresLogData": "No",
+    "Backup": "No",
+    "AccessControl": "None"
+  },
+  "external": {
+    "AuthenticatesItself": "No"
+  },
+  "boundary": {}
+}

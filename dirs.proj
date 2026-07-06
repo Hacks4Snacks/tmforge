@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.Build.Traversal">
+  <PropertyGroup>
+    <!-- SDK bug workaround: complains about no lower bound on the analyzer package versions. -->
+    <NoWarn>$(NoWarn);NU1604</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectFile Include="src\dirs.proj" />
+    <ProjectFile Include="test\dirs.proj" />
+  </ItemGroup>
+</Project>

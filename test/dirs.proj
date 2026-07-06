@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.Build.Traversal">
+  <PropertyGroup>
+    <!-- SDK bug workaround: complains about no lower bound on the analyzer package versions. -->
+    <NoWarn>$(NoWarn);NU1604</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectFile Include="ThreatModelForge.Core.Tests\ThreatModelForge.Core.Tests.csproj" />
+    <ProjectFile Include="ThreatModelForge.Analysis.Tests\ThreatModelForge.Analysis.Tests.csproj" />
+    <ProjectFile Include="ThreatModelForge.Analysis.Rules.Tests\ThreatModelForge.Analysis.Rules.Tests.csproj" />
+    <ProjectFile Include="ThreatModelForge.Analysis.Reporting.Tests\ThreatModelForge.Analysis.Reporting.Tests.csproj" />
+    <ProjectFile Include="ThreatModelForge.Reporting.Tests\ThreatModelForge.Reporting.Tests.csproj" />
+    <ProjectFile Include="ThreatModelForge.Editing.Tests\ThreatModelForge.Editing.Tests.csproj" />
+    <ProjectFile Include="ThreatModelForge.Formats.Tests\ThreatModelForge.Formats.Tests.csproj" />
+    <ProjectFile Include="ThreatModelForge.Cli.Tests\ThreatModelForge.Cli.Tests.csproj" />
+    <ProjectFile Include="ThreatModelForge.Api.Tests\ThreatModelForge.Api.Tests.csproj" />
+  </ItemGroup>
+</Project>

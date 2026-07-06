@@ -1,0 +1,25 @@
+namespace ThreatModelForge.Api
+{
+    using System.Collections.Generic;
+
+    /// <summary>
+    /// The canonical tmforge-json model posted by the editor.
+    /// </summary>
+    public sealed class TmForgeModelDto
+    {
+        /// <summary>Gets the schema tag (<c>tmforge-json</c>).</summary>
+        public string? Schema { get; init; }
+
+        /// <summary>Gets the schema version.</summary>
+        public string? Version { get; init; }
+
+        /// <summary>Gets the DFD elements.</summary>
+        public IReadOnlyList<TmForgeElementDto>? Elements { get; init; }
+
+        /// <summary>Gets the data flows.</summary>
+        public IReadOnlyList<TmForgeFlowDto>? Flows { get; init; }
+
+        /// <summary>Gets the per-model validation configuration (which rule packs or rules to skip).</summary>
+        public TmForgeValidationDto? Validation { get; init; }
+    }
+}

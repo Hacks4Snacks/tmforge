@@ -1,0 +1,9 @@
+{
+  "id": "identity",
+  "name": "Identity & Credentials",
+  "stencils": [
+    { "id": "cert-manager-certificate", "base": "datastore", "label": "cert-manager Certificate", "category": "Credentials", "blurb": "Issued X.509 certificate (cert-manager Certificate CRD, materialized as a Secret)", "tags": ["identity", "certificate", "cert-manager", "x509", "tls", "credential", "rotation", "pki"], "defaults": { "StoresCredentials": "Yes" } },
+    { "id": "security-token-service", "base": "process", "label": "Security Token Service", "category": "Identity", "blurb": "Issues scoped tokens for principals (STS / token service)", "tags": ["identity", "sts", "token", "token service", "oauth", "oidc", "issuer", "authorization"], "defaults": { "AuthenticationScheme": "OAuth" } },
+    { "id": "workload-identity", "base": "external", "label": "Workload Identity", "category": "Identity", "blurb": "Federated workload principal (short-lived, no stored secret)", "tags": ["identity", "workload identity", "federated", "principal", "msi", "oidc", "spiffe", "spire"], "defaults": { "AuthenticatesItself": "Yes" } }
+  ]
+}

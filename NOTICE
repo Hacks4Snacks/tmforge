@@ -1,0 +1,19 @@
+# NOTICE
+
+Threat Model Forge (`tmforge`)
+Licensed under the MIT License. See [LICENSE.md](LICENSE.md).
+
+--------------------------------------------------------------------------------
+
+## Third-party provenance
+
+This product's `.tm7` / `.tb7` model and its serialization/parsing were **reimplemented
+(clean-room)** — freshly authored from the observable on-disk file format and informed by the
+following MIT-licensed Microsoft open-source project:
+
+- **microsoft/tm-file-parser** — https://github.com/microsoft/tm-file-parser
+  - Copyright (c) Microsoft Corporation.
+  - Licensed under the MIT License.
+
+The `.tm7` / `.tb7` file formats are reproduced for **interoperability** with the Microsoft Threat
+Modeling Tool. No source from the Microsoft Threat Modeling Tool was copied.

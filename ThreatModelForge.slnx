@@ -1,0 +1,24 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ThreatModelForge.Analysis.Rules/ThreatModelForge.Analysis.Rules.csproj" />
+    <Project Path="src/ThreatModelForge.Analysis.Reporting/ThreatModelForge.Analysis.Reporting.csproj" />
+    <Project Path="src/ThreatModelForge.Analysis/ThreatModelForge.Analysis.csproj" />
+    <Project Path="src/ThreatModelForge.Api/ThreatModelForge.Api.csproj" />
+    <Project Path="src/ThreatModelForge.Cli/ThreatModelForge.Cli.csproj" />
+    <Project Path="src/ThreatModelForge.Core/ThreatModelForge.Core.csproj" />
+    <Project Path="src/ThreatModelForge.Editing/ThreatModelForge.Editing.csproj" />
+    <Project Path="src/ThreatModelForge.Formats/ThreatModelForge.Formats.csproj" />
+    <Project Path="src/ThreatModelForge.Reporting/ThreatModelForge.Reporting.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/ThreatModelForge.Analysis.Rules.Tests/ThreatModelForge.Analysis.Rules.Tests.csproj" />
+    <Project Path="test/ThreatModelForge.Analysis.Reporting.Tests/ThreatModelForge.Analysis.Reporting.Tests.csproj" />
+    <Project Path="test/ThreatModelForge.Analysis.Tests/ThreatModelForge.Analysis.Tests.csproj" />
+    <Project Path="test/ThreatModelForge.Api.Tests/ThreatModelForge.Api.Tests.csproj" />
+    <Project Path="test/ThreatModelForge.Cli.Tests/ThreatModelForge.Cli.Tests.csproj" />
+    <Project Path="test/ThreatModelForge.Core.Tests/ThreatModelForge.Core.Tests.csproj" />
+    <Project Path="test/ThreatModelForge.Editing.Tests/ThreatModelForge.Editing.Tests.csproj" />
+    <Project Path="test/ThreatModelForge.Formats.Tests/ThreatModelForge.Formats.Tests.csproj" />
+    <Project Path="test/ThreatModelForge.Reporting.Tests/ThreatModelForge.Reporting.Tests.csproj" />
+  </Folder>
+</Solution>

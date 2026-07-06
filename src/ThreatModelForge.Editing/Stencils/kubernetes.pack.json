@@ -1,0 +1,22 @@
+{
+  "id": "kubernetes",
+  "name": "Kubernetes",
+  "stencils": [
+    { "id": "k8s-cluster", "base": "boundary", "label": "Kubernetes Cluster", "category": "Cluster", "blurb": "Cluster trust boundary (control plane + nodes)", "tags": ["kubernetes", "k8s", "cluster", "control plane", "aks"] },
+    { "id": "k8s-namespace", "base": "boundary", "label": "Namespace", "category": "Cluster", "blurb": "Soft isolation boundary within a cluster", "tags": ["kubernetes", "k8s", "namespace", "isolation", "tenant"] },
+    { "id": "k8s-node", "base": "boundary", "label": "Node / Node Pool", "category": "Cluster", "blurb": "Worker node host that runs pods", "tags": ["kubernetes", "k8s", "node", "node pool", "host", "worker", "vm"] },
+    { "id": "k8s-api-server", "base": "process", "label": "Kube API Server", "category": "Cluster", "blurb": "Control-plane API (authN/authZ, RBAC)", "tags": ["kubernetes", "k8s", "api server", "control plane", "rbac", "kube-apiserver"], "defaults": { "AuthenticationScheme": "RBAC" } },
+
+    { "id": "k8s-pod", "base": "process", "label": "Pod", "category": "Workloads", "blurb": "Scheduled workload of one or more containers", "tags": ["kubernetes", "k8s", "pod", "container", "workload", "deployment"] },
+    { "id": "k8s-sidecar", "base": "process", "label": "Sidecar / Mesh Proxy", "category": "Workloads", "blurb": "Sidecar container or service-mesh proxy", "tags": ["kubernetes", "k8s", "sidecar", "mesh", "envoy", "istio", "linkerd", "proxy"] },
+    { "id": "k8s-ingress", "base": "process", "label": "Ingress Controller", "category": "Workloads", "blurb": "L7 ingress and TLS termination", "tags": ["kubernetes", "k8s", "ingress", "gateway", "l7", "tls", "nginx"] },
+    { "id": "k8s-service", "base": "process", "label": "Service", "category": "Workloads", "blurb": "Internal load balancer / service routing", "tags": ["kubernetes", "k8s", "service", "clusterip", "load balancer", "networking"] },
+
+    { "id": "k8s-etcd", "base": "datastore", "label": "etcd", "category": "Data & Secrets", "blurb": "Cluster state and Secrets store", "tags": ["kubernetes", "k8s", "etcd", "state", "secrets", "database", "control plane"], "defaults": { "StoresCredentials": "Yes" } },
+    { "id": "k8s-secret", "base": "datastore", "label": "Kubernetes Secret", "category": "Data & Secrets", "blurb": "Namespaced secret (base64, not encrypted by default)", "tags": ["kubernetes", "k8s", "secret", "credentials", "configuration"], "defaults": { "StoresCredentials": "Yes" } },
+    { "id": "k8s-configmap", "base": "datastore", "label": "ConfigMap", "category": "Data & Secrets", "blurb": "Namespaced non-secret configuration", "tags": ["kubernetes", "k8s", "configmap", "configuration", "settings", "config"] },
+    { "id": "container-registry", "base": "datastore", "label": "Container Registry", "category": "Data & Secrets", "blurb": "Container image registry (ACR, GHCR, Docker Hub)", "tags": ["kubernetes", "k8s", "registry", "acr", "images", "artifacts", "supply chain"] },
+
+    { "id": "k8s-service-account", "base": "external", "label": "Service Account / Workload Identity", "category": "Identity", "blurb": "Pod identity for API and cloud access", "tags": ["kubernetes", "k8s", "service account", "workload identity", "rbac", "auth"], "defaults": { "AuthenticatesItself": "Yes" } }
+  ]
+}

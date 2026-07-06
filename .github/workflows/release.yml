@@ -1,0 +1,164 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: verify tag & version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches VersionPrefix
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.ref_type }}" != "tag" ]; then
+            echo "::error::release must run from a version tag (got ${{ github.ref_type }} '${GITHUB_REF_NAME}')."
+            exit 1
+          fi
+          tag="${GITHUB_REF_NAME#v}"
+          base="${tag%%-*}"   # strip any prerelease suffix, e.g. 0.2.0-rc.1 -> 0.2.0
+          prop="$(grep -oE '<VersionPrefix>[^<]+</VersionPrefix>' Directory.Build.props | sed -E 's:</?VersionPrefix>::g' | tr -d '[:space:]')"
+          echo "tag=$tag base=$base VersionPrefix=$prop"
+          if [ "$base" != "$prop" ]; then
+            echo "::error::Tag '$GITHUB_REF_NAME' (base '$base') does not match Directory.Build.props VersionPrefix '$prop'. Bump the version (release-please) or fix the tag."
+            exit 1
+          fi
+
+  build:
+    name: build ${{ matrix.rid }}
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: linux-x64,   os: ubuntu-latest,    archive: tar, exe: tmforge }
+          - { rid: linux-arm64, os: ubuntu-24.04-arm, archive: tar, exe: tmforge }
+          - { rid: win-x64,     os: windows-latest,   archive: zip, exe: tmforge.exe }
+          - { rid: win-arm64,   os: windows-11-arm,   archive: zip, exe: tmforge.exe }
+          - { rid: osx-x64,     os: macos-13,         archive: tar, exe: tmforge }
+          - { rid: osx-arm64,   os: macos-14,         archive: tar, exe: tmforge }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.301
+
+      - name: Compute version and names
+        id: v
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          stage="tmforge-$version-${{ matrix.rid }}"
+          if [ "${{ matrix.archive }}" = "zip" ]; then asset="$stage.zip"; else asset="$stage.tar.gz"; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "stage=$stage" >> "$GITHUB_OUTPUT"
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+
+      - name: Publish (self-contained single-file)
+        shell: bash
+        run: |
+          dotnet publish src/ThreatModelForge.Cli/ThreatModelForge.Cli.csproj \
+            -c Release -r ${{ matrix.rid }} -p:Standalone=true \
+            -p:Version=${{ steps.v.outputs.version }} \
+            -o publish
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          stage="${{ steps.v.outputs.stage }}"
+          mkdir -p "$stage"
+          cp "publish/${{ matrix.exe }}" "$stage/"
+          cp LICENSE.md README.md "$stage/"
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          bin="${{ steps.v.outputs.stage }}/${{ matrix.exe }}"
+          chmod +x "$bin" || true
+          "./$bin" --version
+          "./$bin" --version | grep -q "${{ steps.v.outputs.version }}"
+          "./$bin" open test/ThreatModelForge.Core.Tests/SampleModel.tm7 > /dev/null
+
+      - name: Archive (tar.gz)
+        if: matrix.archive == 'tar'
+        shell: bash
+        run: tar -czf "${{ steps.v.outputs.asset }}" "${{ steps.v.outputs.stage }}"
+
+      - name: Archive (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: Compress-Archive -Path "${{ steps.v.outputs.stage }}" -DestinationPath "${{ steps.v.outputs.asset }}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.v.outputs.stage }}
+          path: ${{ steps.v.outputs.asset }}
+          if-no-files-found: error
+
+  release:
+    name: release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Assemble checksums and metadata
+        id: meta
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec cp {} dist/ \;
+          cd dist
+          sha256sum *.tar.gz *.zip > checksums.txt
+          artifacts_json='[]'
+          for f in *.tar.gz *.zip; do
+            [ -e "$f" ] || continue
+            sha=$(sha256sum "$f" | cut -d' ' -f1)
+            size=$(stat -c%s "$f")
+            rid=$(echo "$f" | sed -E "s/^tmforge-${version}-(.*)\.(tar\.gz|zip)$/\1/")
+            artifacts_json=$(echo "$artifacts_json" | jq \
+              --arg rid "$rid" --arg file "$f" --arg sha "$sha" --argjson size "$size" \
+              '. += [{rid: $rid, file: $file, sha256: $sha, size: $size}]')
+          done
+          jq -n \
+            --arg version "$version" \
+            --arg tag "$GITHUB_REF_NAME" \
+            --arg commit "$GITHUB_SHA" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson artifacts "$artifacts_json" \
+            '{version: $version, tag: $tag, commit: $commit, date: $date, artifacts: $artifacts}' \
+            > release-metadata.json
+          echo "----- checksums.txt -----"; cat checksums.txt
+          echo "----- release-metadata.json -----"; cat release-metadata.json
+          if [[ "$version" == *-* ]]; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          pre=""
+          if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then pre="--prerelease"; fi
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "tmforge $version" \
+            --generate-notes \
+            $pre

@@ -1,0 +1,36 @@
+name: release-please
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Maintain release PR & tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          # release-please opens/updates a "release PR" that bumps the version
+          # (Directory.Build.props VersionPrefix) and CHANGELOG.md from Conventional
+          # Commits. Merging it creates the `v<version>` tag + GitHub Release, which in
+          # turn triggers the tag-based workflows (release.yml -> six-RID binaries +
+          # Release assets, docker-publish.yml -> GHCR images).
+          #
+          # A PAT or GitHub App token is REQUIRED for that hand-off: tags pushed by the
+          # default GITHUB_TOKEN do NOT trigger other workflows. Add a repo secret named
+          # RELEASE_PLEASE_TOKEN (contents: write; on a public repo also `workflow`).
+          # Without it the release PR + CHANGELOG still work, but the release binaries +
+          # GHCR images won't be produced automatically on tag.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

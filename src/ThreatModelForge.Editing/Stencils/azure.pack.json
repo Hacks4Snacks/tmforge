@@ -1,0 +1,26 @@
+{
+  "id": "azure",
+  "name": "Azure",
+  "stencils": [
+    { "id": "azure-app-service", "base": "process", "label": "Azure App Service", "category": "Compute", "blurb": "Managed web app / API host", "tags": ["web", "api", "paas", "host", "webapp"] },
+    { "id": "azure-function", "base": "process", "label": "Azure Functions", "category": "Compute", "blurb": "Serverless compute", "tags": ["serverless", "faas", "functions", "event"] },
+    { "id": "azure-aks", "base": "process", "label": "Azure Kubernetes Service", "category": "Compute", "blurb": "Managed Kubernetes", "tags": ["kubernetes", "k8s", "containers", "cluster"] },
+    { "id": "azure-vm", "base": "process", "label": "Azure Virtual Machine", "category": "Compute", "blurb": "IaaS compute", "tags": ["iaas", "virtual machine", "server", "compute"] },
+
+    { "id": "azure-sql", "base": "datastore", "label": "Azure SQL Database", "category": "Data & Storage", "blurb": "Managed relational database", "tags": ["database", "sql", "relational", "db"], "defaults": { "Encrypted": "TDE" } },
+    { "id": "azure-cosmos", "base": "datastore", "label": "Azure Cosmos DB", "category": "Data & Storage", "blurb": "Globally distributed NoSQL", "tags": ["nosql", "cosmos", "database", "db"] },
+    { "id": "azure-blob", "base": "datastore", "label": "Azure Blob Storage", "category": "Data & Storage", "blurb": "Object storage", "tags": ["storage", "blob", "object storage", "files"], "defaults": { "Encrypted": "At-rest" } },
+    { "id": "azure-service-bus", "base": "datastore", "label": "Azure Service Bus", "category": "Data & Storage", "blurb": "Message broker / queue", "tags": ["queue", "messaging", "broker", "bus", "events"] },
+
+    { "id": "entra-id", "base": "external", "label": "Microsoft Entra ID", "category": "Identity & Security", "blurb": "Identity provider", "tags": ["identity", "idp", "aad", "azure ad", "auth", "authentication"], "defaults": { "AuthenticatesItself": "Yes" } },
+    { "id": "azure-key-vault", "base": "datastore", "label": "Azure Key Vault", "category": "Identity & Security", "blurb": "Secrets, keys, and certificates", "tags": ["secrets", "keys", "certificates", "kms", "credentials", "vault"], "defaults": { "StoresCredentials": "Yes", "Encrypted": "Yes" } },
+    { "id": "managed-identity", "base": "external", "label": "Managed Identity", "category": "Identity & Security", "blurb": "Workload identity principal", "tags": ["identity", "workload", "msi", "principal", "auth"], "defaults": { "AuthenticatesItself": "Yes" } },
+
+    { "id": "azure-vnet", "base": "boundary", "label": "Azure Virtual Network", "category": "Networking & Boundaries", "blurb": "Network isolation boundary", "tags": ["network", "vnet", "isolation", "boundary"] },
+    { "id": "azure-subnet", "base": "boundary", "label": "Subnet", "category": "Networking & Boundaries", "blurb": "Subnet boundary", "tags": ["network", "subnet", "boundary"] },
+    { "id": "azure-tenant", "base": "boundary", "label": "Microsoft Entra Tenant", "category": "Networking & Boundaries", "blurb": "Entra ID tenant trust boundary (customer / directory)", "tags": ["tenant", "entra", "aad", "azure ad", "identity", "boundary", "customer", "directory"] },
+    { "id": "azure-subscription", "base": "boundary", "label": "Azure Subscription", "category": "Networking & Boundaries", "blurb": "Subscription trust and billing boundary", "tags": ["subscription", "azure", "boundary", "tenant", "management group"] },
+    { "id": "app-gateway", "base": "process", "label": "Application Gateway / WAF", "category": "Networking & Boundaries", "blurb": "L7 load balancer with WAF", "tags": ["waf", "load balancer", "gateway", "l7", "firewall", "ingress"] },
+    { "id": "private-endpoint", "base": "process", "label": "Private Endpoint", "category": "Networking & Boundaries", "blurb": "Private network ingress", "tags": ["private link", "network", "ingress", "endpoint"] }
+  ]
+}

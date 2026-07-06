@@ -1,0 +1,39 @@
+version: 2
+
+updates:
+  # .NET packages (central versions live in Directory.Packages.props).
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      nuget:
+        patterns: ["*"]
+
+  # Studio SPA (React/Vite) dependencies.
+  - package-ecosystem: npm
+    directory: "/src/ThreatModelForge.Studio"
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ["*"]
+
+  # Base images in build/Dockerfile and build/Dockerfile.api.
+  - package-ecosystem: docker
+    directory: "/build"
+    schedule:
+      interval: weekly
+    groups:
+      docker:
+        patterns: ["*"]
+
+  # Pinned action versions in .github/workflows/*.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]

@@ -1,0 +1,96 @@
+name: ci
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.301
+
+      - name: Build
+        run: dotnet build dirs.proj -c Release
+
+      - name: Test
+        run: dotnet test dirs.proj -c Release --no-build
+
+  containers:
+    name: Container build & smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build CLI image (amd64, load)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: build/Dockerfile
+          load: true
+          tags: tmforge-cli:ci
+          cache-from: type=gha,scope=tmforge-cli
+          cache-to: type=gha,mode=max,scope=tmforge-cli
+
+      - name: Smoke test CLI (tmforge --version)
+        run: docker run --rm tmforge-cli:ci --version
+
+      - name: Build API image (amd64, load)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: build/Dockerfile.api
+          load: true
+          tags: tmforge:ci
+          cache-from: type=gha,scope=tmforge
+          cache-to: type=gha,mode=max,scope=tmforge
+
+      - name: Smoke test API (/v1/health)
+        run: |
+          set -euo pipefail
+          docker run -d --name tmforge-api -p 8080:8080 tmforge:ci
+          ok=0
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/v1/health >/dev/null 2>&1; then
+              ok=1; break
+            fi
+            sleep 2
+          done
+          docker logs tmforge-api || true
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::tmforge API did not become healthy on /v1/health"
+            exit 1
+          fi
+          echo "Smoke test passed:"
+          curl -fsS http://127.0.0.1:8080/v1/health
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f tmforge-api || true
+
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    # PR-only supply-chain check; needs the repo Dependency Graph (on by default for
+    # public repos). Flags newly introduced vulnerable dependencies.
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high

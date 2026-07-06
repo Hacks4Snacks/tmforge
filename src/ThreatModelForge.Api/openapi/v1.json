@@ -1,0 +1,736 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "ThreatModelForge.Api | v1",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/v1/health": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "operationId": "GetHealth",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthStatusDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/formats": {
+      "get": {
+        "tags": [
+          "Formats"
+        ],
+        "operationId": "GetFormats",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FormatDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/stencils": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "operationId": "GetStencils",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StencilDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/stencil-packs": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "operationId": "GetStencilPacks",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PackDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/rules": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "operationId": "GetRules",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RuleDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/rule-packs": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "operationId": "GetRulePacks",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RulePackDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/property-schema": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "operationId": "GetPropertySchema",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PropertyDescriptor"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/model/validate": {
+      "post": {
+        "tags": [
+          "Model"
+        ],
+        "operationId": "ValidateModel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TmForgeModelDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FindingDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/model/export/tm7": {
+      "post": {
+        "tags": [
+          "Model"
+        ],
+        "operationId": "ExportModelTm7",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TmForgeModelDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/v1/model/convert": {
+      "post": {
+        "tags": [
+          "Model"
+        ],
+        "operationId": "ConvertModel",
+        "parameters": [
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TmForgeModelDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/v1/model/read": {
+      "post": {
+        "tags": [
+          "Model"
+        ],
+        "operationId": "ReadModel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileContentDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TmForgeModelDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/model/report": {
+      "post": {
+        "tags": [
+          "Report"
+        ],
+        "operationId": "ReportModel",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TmForgeModelDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/v1/detect": {
+      "post": {
+        "tags": [
+          "Formats"
+        ],
+        "operationId": "DetectFormat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileContentDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormatDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "FileContentDto": {
+        "type": "object",
+        "properties": {
+          "contentBase64": {
+            "type": "string"
+          },
+          "formatId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "FindingDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "ruleId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "elementIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "FormatDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "extensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "canRead": {
+            "type": "boolean"
+          },
+          "canWrite": {
+            "type": "boolean"
+          }
+        }
+      },
+      "HealthStatusDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "PackDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Gets the stable pack identifier (for example, `azure`)."
+          },
+          "name": {
+            "type": "string",
+            "description": "Gets the human-readable pack name shown in the palette."
+          },
+          "count": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Gets the number of stencils the pack contributes.",
+            "format": "int32"
+          }
+        },
+        "description": "Describes a stencil pack: a named, togglable group of related stencils (for example, the\nAzure pack). The palette uses packs so the user can show or hide whole families at once."
+      },
+      "PropertyDescriptor": {
+        "type": "object",
+        "properties": {
+          "appliesTo": {
+            "type": "string",
+            "description": "Gets the DFD primitive this property applies to (`process`, `datastore`, `external`, or `flow`)."
+          },
+          "name": {
+            "type": "string",
+            "description": "Gets the property name, i.e. the custom-attribute key (for example, `AuthenticationScheme`)."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Gets the value kind that drives the editor control: `enum`, `bool`, or `string`."
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Gets the allowed values for an `enum` or `bool` property; empty for a free-form `string`."
+          },
+          "default": {
+            "type": "string",
+            "description": "Gets the default value applied when the property is first added to an element."
+          }
+        },
+        "description": "Typed definition of a single element custom property (for example, a data store's\n`Encrypted` setting). The schema lets authoring surfaces render the right control\n(dropdown, checkbox, or free text) and emit canonical values, so the analysis rules that\ninspect these properties match reliably instead of guessing at free-form text."
+      },
+      "RuleDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "pack": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "helpText": {
+            "type": "string"
+          },
+          "helpUri": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "RulePackDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "count": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "StencilDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Gets the stable stencil identifier (for example, `azure-sql`)."
+          },
+          "base": {
+            "type": "string",
+            "description": "Gets the underlying DFD primitive this stencil maps to."
+          },
+          "label": {
+            "type": "string",
+            "description": "Gets the human-readable name shown in the palette."
+          },
+          "category": {
+            "type": "string",
+            "description": "Gets the palette grouping this stencil belongs to."
+          },
+          "pack": {
+            "type": "string",
+            "description": "Gets the stencil pack this stencil ships in (for example, `azure`)."
+          },
+          "blurb": {
+            "type": "string",
+            "description": "Gets a short description of the stencil."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Gets the free-form search tags and aliases for this stencil."
+          },
+          "defaults": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Gets the preset custom properties applied when the stencil is placed."
+          }
+        },
+        "description": "Describes an authoring stencil: a named, categorized specialization of one of the four DFD\nprimitives (`process`, `datastore`, `external`, `boundary`). A stencil\nmaps to its string StencilDto.Base primitive for analysis, and its identity plus preset\nproperties enrich the model without requiring per-stencil rules."
+      },
+      "TmForgeElementDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "x": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "y": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "width": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "height": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TmForgeFlowDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TmForgeModelDto": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "version": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "elements": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/TmForgeElementDto"
+            }
+          },
+          "flows": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/TmForgeFlowDto"
+            }
+          },
+          "validation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TmForgeValidationDto"
+              }
+            ]
+          }
+        }
+      },
+      "TmForgeValidationDto": {
+        "type": "object",
+        "properties": {
+          "disabledPacks": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "disabledRuleIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "System"
+    },
+    {
+      "name": "Formats"
+    },
+    {
+      "name": "Catalog"
+    },
+    {
+      "name": "Model"
+    },
+    {
+      "name": "Report"
+    }
+  ]
+}

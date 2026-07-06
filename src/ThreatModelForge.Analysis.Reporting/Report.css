@@ -1,0 +1,72 @@
+﻿:root {
+    color-scheme: light;
+}
+
+body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    margin: 0;
+    padding: 0.5rem;
+    background-color: #eeeeee;
+    color: #000000;
+}
+
+table {
+    vertical-align: top;
+    margin-bottom: 1rem;
+    text-align: left;
+    caption-side: bottom;
+    border-collapse: collapse;
+}
+
+th {
+    padding-right: 1.4em;
+}
+
+div.card {
+    margin: 0.75rem 0.75rem 1.2rem 0.75rem;
+    padding: 0.15rem 0.75rem 1.2rem 0.75rem;
+    background-color: #ffffff;
+    border: 1px solid #dee2e6;
+    border-radius: 0.25rem;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+table.table-bordered {
+    width: 100%;
+    border: 1px solid #dee2e6;
+    border-spacing: 0;
+}
+
+table.table-bordered th,
+table.table-bordered td {
+    padding: 0.5rem;
+    border: 1px solid #dee2e6;
+}
+
+tr.table-danger,
+tr.table-danger td {
+    border-color: #dfc2c4;
+}
+
+tr.table-danger {
+    background-color: #f8d7da;
+}
+
+tr.table-warning,
+tr.table-warning td {
+    border-color: #e6dbb9;
+}
+
+tr.table-warning {
+    background-color: #fff3cd;
+}
+
+tr.table-info,
+tr.table-info td {
+    border-color: #badce3;
+}
+
+tr.table-info {
+    background-color: #cff4fc;
+}
+

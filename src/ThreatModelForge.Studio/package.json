@@ -1,0 +1,28 @@
+{
+  "name": "threatmodelforge-studio",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Threat Model Forge Studio — the React Flow DFD canvas over the .NET engine's /v1 API. Built into the API's wwwroot by the .NET build.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "gen:api": "openapi-typescript ../ThreatModelForge.Api/openapi/v1.json -o src/dfd/engine/schema.d.ts"
+  },
+  "dependencies": {
+    "@xyflow/react": "^12.11.2",
+    "openapi-fetch": "^0.17.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "openapi-typescript": "^7.13.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.3"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "process": [
+    { "name": "RunningAs", "kind": "enum", "values": ["Standard User", "Service Account", "System", "Root/Admin"], "default": "Standard User" },
+    { "name": "AuthenticationScheme", "kind": "enum", "values": ["None", "Basic", "OAuth", "RBAC", "Certificate", "ManagedIdentity"], "default": "None" },
+    { "name": "Isolation", "kind": "enum", "values": ["None", "Process", "Container", "VM"], "default": "None" },
+    { "name": "SanitizesInput", "kind": "bool", "values": ["Yes", "No"], "default": "No" },
+    { "name": "SanitizesOutput", "kind": "bool", "values": ["Yes", "No"], "default": "No" },
+    { "name": "Multiplicity", "kind": "string", "default": "" }
+  ],
+  "datastore": [
+    { "name": "Encrypted", "kind": "enum", "values": ["No", "At-rest", "TDE", "Client-side", "Platform"], "default": "No" },
+    { "name": "Algorithm", "kind": "enum", "values": ["None", "AES-GCM", "AES-CBC+HMAC", "ChaCha20-Poly1305", "AES-CBC", "3DES", "RC4", "secretbox", "Other"], "default": "None" },
+    { "name": "AccessControl", "kind": "enum", "values": ["None", "RBAC", "ACL", "Public"], "default": "None" },
+    { "name": "Signed", "kind": "bool", "values": ["Yes", "No"], "default": "No" },
+    { "name": "StoresCredentials", "kind": "bool", "values": ["Yes", "No"], "default": "No" },
+    { "name": "StoresLogData", "kind": "bool", "values": ["Yes", "No"], "default": "No" },
+    { "name": "Backup", "kind": "bool", "values": ["Yes", "No"], "default": "No" },
+    { "name": "Multiplicity", "kind": "string", "default": "" }
+  ],
+  "external": [
+    { "name": "AuthenticatesItself", "kind": "bool", "values": ["Yes", "No"], "default": "No" },
+    { "name": "Multiplicity", "kind": "string", "default": "" }
+  ],
+  "flow": [
+    { "name": "Protocol", "kind": "enum", "values": ["HTTPS", "HTTP", "TLS", "mTLS", "gRPC", "AMQP", "SQL", "SSH", "FTP", "Other"], "default": "HTTPS" },
+    { "name": "Port", "kind": "string", "default": "" },
+    { "name": "Channel", "kind": "enum", "values": ["Network", "In-Process", "Local-file", "Unix-socket", "Loopback"], "default": "Network" },
+    { "name": "DataType", "kind": "enum", "values": ["Public Non-Personal Data", "Public Personal Data", "Account Data", "Customer Content", "EUII", "EUPI", "OII", "Access Control Data", "Support Data", "Feedback", "Managed Service Data", "System Metadata"], "default": "Public Non-Personal Data" },
+    { "name": "Algorithm", "kind": "enum", "values": ["None", "AES-GCM", "AES-CBC+HMAC", "ChaCha20-Poly1305", "AES-CBC", "3DES", "RC4", "secretbox", "Other"], "default": "None" },
+    { "name": "Identity", "kind": "string", "default": "" },
+    { "name": "TokenScope", "kind": "string", "default": "" },
+    { "name": "Cached", "kind": "bool", "values": ["Yes", "No"], "default": "No" },
+    { "name": "Multiplicity", "kind": "string", "default": "" }
+  ]
+}

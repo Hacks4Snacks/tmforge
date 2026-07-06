@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\ThreatModelForge.Core\ThreatModelForge.Core.csproj" />
+    <ProjectReference Include="..\ThreatModelForge.Formats\ThreatModelForge.Formats.csproj" />
+    <ProjectReference Include="..\ThreatModelForge.Editing\ThreatModelForge.Editing.csproj" />
+    <ProjectReference Include="..\ThreatModelForge.Analysis\ThreatModelForge.Analysis.csproj" />
+    <ProjectReference Include="..\ThreatModelForge.Analysis.Rules\ThreatModelForge.Analysis.Rules.csproj" />
+    <ProjectReference Include="..\ThreatModelForge.Analysis.Reporting\ThreatModelForge.Analysis.Reporting.csproj" />
+    <ProjectReference Include="..\ThreatModelForge.Reporting\ThreatModelForge.Reporting.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Update="Properties\Resources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Resources.resx</DependentUpon>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Update="Properties\Resources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ThreatModelForge.Cli</RootNamespace>
+    <AssemblyName>tmforge</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- Opt-in cross-platform .NET global tool packaging: `dotnet pack -p:PackTools=true`
+       produces a portable (RID-agnostic) `tmforge` tool that runs anywhere .NET 10 is on PATH.
+       Off by default so the official signed build is unaffected. -->
+  <PropertyGroup Condition="'$(PackTools)' == 'true'">
+    <IsPackable>true</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>tmforge</ToolCommandName>
+    <PackageId>ThreatModelForge.Cli.PreRelease</PackageId>
+  </PropertyGroup>
+
+  <!-- Opt-in standalone single-file publish (self-contained; no .NET runtime needed on the host):
+         dotnet publish -c Release -r <rid> -p:Standalone=true
+       Bundles the .NET runtime into one `tmforge` executable. NativeAOT is intentionally NOT used:
+       the `.tm7` DataContractSerializer path (byte-identical fidelity, ADR 0007) is reflection-based
+       and AOT-hostile. RID matrix (win-x64, win-arm64, linux-x64, linux-arm64, osx-x64, osx-arm64). -->
+  <PropertyGroup Condition="'$(Standalone)' == 'true'">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ThreatModelForge.Core\ThreatModelForge.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" />
+  </ItemGroup>
+
+  <!-- Built-in authoring stencil catalog: the *.pack.json + base-defaults.json are embedded so the
+       catalog is served from this assembly (no external files to deploy). StencilCatalog reads them
+       from its own assembly manifest at startup; both the CLI and the API consume them. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Stencils\*.json" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>ThreatModelForge.Editing</RootNamespace>
+  </PropertyGroup>
+
+</Project>

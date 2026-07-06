@@ -1,0 +1,28 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{json,yml,yaml,csproj,props,targets,razor}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.cs]
+# File headers are not required. Relax the whole StyleCop file-header family (SA1633-SA1641)
+# so files may have, omit, or vary their copyright header without failing the build.
+dotnet_diagnostic.SA1633.severity = none # FileMustHaveHeader
+dotnet_diagnostic.SA1634.severity = none # FileHeaderMustShowCopyright
+dotnet_diagnostic.SA1635.severity = none # FileHeaderMustHaveCopyrightText
+dotnet_diagnostic.SA1636.severity = none # FileHeaderCopyrightTextMustMatch
+dotnet_diagnostic.SA1637.severity = none # FileHeaderMustContainFileName
+dotnet_diagnostic.SA1638.severity = none # FileHeaderFileNameDocumentationMustMatchFileName
+dotnet_diagnostic.SA1639.severity = none # FileHeaderMustHaveSummary
+dotnet_diagnostic.SA1640.severity = none # FileHeaderMustHaveValidCompanyText
+dotnet_diagnostic.SA1641.severity = none # FileHeaderCompanyNameTextMustMatch

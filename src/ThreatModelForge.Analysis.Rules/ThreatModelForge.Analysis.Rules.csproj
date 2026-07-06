@@ -1,0 +1,195 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ThreatModelForge.Analysis\ThreatModelForge.Analysis.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="$(AssemblyName).Tests"/>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Update="DescriptiveEdgeNameRuleResources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>DescriptiveEdgeNameRuleResources.resx</DependentUpon>
+    </Compile>
+    <Compile Update="DescriptiveGenericComponentNameRuleResources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>DescriptiveGenericComponentNameRuleResources.resx</DependentUpon>
+    </Compile>
+    <Compile Update="DescriptiveSpecificComponentNameRuleResources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>DescriptiveSpecificComponentNameRuleResources.resx</DependentUpon>
+    </Compile>
+    <Compile Update="EdgeMissingDataClassificationRuleResources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>EdgeMissingDataClassificationRuleResources.resx</DependentUpon>
+    </Compile>
+    <Compile Update="EdgeMissingPortRuleResources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>EdgeMissingPortRuleResources.resx</DependentUpon>
+    </Compile>
+    <Compile Update="EdgeMissingProtocolDescriptionRuleResources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>EdgeMissingProtocolDescriptionRuleResources.resx</DependentUpon>
+    </Compile>
+    <Compile Update="EdgeMissingProtocolRuleResources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>EdgeMissingProtocolRuleResources.resx</DependentUpon>
+    </Compile>
+    <Compile Update="MinimumComponentCountRuleResources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>MinimumComponentCountRuleResources.resx</DependentUpon>
+    </Compile>
+    <Compile Update="MissingAnyExternalInteractorsRuleResources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>MissingAnyExternalInteractorsRuleResources.resx</DependentUpon>
+    </Compile>
+    <Compile Update="MissingAnyTrustBoundaryCrossingRuleResources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>MissingAnyTrustBoundaryCrossingRuleResources.resx</DependentUpon>
+    </Compile>
+    <Compile Update="MissingAnyTrustBoundaryRuleResources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>MissingAnyTrustBoundaryRuleResources.resx</DependentUpon>
+    </Compile>
+    <Compile Update="OutboundStorageEdgeRuleResources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>OutboundStorageEdgeRuleResources.resx</DependentUpon>
+    </Compile>
+    <Compile Update="UnencryptedSecretStoreRuleResources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>UnencryptedSecretStoreRuleResources.resx</DependentUpon>
+    </Compile>
+    <Compile Update="UnauthenticatedBoundaryProcessRuleResources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>UnauthenticatedBoundaryProcessRuleResources.resx</DependentUpon>
+    </Compile>
+    <Compile Update="CleartextTrustBoundaryCrossingRuleResources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>CleartextTrustBoundaryCrossingRuleResources.resx</DependentUpon>
+    </Compile>
+    <Compile Update="Properties\Resources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Resources.resx</DependentUpon>
+    </Compile>
+    <Compile Update="UnconnectedComponentsRuleResources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>UnconnectedComponentsRuleResources.resx</DependentUpon>
+    </Compile>
+    <Compile Update="UnconnectedEdgesRuleResources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>UnconnectedEdgesRuleResources.resx</DependentUpon>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Update="DescriptiveGenericComponentNameRuleResources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>DescriptiveGenericComponentNameRuleResources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <EmbeddedResource Update="DescriptiveEdgeNameRuleResources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>DescriptiveEdgeNameRuleResources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <EmbeddedResource Update="DescriptiveSpecificComponentNameRuleResources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>DescriptiveSpecificComponentNameRuleResources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <EmbeddedResource Update="EdgeMissingDataClassificationRuleResources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>EdgeMissingDataClassificationRuleResources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <EmbeddedResource Update="EdgeMissingPortRuleResources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>EdgeMissingPortRuleResources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <EmbeddedResource Update="EdgeMissingProtocolDescriptionRuleResources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>EdgeMissingProtocolDescriptionRuleResources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <EmbeddedResource Update="EdgeMissingProtocolRuleResources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>EdgeMissingProtocolRuleResources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <EmbeddedResource Update="MinimumComponentCountRuleResources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>MinimumComponentCountRuleResources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <EmbeddedResource Update="MissingAnyExternalInteractorsRuleResources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>MissingAnyExternalInteractorsRuleResources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <EmbeddedResource Update="MissingAnyTrustBoundaryCrossingRuleResources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>MissingAnyTrustBoundaryCrossingRuleResources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <EmbeddedResource Update="MissingAnyTrustBoundaryRuleResources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>MissingAnyTrustBoundaryRuleResources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <EmbeddedResource Update="OutboundStorageEdgeRuleResources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>OutboundStorageEdgeRuleResources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <EmbeddedResource Update="UnencryptedSecretStoreRuleResources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>UnencryptedSecretStoreRuleResources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <EmbeddedResource Update="UnauthenticatedBoundaryProcessRuleResources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>UnauthenticatedBoundaryProcessRuleResources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <EmbeddedResource Update="CleartextTrustBoundaryCrossingRuleResources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>CleartextTrustBoundaryCrossingRuleResources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <EmbeddedResource Update="Properties\Resources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <EmbeddedResource Update="UnconnectedComponentsRuleResources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>UnconnectedComponentsRuleResources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <EmbeddedResource Update="UnconnectedEdgesRuleResources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>UnconnectedEdgesRuleResources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>ThreatModelForge.Analysis.Rules</RootNamespace>
+  </PropertyGroup>
+
+</Project>

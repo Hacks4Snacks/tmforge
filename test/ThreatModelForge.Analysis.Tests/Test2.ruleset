@@ -1,0 +1,7 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<RuleSet Name="Analysis Test Rule Set" Description="Fixture used by the RuleSet unit tests." ToolsVersion="10.0">
+  <Rules AnalyzerId="Ignored" RuleNamespace="ThreatModelForge.Ignored">
+    <Rule Id="TM1234" Action="Info" />
+    <Rule Id="TM1235" Action="None" />
+  </Rules>
+</RuleSet>

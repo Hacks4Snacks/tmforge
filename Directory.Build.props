@@ -1,0 +1,47 @@
+<Project>
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Configuration Condition="'$(Configuration)'==''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+    <!-- Managed assemblies compile as AnyCPU so the CLIs run natively on x64 and arm64
+         (Apple Silicon, arm64 Linux, multi-arch containers). The Platform value above only
+         drives the out/ layout. -->
+    <PlatformTarget Condition="'$(PlatformTarget)' == ''">AnyCPU</PlatformTarget>
+    <UnifiedOutputRootDir>$(MSBuildThisFileDirectory)out</UnifiedOutputRootDir>
+    <OutputRootDir>$(UnifiedOutputRootDir)\$(Configuration)-$(Platform)</OutputRootDir>
+    <OutputPath>$(OutputRootDir)\$(MSBuildProjectName)</OutputPath>
+    <PackageOutputPath>$(UnifiedOutputRootDir)\packages</PackageOutputPath>
+    <Product>Threat Model Forge</Product>
+    <Copyright>hacks4snacks</Copyright>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <!-- release-please keeps VersionPrefix in sync with the released version; the inline
+       annotation on the line below is how its generic updater finds the value. See
+       release-please-config.json and .github/workflows/release-please.yml. -->
+  <PropertyGroup>
+    <VersionPrefix>0.1.0</VersionPrefix> <!-- x-release-please-version -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)stylecop.json">
+      <Link>stylecop.json</Link>
+      <Visible>false</Visible>
+    </AdditionalFiles>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="StyleCop.Analyzers">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>
