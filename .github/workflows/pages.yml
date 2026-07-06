@@ -39,7 +39,7 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Build (demo: offline stub, no /v1 engine)
+      - name: 'Build (demo: offline stub, no /v1 engine)'
         env:
           VITE_BASE: /${{ github.event.repository.name }}/
           VITE_DEMO: 'true'
