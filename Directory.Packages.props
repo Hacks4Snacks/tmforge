@@ -4,7 +4,7 @@
     <!-- Pinned to 2.x: the ASP.NET Core 10 OpenAPI source generator is incompatible with
          Microsoft.OpenApi 3.x (IOpenApiMediaType.Example became read-only). 3.x lands with
          ASP.NET Core 11. Also carries the GHSA-v5pm-xwqc-g5wc patch. -->
-    <PackageVersion Include="Microsoft.OpenApi" Version="2.10.0" />
+    <PackageVersion Include="Microsoft.OpenApi" Version="3.8.0" />
     <PackageVersion Include="Microsoft.Extensions.ApiDescription.Server" Version="10.0.9" />
     <PackageVersion Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.301" />
     <PackageVersion Include="StyleCop.Analyzers" Version="1.1.118" />
