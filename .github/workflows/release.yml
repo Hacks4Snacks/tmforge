@@ -155,25 +155,39 @@ jobs:
           echo "----- release-metadata.json -----"; cat release-metadata.json
           if [[ "$version" == *-* ]]; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
 
-      - name: Create or update GitHub Release
+      - name: Publish GitHub Release with assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
+          set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          pre=""
-          if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then pre="--prerelease"; fi
-          # release-please already creates the GitHub Release when the release PR
-          # merges, so attach assets to the existing release. Only create it when it
-          # doesn't exist (e.g. a manually pushed tag or workflow_dispatch run).
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/* \
-              --repo "$GITHUB_REPOSITORY" \
-              --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" dist/* \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "tmforge $version" \
-              --generate-notes \
-              $pre
-          fi
+          # GitHub freezes a release as immutable when it is PUBLISHED, so assets must be
+          # attached while it is still a draft. release-please creates the release as a
+          # draft (carrying the CHANGELOG notes); we upload the binaries, then publish it
+          # last (draft -> upload -> publish).
+          latest=true; pre=false
+          if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then latest=false; pre=true; fi
+
+          state="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+                     --json isDraft --jq .isDraft 2>/dev/null || echo missing)"
+          case "$state" in
+            true)
+              # Draft from release-please (or a re-run): attach assets while it is mutable.
+              gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+              ;;
+            false)
+              # Already published by a previous successful run — immutable, nothing to do.
+              echo "Release $GITHUB_REF_NAME is already published; skipping."
+              exit 0
+              ;;
+            *)
+              # Manual tag / workflow_dispatch with no release-please draft: create one.
+              gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
+                --title "tmforge $version" --generate-notes --draft
+              ;;
+          esac
+
+          # Publish last: this is when GitHub freezes the release, with every asset attached.
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --draft=false --prerelease="$pre" --latest="$latest"
