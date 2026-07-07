@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/Hacks4Snacks/tmforge/compare/v0.3.0...v0.3.1) (2026-07-07)
+
+
+### Bug Fixes
+
+* remove deprecated macos-13 reference ([#11](https://github.com/Hacks4Snacks/tmforge/issues/11)) ([673081b](https://github.com/Hacks4Snacks/tmforge/commit/673081be3bff71469589c9c3d91c558dcd937f5b))
+
 ## [0.3.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.2.0...v0.3.0) (2026-07-07)
 
 
