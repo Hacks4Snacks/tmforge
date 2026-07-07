@@ -72,7 +72,8 @@ curl -fsS http://localhost:8080/v1/health
 
 The Studio can run as a **fully static site** with the .NET engine compiled to **WebAssembly**. The
 same validation, `.tm7` round-trip, format conversion, and reports the `/v1` engine provides, running
-**in the browser with no server**. This is how the public GitHub Pages demo is deployed, and it doubles
+**in the browser with no server**. This is how the public
+[GitHub Pages demo](https://hacks4snacks.github.io/tmforge/) is deployed, and it doubles
 as a genuine offline/air-gapped build: the model never leaves the page.
 
 The Studio picks its engine transport at startup and degrades cleanly:

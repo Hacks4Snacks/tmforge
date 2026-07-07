@@ -32,9 +32,13 @@ checks** you can gate a build on. No Windows, no GUI required.
 - **Agent and pipeline-friendly.** Every command speaks `--json` with a stable, versioned
   envelope.
 
-## Try it in 30 seconds
+## Try it now
 
-Author in the browser. Run the published engine API + Studio image (or
+**No install required.** Author, validate, and report entirely in your browser at
+**[hacks4snacks.github.io/tmforge](https://hacks4snacks.github.io/tmforge/)**. The .NET engine is
+compiled to WebAssembly and runs client-side, so your model never leaves the page.
+
+Prefer to host it yourself? Run the published engine API + Studio image (or
 [build it yourself](#containers)):
 
 ```bash

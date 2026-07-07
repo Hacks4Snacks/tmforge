@@ -3,6 +3,10 @@
 This guide takes you from nothing to a validated, reported threat model in a few minutes using
 the `tmforge` CLI, then shows the same flow in the browser with Studio.
 
+> **Just want to click around first?** Try the live, no-install browser demo at
+> **[hacks4snacks.github.io/tmforge](https://hacks4snacks.github.io/tmforge/)**. The full engine
+> runs client-side via WebAssembly, so there's nothing to install and your model never leaves the page.
+
 ## Prerequisites
 
 Pick one:
@@ -125,7 +129,10 @@ See [Formats & interoperability](formats.md) for fidelity details.
 
 ## Do the same in the browser
 
-Prefer a GUI? Run the engine API (which serves Studio) and author visually:
+Prefer a GUI? The quickest option is the hosted
+**[browser demo](https://hacks4snacks.github.io/tmforge/)** — nothing to install, the engine runs
+in your browser via WebAssembly. To run it yourself, start the engine API (which serves Studio)
+and author visually:
 
 ```bash
 docker run --rm -p 8080:8080 tmforge      # then open http://localhost:8080/

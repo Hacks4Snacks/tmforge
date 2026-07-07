@@ -36,7 +36,9 @@ codes so agents and pipelines can drive it deterministically. See the
 
 A React single-page app whose data-flow-diagram canvas is built on React Flow. Drag stencils onto
 a canvas, draw data flows, rename and resize elements, and validate against the live engine with
-findings overlaid on the offending nodes and edges. See the [Studio guide](studio-guide.md).
+findings overlaid on the offending nodes and edges. Try it now with no install at the
+**[hosted demo](https://hacks4snacks.github.io/tmforge/)** (the engine runs in your browser via
+WebAssembly), or read the [Studio guide](studio-guide.md).
 
 ### 3. Engine API (`/v1`)
 

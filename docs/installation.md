@@ -2,6 +2,10 @@
 
 Threat Model Forge ships through several channels. Pick the one that fits your environment.
 
+> **Nothing to install?** Try the live browser demo at
+> **[hacks4snacks.github.io/tmforge](https://hacks4snacks.github.io/tmforge/)** — the full engine
+> runs client-side via WebAssembly, no download or Docker required.
+
 | Channel | Runtime needed on host? | Best for |
 | --- | --- | --- |
 | [Prebuilt binaries](#prebuilt-binaries) | No (self-contained) | Laptops, CI runners, agents |
