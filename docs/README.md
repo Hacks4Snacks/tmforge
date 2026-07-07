@@ -1,6 +1,6 @@
 # Threat Model Forge documentation
 
-Welcome to the user documentation for **Threat Model Forge** (`tmforge`) — a cross-platform,
+Welcome to the user documentation for **Threat Model Forge** (`tmforge`), a cross-platform,
 container-executed, browser-interacted toolkit for authoring, validating, and reporting on
 `.tm7`-compatible threat models. It is an automatable successor to the Windows-only Microsoft
 Threat Modeling Tool (MTMT).
@@ -42,11 +42,11 @@ flowchart TD
     studio["Studio SPA<br/>(React, in the browser)"] --> api
 ```
 
-- **CLI** (`tmforge`) — headless, scriptable authoring, validation, reporting, and conversion.
-- **Studio** — a React single-page app for drawing data-flow diagrams, served by the API.
-- **Engine API** (`/v1`) — a versioned HTTP surface that hosts Studio and exposes the engine to
+- **CLI** (`tmforge`): headless, scriptable authoring, validation, reporting, and conversion.
+- **Studio**: a React single-page app for drawing data-flow diagrams, served by the API.
+- **Engine API** (`/v1`): a versioned HTTP surface that hosts Studio and exposes the engine to
   any client.
 
 ## Reference material
 
-- Project [README](../README.md) — build, test, and contribution entry point.
+- Project [README](../README.md): build, test, and contribution entry point.

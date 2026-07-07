@@ -49,7 +49,7 @@ docker buildx build -f build/Dockerfile.api \
 
 ### Configuration
 
-The API is **stateless** — it operates on the model bytes each request carries and keeps nothing
+The API is **stateless**: it operates on the model bytes each request carries and keeps nothing
 between calls. Relevant knobs:
 
 | Setting | Default | Notes |
@@ -122,7 +122,7 @@ spec:
 ```
 
 The container already runs as non-root; the `securityContext` above hardens it further. Add an
-Ingress/Gateway and TLS per your cluster's conventions. Resource requests are modest — tune to your
+Ingress/Gateway and TLS per your cluster's conventions. Resource requests are modest; tune to your
 model sizes and traffic.
 
 ## The CLI in containers
@@ -173,7 +173,7 @@ container image.
 ```
 
 Both fail the step on findings (exit `2`) and on tool errors (exit `1`). Upload the `reports/`
-SARIF for code-scanning annotations — see [Validation rules & CI](validation-rules.md#ci-integration).
+SARIF for code-scanning annotations. See [Validation rules & CI](validation-rules.md#ci-integration).
 
 ### Azure DevOps example
 
@@ -207,6 +207,6 @@ assembly's informational version).
 
 ## See also
 
-- [Installation](installation.md) — all install channels.
-- [Engine API reference](api-reference.md) — endpoints and hosting notes.
-- [Validation rules & CI](validation-rules.md) — gating pipelines on findings.
+- [Installation](installation.md): all install channels.
+- [Engine API reference](api-reference.md): endpoints and hosting notes.
+- [Validation rules & CI](validation-rules.md): gating pipelines on findings.

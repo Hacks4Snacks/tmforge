@@ -107,7 +107,7 @@ tmforge stencils --pack azure --json
 
 ### `properties`
 
-List the built-in **typed property schema** — the custom properties the linter reads and Studio
+List the built-in **typed property schema**: the custom properties the linter reads and Studio
 edits, with each property's value kind, allowed values, and default. This is the same schema the API
 serves at `GET /v1/property-schema`; use it to discover closed enums (for example `Channel`,
 `Encrypted`, `AccessControl`, or the approved cipher list) without running `lint` first.
@@ -125,7 +125,7 @@ tmforge properties --base datastore --json | jq '.data.properties'
 ### `render`
 
 Draw the first diagram in the terminal. Defaults to Unicode/ANSI; `--plain` uses ASCII only.
-Boxes are clamped to the canvas — and to their enclosing trust boundary — so labels aren't clipped
+Boxes are clamped to the canvas (and to their enclosing trust boundary), so labels aren't clipped
 or drawn over a boundary wall.
 
 ```text
@@ -134,9 +134,9 @@ tmforge render [--plain] [--width <n>] [--height <n>] <file>
 
 | Option | Default | Range | Meaning |
 | --- | --- | --- | --- |
-| `--width <n>` | 100 | 20–400 | Canvas width in columns. |
-| `--height <n>` | 30 | 10–200 | Canvas height in rows. |
-| `--plain` | off | — | ASCII output (no Unicode/ANSI). |
+| `--width <n>` | 100 | 20-400 | Canvas width in columns. |
+| `--height <n>` | 30 | 10-200 | Canvas height in rows. |
+| `--plain` | off | n/a | ASCII output (no Unicode/ANSI). |
 
 ```bash
 tmforge render payments.tm7
@@ -148,7 +148,7 @@ tmforge render payments.tm7 --plain --width 120
 ## Authoring commands
 
 Authoring verbs mutate the model **in place** and write back through the source format's writer
-(byte-stable for `.tm7`). Writes are **atomic** — the tool writes to a temp file and renames on
+(byte-stable for `.tm7`). Writes are **atomic**: the tool writes to a temp file and renames on
 success, so a failed run never corrupts the source. Elements without explicit coordinates get a
 **deterministic** auto-layout.
 
@@ -277,7 +277,7 @@ tmforge lint [--ruleset <path>] [--suppressionFile <path>] [--reportFolder <dir>
 
 | Code | Meaning |
 | --- | --- |
-| `0` | Clean — no findings at or above `--max-severity`. |
+| `0` | Clean, no findings at or above `--max-severity`. |
 | `1` | Tool error (bad arguments, load failure). |
 | `2` | The model was analyzed and has findings at or above `--max-severity` (default: `error`). |
 
@@ -342,11 +342,11 @@ With `--json`, every command emits a single **versioned envelope** to stdout:
 }
 ```
 
-- `schemaVersion` — pin this; the shape evolves under SemVer.
-- `command` — the verb that produced the payload.
-- `data` — the command-specific payload (camelCase properties, enums as strings).
+- `schemaVersion`: pin this; the shape evolves under SemVer.
+- `command`: the verb that produced the payload.
+- `data`: the command-specific payload (camelCase properties, enums as strings).
 
-Diagnostics never mix into this stream — they go to stderr — so piping to `jq` is safe:
+Diagnostics never mix into this stream (they go to stderr), so piping to `jq` is safe:
 
 ```bash
 tmforge list components payments.tm7 --json | jq '.data'
@@ -354,6 +354,6 @@ tmforge list components payments.tm7 --json | jq '.data'
 
 ## See also
 
-- [Quick start](quickstart.md) — the commands in a worked example.
-- [Validation rules & CI](validation-rules.md) — the rule catalog and gating.
-- [Formats & interoperability](formats.md) — conversion fidelity.
+- [Quick start](quickstart.md): the commands in a worked example.
+- [Validation rules & CI](validation-rules.md): the rule catalog and gating.
+- [Formats & interoperability](formats.md): conversion fidelity.

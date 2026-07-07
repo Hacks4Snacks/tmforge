@@ -16,7 +16,7 @@ tmforge lint model.tm7 --reportFolder ./out     # + SARIF, HTML, and JSON listin
 
 | Code | Meaning |
 | --- | --- |
-| `0` | Clean — no findings at or above `--max-severity`. |
+| `0` | Clean, no findings at or above `--max-severity`. |
 | `1` | Tool error (bad arguments, load failure). |
 | `2` | The model was analyzed and has findings at or above `--max-severity` (default: `error`). |
 
@@ -47,7 +47,7 @@ that declare them. List them from the API with `GET /v1/rule-packs`.
 
 The default rule set covers connectivity and naming hygiene, STRIDE modeling completeness, and a set
 of security-property checks, grouped by pack. The set grows over time, so treat the tables below as a
-snapshot — `tmforge` and the engine's `GET /v1/rules` report the live rule set.
+snapshot. `tmforge` and the engine's `GET /v1/rules` report the live rule set.
 
 ### Core Hygiene (`core-hygiene`)
 
@@ -105,21 +105,21 @@ snapshot — `tmforge` and the engine's `GET /v1/rules` report the live rule set
 | 1015 | Unauthenticated boundary process | Warning | A process receiving input across a trust boundary declares an authentication scheme. |
 | 1023 | Unauthenticated external source | Warning | An external entity initiating flows into the system authenticates itself. |
 | 1024 | Over-privileged process | Warning | A process does not run as a highly privileged account (root/admin/system). |
-| 1026 | Shared static identity | Warning | A single `Identity` is not asserted by flows from 2+ distinct sources — each calling principal has its own scoped identity. |
+| 1026 | Shared static identity | Warning | A single `Identity` is not asserted by flows from 2+ distinct sources; each calling principal has its own scoped identity. |
 
 ## Rule help
 
 Every finding carries the rule's **ID** (for example `TM1016`). To see what a rule checks and how to
 clear it:
 
-- **Studio** — open the **Validation** panel and click the **?** on a rule to expand its description
+- **Studio**: open the **Validation** panel and click the **?** on a rule to expand its description
   and fix guidance in place. That text ships with the engine, so it always matches the rule that ran.
-- **CLI / API** — `GET /v1/rules` returns each rule's `description`, `helpText`, and `helpUri`, and
+- **CLI / API**: `GET /v1/rules` returns each rule's `description`, `helpText`, and `helpUri`, and
   both the HTML report and SARIF carry the rule's `helpUri` for code-scanning dashboards.
 
 Each rule also advertises a documentation link (`helpUri`) that points back at this page. The public
-docs URL is still being finalized, so that external link goes live once the repository is published —
-the in-app description and fix guidance never depend on it.
+docs URL is still being finalized, so that external link goes live once the repository is published.
+The in-app description and fix guidance never depend on it.
 
 ## Fixing findings
 
@@ -144,7 +144,7 @@ Common rule-checked properties include `Protocol`, `Port`, `DataType` / data cla
 ### Selecting rules and packs
 
 When a model is loaded from the native **`tmforge-json`** format, any embedded validation selection
-(disabled packs or rule ids) is honored automatically — so a model can carry its own policy. Other
+(disabled packs or rule ids) is honored automatically, so a model can carry its own policy. Other
 formats (for example `.tm7`) use the full rule set unless you pass an explicit `--ruleset`.
 
 ### Custom rule set file
@@ -176,9 +176,9 @@ affect the exit code.
 
 `--reportFolder <dir>` writes machine- and human-readable findings artifacts:
 
-- **SARIF** — for code-scanning dashboards and PR annotations.
-- **HTML** — a human-readable findings report.
-- **JSON listing** — a structured enumeration of the model.
+- **SARIF**: for code-scanning dashboards and PR annotations.
+- **HTML**: a human-readable findings report.
+- **JSON listing**: a structured enumeration of the model.
 
 ```bash
 tmforge lint model.tm7 --reportFolder "$CI_ARTIFACTS/threatmodel"
@@ -221,6 +221,6 @@ See the [deployment guide](deployment.md#cicd) for container-based pipelines.
 
 ## See also
 
-- [CLI reference — `lint`](cli-reference.md#lint) — all options.
-- [Overview & features](overview.md) — where validation fits.
-- [Engine API reference](api-reference.md) — `POST /v1/model/validate` and the catalog endpoints.
+- [CLI reference: `lint`](cli-reference.md#lint): all options.
+- [Overview & features](overview.md): where validation fits.
+- [Engine API reference](api-reference.md): `POST /v1/model/validate` and the catalog endpoints.

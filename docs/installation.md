@@ -5,14 +5,14 @@ Threat Model Forge ships through several channels. Pick the one that fits your e
 | Channel | Runtime needed on host? | Best for |
 | --- | --- | --- |
 | [Prebuilt binaries](#prebuilt-binaries) | No (self-contained) | Laptops, CI runners, agents |
-| [Container — CLI](#container-cli) | Docker only | CI, reproducible shells |
-| [Container — API + Studio](#container-api--studio) | Docker only | Hosting the browser app |
+| [Container: CLI](#container-cli) | Docker only | CI, reproducible shells |
+| [Container: API + Studio](#container-api--studio) | Docker only | Hosting the browser app |
 | [.NET global tool](#net-global-tool) | .NET SDK/runtime | .NET developers |
 | [From source](#from-source) | .NET SDK 10.0.301 | Contributors |
 
 ## Prebuilt binaries
 
-**Self-contained, single-file** `tmforge` binaries — **no .NET runtime required on the host** —
+**Self-contained, single-file** `tmforge` binaries (**no .NET runtime required on the host**)
 are attached to each GitHub Release for six platforms:
 
 | OS | x64 | arm64 |
@@ -53,7 +53,7 @@ sha256sum -c checksums.txt
 
 ### Platform notes
 
-- **Linux** binaries target a **glibc** baseline — not musl/Alpine. On Alpine, use the
+- **Linux** binaries target a **glibc** baseline, not musl/Alpine. On Alpine, use the
   [container image](#container-cli) instead.
 - **macOS** binaries are **not code-signed or notarized**. Clear the quarantine attribute before
   first run (or install via `curl`, which doesn't set it):
@@ -132,6 +132,6 @@ Studio with hot reload, see the [Studio guide](studio-guide.md#local-development
 
 ## Next steps
 
-- [Quick start](quickstart.md) — your first model.
-- [CLI reference](cli-reference.md) — all commands and options.
-- [Deployment](deployment.md) — hosting the API + Studio.
+- [Quick start](quickstart.md): your first model.
+- [CLI reference](cli-reference.md): all commands and options.
+- [Deployment](deployment.md): hosting the API + Studio.

@@ -1,15 +1,15 @@
 # ThreatModelForge.Core
 
-Core library for **Threat Model Forge** — the cross-platform toolkit for authoring
+Core library for **Threat Model Forge**, the cross-platform toolkit for authoring
 `.tm7`-compatible threat models.
 
 This package provides the in-memory threat-model object graph and its lossless IO:
 
-- **Model** (`ThreatModelForge.Model`) — the `ThreatModel` graph (diagrams, elements, connectors,
+- **Model** (`ThreatModelForge.Model`): the `ThreatModel` graph (diagrams, elements, connectors,
   boundaries, threats, and metadata).
-- **Knowledge base** (`ThreatModelForge.KnowledgeBase`) — template/knowledge-base types and the
+- **Knowledge base** (`ThreatModelForge.KnowledgeBase`): template/knowledge-base types and the
   `.tb7` serializer.
-- **Abstractions** (`ThreatModelForge.Abstractions`) — shared serialization contracts.
+- **Abstractions** (`ThreatModelForge.Abstractions`): shared serialization contracts.
 
 It reads and writes `.tm7`/`.tb7` files **byte-for-byte compatible** with the Microsoft Threat
 Modeling Tool via `DataContractSerializer`. The on-disk wire format is pinned independently of the
