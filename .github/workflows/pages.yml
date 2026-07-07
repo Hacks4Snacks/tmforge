@@ -5,6 +5,8 @@ on:
     branches: [ main ]
     paths:
       - 'src/ThreatModelForge.Studio/**'
+      - 'src/ThreatModelForge.Wasm/**'
+      - 'src/ThreatModelForge.Engine/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -29,6 +31,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.301
+
+      - name: Install the WASM build workloads
+        run: dotnet workload install wasm-tools wasm-experimental
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -39,7 +49,11 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: 'Build (demo: offline stub, no /v1 engine)'
+      - name: Stage the in-browser WASM engine
+        # Publishes ThreatModelForge.Wasm and copies its _framework into public/wasm (Vite serves it).
+        run: npm run stage:wasm
+
+      - name: 'Build (in-browser WASM engine, no /v1 backend)'
         env:
           VITE_BASE: /${{ github.event.repository.name }}/
           VITE_DEMO: 'true'

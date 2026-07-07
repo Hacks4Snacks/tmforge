@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Trimmer roots for the in-browser engine.
+
+  The engine reaches types by reflection that the linker cannot see statically:
+    - `.tm7` round-trips the ThreatModel graph via DataContractSerializer (reflection over the model).
+    - the rule set is discovered via Assembly.Load + GetExportedTypes + Activator.CreateInstance.
+    - format providers and the report renderers are constructed and used indirectly.
+
+  The engine assemblies are small (netstandard2.0), so we preserve them whole and let the linker
+  still trim the framework / BCL — that is where the payload win is.
+-->
+<linker>
+  <assembly fullname="ThreatModelForge.Core" preserve="all" />
+  <assembly fullname="ThreatModelForge.Editing" preserve="all" />
+  <assembly fullname="ThreatModelForge.Formats" preserve="all" />
+  <assembly fullname="ThreatModelForge.Analysis" preserve="all" />
+  <assembly fullname="ThreatModelForge.Analysis.Rules" preserve="all" />
+  <assembly fullname="ThreatModelForge.Reporting" preserve="all" />
+  <assembly fullname="ThreatModelForge.Engine" preserve="all" />
+</linker>

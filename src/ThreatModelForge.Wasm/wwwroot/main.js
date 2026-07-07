@@ -1,3 +1,6 @@
+// Standalone smoke page for the WASM engine host. The Studio consumes the engine via its
+// WasmEngineClient; this page proves the FULL engine surface works in-browser through the shared
+// EngineService — catalogs, validation, format read/write, conversion, and reports.
 import { dotnet } from './_framework/dotnet.js'
 
 const { getAssemblyExports, getConfig } = await dotnet.create();
@@ -8,6 +11,11 @@ const engine = exports.ThreatModelForge.Wasm.Engine;
 const out = document.getElementById('out');
 const result = document.getElementById('result');
 const log = (msg) => { out.textContent += msg + '\n'; };
+let pass = true;
+const check = (label, ok, detail) => {
+  pass = pass && ok;
+  log(`${ok ? 'PASS' : 'FAIL'}  ${label}${detail ? ' — ' + detail : ''}`);
+};
 
 // A minimal canonical model — no external fixture needed for the smoke page.
 const model = {
@@ -22,24 +30,35 @@ const model = {
   ],
 };
 
-let pass = true;
 try {
   log(engine.Ping());
   const json = JSON.stringify(model);
 
-  // Validate via the real reflection-loaded rule engine.
-  const findings = JSON.parse(engine.Validate(json));
-  const engineError = findings.find((f) => f.id === 'engine-error');
-  const validateOk = !engineError;
-  pass = pass && validateOk;
-  log(`Validate: ${findings.length} findings${engineError ? ' - ' + engineError.message : ''}: ${validateOk ? 'PASS' : 'FAIL'}`);
+  // Catalogs
+  const formats = JSON.parse(engine.Formats());
+  check('Formats', Array.isArray(formats) && formats.length > 0, `${formats.length} formats`);
+  check('Stencils', JSON.parse(engine.Stencils()).length > 0);
+  check('Rules', JSON.parse(engine.Rules()).length > 0);
+  check('RulePacks', JSON.parse(engine.RulePacks()).length > 0);
+  check('PropertySchema', JSON.parse(engine.PropertySchema()).length > 0);
 
-  // tmforge-json -> .tm7 (DataContractSerializer) -> tmforge-json, preserving the graph.
-  const tm7 = engine.WriteTm7(json);
-  const back = JSON.parse(engine.ReadTm7(tm7));
-  const roundTripOk = tm7.length > 0 && back.elements.length === model.elements.length && back.flows.length === model.flows.length;
-  pass = pass && roundTripOk;
-  log(`WriteTm7 -> ReadTm7 preserves ${back.elements.length}/${back.flows.length} elements/flows: ${roundTripOk ? 'PASS' : 'FAIL'}`);
+  // Validation (real reflection-loaded rule engine)
+  const findings = JSON.parse(engine.Validate(json));
+  check('Validate', !findings.find((f) => f.id === 'engine-error'), `${findings.length} findings`);
+
+  // Export .tm7 -> Detect -> ReadFile round-trip
+  const tm7 = engine.ExportTm7(json);
+  const detected = JSON.parse(engine.Detect(tm7) || 'null');
+  check('Detect(.tm7)', detected && detected.id === 'tm7', detected ? detected.id : 'none');
+  const back = JSON.parse(engine.ReadFile(tm7, 'tm7'));
+  check('ExportTm7 -> ReadFile',
+    back.elements.length === model.elements.length && back.flows.length === model.flows.length,
+    `${back.elements.length}/${back.flows.length} elements/flows`);
+
+  // Conversion + reports
+  check('Convert(drawio)', engine.ConvertModel(json, 'drawio').length > 0);
+  check('Report(html)', engine.Report(json, 'html').length > 0);
+  check('Report(svg)', engine.Report(json, 'svg').length > 0);
 } catch (e) {
   pass = false;
   log('EXCEPTION: ' + (e && e.stack ? e.stack : e));

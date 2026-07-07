@@ -86,14 +86,13 @@ export interface PropertyDescriptorInfo {
 /**
  * The seam. The UI depends only on this interface — never on how the engine is reached.
  *
- * Two implementations ship here:
- *   - `StubEngineClient`  → offline canned rules (works with no backend).
- *   - `HttpEngineClient`  → calls the real .NET engine over the `/v1` API. In
- *                           production this transport is also how a localhost sidecar or a
- *                           WASM-hosted engine would be reached; only the base URL changes.
+ * Implementations that ship here:
+ *   - `HttpEngineClient` - the real .NET engine over the `/v1` API.
+ *   - `WasmEngineClient` - the same engine compiled to WebAssembly, in-browser, no backend.
+ *   - `OfflineEngineClient` - honest fallback when neither is reachable: client-side authoring only.
  *
  * `read`/`write` just (de)serialize the canonical `tmforge-json` client-side — no engine needed —
- * so both clients share them. Everything else (`validate`, `getFormats`, `detect`, `readFile`,
+ * so all clients share them. Everything else (`validate`, `getFormats`, `detect`, `readFile`,
  * `convert`, `report`, `exportTm7`) is a coarse-grained engine call.
  */
 export interface IEngineClient {
@@ -151,6 +150,28 @@ function toBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary);
+}
+
+/** Decodes a base64 string (the WASM boundary's byte encoding) into a typed Blob for download. */
+function blobFromBase64(base64: string, type: string): Blob {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type });
+}
+
+/** The download content-type for a converted document (mirrors the /v1 convert endpoint). */
+function mimeForFormat(formatId: string): string {
+  switch (formatId) {
+    case 'vsdx':
+      return 'application/vnd.ms-visio.drawing';
+    case 'tmforge-json':
+      return 'application/json';
+    default:
+      return 'application/xml';
+  }
 }
 
 /** Normalizes a generated FormatDto (all fields optional) onto the UI's FormatInfo. */
@@ -250,8 +271,8 @@ function toModel(dto: components['schemas']['TmForgeModelDto']): TmForgeModel {
   };
 }
 
-class StubEngineClient implements IEngineClient {
-  public readonly label = 'stub (offline)';
+class OfflineEngineClient implements IEngineClient {
+  public readonly label = 'offline (engine unavailable)';
 
   public write(model: TmForgeModel): Promise<string> {
     return writeJson(model);
@@ -261,48 +282,15 @@ class StubEngineClient implements IEngineClient {
     return readJson(text);
   }
 
-  public async validate(model: TmForgeModel): Promise<Finding[]> {
-    const findings: Finding[] = [];
-    const connected = new Set<string>();
-
-    for (const flow of model.flows) {
-      connected.add(flow.source);
-      connected.add(flow.target);
-      const name = flow.name.trim().toLowerCase();
-      if (name === '' || name === 'data flow') {
-        findings.push({
-          id: `unlabeled:${flow.id}`,
-          severity: 'info',
-          message: 'Data flow has no descriptive label.',
-          elementIds: [flow.id],
-        });
-      }
-    }
-
-    for (const el of model.elements) {
-      if (el.kind === 'boundary') {
-        continue;
-      }
-      if (!connected.has(el.id)) {
-        findings.push({
-          id: `isolated:${el.id}`,
-          severity: 'warning',
-          message: `"${el.name}" has no data flows.`,
-          elementIds: [el.id],
-        });
-      }
-    }
-
-    if (!model.elements.some((el) => el.kind === 'boundary')) {
-      findings.push({
-        id: 'no-boundary',
-        severity: 'info',
-        message: 'No trust boundary defined — every flow is implicitly in one zone.',
-        elementIds: [],
-      });
-    }
-
-    return findings;
+  public validate(): Promise<Finding[]> {
+    // No fake analysis: when neither the /v1 engine nor the in-browser WASM engine is reachable,
+    // fail honestly rather than returning heuristics that disagree with the real rule set.
+    return Promise.reject(
+      new Error(
+        'The analysis engine has not loaded. WebAssembly may be disabled or blocked (for example by a ' +
+          'Content-Security-Policy), or is still downloading — reload the page, or use the hosted app.',
+      ),
+    );
   }
 
   public exportTm7(): Promise<Blob> {
@@ -516,12 +504,144 @@ class HttpEngineClient implements IEngineClient {
   }
 }
 
-/** The offline fallback client. */
-export const stubEngine: IEngineClient = new StubEngineClient();
+/** The `[JSExport]` methods on the WASM `ThreatModelForge.Wasm.Engine` type (all string in/out). */
+interface WasmEngineExports {
+  Ping(): string;
+  Formats(): string;
+  Stencils(): string;
+  StencilPacks(): string;
+  Rules(): string;
+  RulePacks(): string;
+  PropertySchema(): string;
+  Validate(tmforgeJson: string): string;
+  Detect(contentBase64: string): string;
+  ReadFile(contentBase64: string, formatId: string): string;
+  ExportTm7(tmforgeJson: string): string;
+  ConvertModel(tmforgeJson: string, toFormatId: string): string;
+  Report(tmforgeJson: string, format: string): string;
+}
+
+/**
+ * Calls the real .NET engine compiled to WebAssembly, in-browser, with no network. It is the SAME
+ * engine the `/v1` API runs (both go through the shared `ThreatModelForge.Engine` facade); only the
+ * transport differs. tmforge-json crosses the boundary as a string, binary documents as base64.
+ */
+class WasmEngineClient implements IEngineClient {
+  public readonly label = 'engine (wasm)';
+
+  private readonly wasm: WasmEngineExports;
+
+  public constructor(wasm: WasmEngineExports) {
+    this.wasm = wasm;
+  }
+
+  public write(model: TmForgeModel): Promise<string> {
+    return writeJson(model);
+  }
+
+  public read(text: string): Promise<TmForgeModel> {
+    return readJson(text);
+  }
+
+  public async validate(model: TmForgeModel): Promise<Finding[]> {
+    const findings = JSON.parse(this.wasm.Validate(JSON.stringify(model))) as Array<components['schemas']['FindingDto']>;
+    return findings.map((f) => ({
+      id: f.id ?? '',
+      severity: (f.severity ?? 'info') as Severity,
+      ruleId: f.ruleId ?? undefined,
+      message: f.message ?? '',
+      elementIds: f.elementIds ?? [],
+    }));
+  }
+
+  public async exportTm7(model: TmForgeModel): Promise<Blob> {
+    return blobFromBase64(this.wasm.ExportTm7(JSON.stringify(model)), 'application/xml');
+  }
+
+  public async getFormats(): Promise<FormatInfo[]> {
+    return (JSON.parse(this.wasm.Formats()) as Array<components['schemas']['FormatDto']>).map(toFormatInfo);
+  }
+
+  public async getStencils(): Promise<StencilInfo[]> {
+    return (JSON.parse(this.wasm.Stencils()) as Array<components['schemas']['StencilDto']>).map(toStencilInfo);
+  }
+
+  public async getStencilPacks(): Promise<PackInfo[]> {
+    return (JSON.parse(this.wasm.StencilPacks()) as Array<components['schemas']['PackDto']>).map(toPackInfo);
+  }
+
+  public async getRules(): Promise<RuleInfo[]> {
+    return (JSON.parse(this.wasm.Rules()) as Array<components['schemas']['RuleDto']>).map(toRuleInfo);
+  }
+
+  public async getRulePacks(): Promise<RulePackInfo[]> {
+    return (JSON.parse(this.wasm.RulePacks()) as Array<components['schemas']['RulePackDto']>).map(toRulePackInfo);
+  }
+
+  public async getPropertySchema(): Promise<PropertyDescriptorInfo[]> {
+    return (JSON.parse(this.wasm.PropertySchema()) as Array<components['schemas']['PropertyDescriptor']>).map(
+      toPropertyDescriptor,
+    );
+  }
+
+  public async detect(bytes: Uint8Array): Promise<FormatInfo | null> {
+    const json = this.wasm.Detect(toBase64(bytes));
+    return json ? toFormatInfo(JSON.parse(json) as components['schemas']['FormatDto']) : null;
+  }
+
+  public async readFile(bytes: Uint8Array, formatId?: string): Promise<TmForgeModel> {
+    const dto = JSON.parse(this.wasm.ReadFile(toBase64(bytes), formatId ?? '')) as components['schemas']['TmForgeModelDto'];
+    return toModel(dto);
+  }
+
+  public async convert(model: TmForgeModel, toFormatId: string): Promise<Blob> {
+    return blobFromBase64(this.wasm.ConvertModel(JSON.stringify(model), toFormatId), mimeForFormat(toFormatId));
+  }
+
+  public async report(model: TmForgeModel, format: 'html' | 'svg'): Promise<Blob> {
+    return blobFromBase64(this.wasm.Report(JSON.stringify(model), format), format === 'svg' ? 'image/svg+xml' : 'text/html');
+  }
+}
+
+/** The honest offline fallback client (client-side authoring only). */
+export const offlineEngine: IEngineClient = new OfflineEngineClient();
 
 /** Creates a client bound to the real engine API. */
 export function createHttpEngine(baseUrl: string = ENGINE_BASE_URL): IEngineClient {
   return new HttpEngineClient(baseUrl);
+}
+
+/** Minimal typing for the .NET WASM bootstrap module (`_framework/dotnet.js`). */
+interface DotnetBootstrap {
+  dotnet: {
+    create(): Promise<{
+      getConfig(): { mainAssemblyName: string };
+      getAssemblyExports(assemblyName: string): Promise<Record<string, Record<string, Record<string, WasmEngineExports>>>>;
+    }>;
+  };
+}
+
+let wasmEnginePromise: Promise<IEngineClient | null> | undefined;
+
+/**
+ * Lazily loads the in-browser (.NET WebAssembly) engine and returns a client bound to it, or `null`
+ * when the runtime can't load (WebAssembly disabled, blocked by a Content-Security-Policy, the bundle
+ * isn't staged, offline before it's cached, etc.). Cached, so the multi-MB runtime loads at most once.
+ */
+export function loadWasmEngine(baseUrl: string = import.meta.env.BASE_URL): Promise<IEngineClient | null> {
+  wasmEnginePromise ??= (async (): Promise<IEngineClient | null> => {
+    try {
+      const url = `${baseUrl}wasm/_framework/dotnet.js`;
+      const mod = (await import(/* @vite-ignore */ url)) as DotnetBootstrap;
+      const runtime = await mod.dotnet.create();
+      const exports = await runtime.getAssemblyExports(runtime.getConfig().mainAssemblyName);
+      const wasm = exports?.ThreatModelForge?.Wasm?.Engine;
+      return wasm ? new WasmEngineClient(wasm) : null;
+    } catch {
+      return null;
+    }
+  })();
+  return wasmEnginePromise;
 }
 
 /** Returns true when the engine API answers its health probe. */

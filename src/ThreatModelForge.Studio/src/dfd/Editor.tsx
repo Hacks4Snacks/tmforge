@@ -28,7 +28,7 @@ import { Toolbar } from './Toolbar';
 import { Inspector } from './Inspector';
 import { ValidationSettings } from './ValidationSettings';
 import { FALLBACK_PACKS, FALLBACK_STENCILS } from './stencils';
-import { createHttpEngine, probeEngine, stubEngine, type Finding, type FormatInfo, type IEngineClient, type PackInfo, type PropertyDescriptorInfo, type RuleInfo, type RulePackInfo, type StencilInfo } from './engineClient';
+import { createHttpEngine, loadWasmEngine, offlineEngine, probeEngine, type Finding, type FormatInfo, type IEngineClient, type PackInfo, type PropertyDescriptorInfo, type RuleInfo, type RulePackInfo, type StencilInfo } from './engineClient';
 import { DEFAULT_NODE_SIZE, fromModel, toModel } from './mapping';
 import { useUndoRedo } from './useUndoRedo';
 import { FlowEdge } from './edges/FlowEdge';
@@ -208,7 +208,7 @@ export function Editor() {
   const [nodes, setNodes, onNodesChange] = useNodesState<DfdNode>(INITIAL.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<DfdEdge>(INITIAL.edges);
   const [findings, setFindings] = useState<Finding[]>([]);
-  const [engine, setEngine] = useState<IEngineClient>(stubEngine);
+  const [engine, setEngine] = useState<IEngineClient>(offlineEngine);
   const [engineOnline, setEngineOnline] = useState(false);
   const [formats, setFormats] = useState<FormatInfo[]>([]);
   const [selection, setSelection] = useState<{ node: string | null; edge: string | null }>({ node: null, edge: null });
@@ -246,18 +246,25 @@ export function Editor() {
   const toggleTheme = useCallback(() => setTheme((t) => (t === 'dark' ? 'light' : 'dark')), []);
 
   useEffect(() => {
-    // Static demo build (VITE_DEMO): there is no /v1 engine to reach, so skip the probe and stay on
-    // the offline stub. Avoids a spurious health-check request on a static host (e.g. GitHub Pages).
-    if (import.meta.env.VITE_DEMO === 'true') {
-      return;
-    }
     let active = true;
-    void probeEngine().then((ok) => {
-      if (active && ok) {
-        setEngine(createHttpEngine());
-        setEngineOnline(true);
+    void (async () => {
+      // 1. Prefer the hosted /v1 engine — unless this is a static demo build with no /v1 to reach.
+      if (import.meta.env.VITE_DEMO !== 'true' && (await probeEngine())) {
+        if (active) {
+          setEngine(createHttpEngine());
+          setEngineOnline(true);
+        }
+        return;
       }
-    });
+      // 2. Fall back to the in-browser WebAssembly engine — the SAME engine, no backend.
+      const wasm = await loadWasmEngine();
+      if (active && wasm) {
+        setEngine(wasm);
+        setEngineOnline(true);
+        return;
+      }
+      // 3. Neither reachable: the built-in offline client (client-side authoring) remains.
+    })();
     return () => {
       active = false;
     };
@@ -717,7 +724,13 @@ export function Editor() {
   }, [setNodes, setEdges]);
 
   const runValidate = useCallback(async () => {
-    const result = await engine.validate(currentModel);
+    let result: Finding[];
+    try {
+      result = await engine.validate(currentModel);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Validation failed.', 'error');
+      return;
+    }
     setFindings(result);
     validationActiveRef.current = true;
     const flagged = new Set(result.flatMap((f) => f.elementIds));
