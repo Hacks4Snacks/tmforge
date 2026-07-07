@@ -19,6 +19,12 @@ namespace ThreatModelForge.Engine
         /// <summary>Gets the data flows.</summary>
         public IReadOnlyList<TmForgeFlowDto>? Flows { get; init; }
 
+        /// <summary>
+        /// Gets the named pages (diagrams). When present, this is the authoritative multi-page form;
+        /// the top-level <see cref="Elements"/> and <see cref="Flows"/> mirror the first page.
+        /// </summary>
+        public IReadOnlyList<TmForgeDiagramDto>? Diagrams { get; init; }
+
         /// <summary>Gets the per-model validation configuration (which rule packs or rules to skip).</summary>
         public TmForgeValidationDto? Validation { get; init; }
     }

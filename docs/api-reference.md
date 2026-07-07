@@ -82,7 +82,8 @@ uses. This is how Studio's **Validate** button overlays findings on the canvas.
 ### Report
 
 `POST /v1/model/report?format=html` (or `format=svg`) renders a report from a model, the hosted
-equivalent of `tmforge report`.
+equivalent of `tmforge report`. Multi-page models render every diagram: the HTML report has one
+section per page, and the SVG stacks the pages.
 
 ## OpenAPI & client generation
 

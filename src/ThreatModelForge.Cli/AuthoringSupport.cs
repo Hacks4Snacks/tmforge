@@ -2,6 +2,7 @@ namespace ThreatModelForge.Cli
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.IO;
     using ThreatModelForge.Editing;
     using ThreatModelForge.Formats;
@@ -40,6 +41,90 @@ namespace ThreatModelForge.Cli
         public static DrawingSurfaceModel? FirstDiagram(ThreatModel model)
         {
             return model.DrawingSurfaceList.Count > 0 ? model.DrawingSurfaceList[0] : null;
+        }
+
+        /// <summary>
+        /// Resolves a non-empty <c>--page</c> selector to a diagram. A pure integer selects a
+        /// 1-based page index; anything else matches a page name (the diagram <c>Header</c>,
+        /// case-insensitive).
+        /// </summary>
+        /// <param name="model">The model to search.</param>
+        /// <param name="pageSpec">The page selector (a 1-based index or a page name).</param>
+        /// <param name="diagram">On success, the resolved diagram.</param>
+        /// <param name="error">On failure, a message describing why the page could not be resolved.</param>
+        /// <returns><see langword="true"/> when a single diagram was resolved.</returns>
+        public static bool TryResolveDiagram(
+            ThreatModel model,
+            string pageSpec,
+            out DrawingSurfaceModel? diagram,
+            out string? error)
+        {
+            diagram = null;
+            error = null;
+            DrawingSurfaceModelList list = model.DrawingSurfaceList;
+            if (list.Count == 0)
+            {
+                error = "The model has no pages.";
+                return false;
+            }
+
+            if (int.TryParse(pageSpec, NumberStyles.Integer, CultureInfo.InvariantCulture, out int index))
+            {
+                if (index < 1 || index > list.Count)
+                {
+                    error = "Page index " + index.ToString(CultureInfo.InvariantCulture) + " is out of range (the model has " +
+                        list.Count.ToString(CultureInfo.InvariantCulture) + " page(s)).";
+                    return false;
+                }
+
+                diagram = list[index - 1];
+                return true;
+            }
+
+            List<DrawingSurfaceModel> matches = new List<DrawingSurfaceModel>();
+            foreach (DrawingSurfaceModel surface in list)
+            {
+                if (string.Equals(surface.Header, pageSpec, StringComparison.OrdinalIgnoreCase))
+                {
+                    matches.Add(surface);
+                }
+            }
+
+            if (matches.Count == 0)
+            {
+                error = "No page named '" + pageSpec + "'. Run 'tmforge page ls <file>' to list pages.";
+                return false;
+            }
+
+            if (matches.Count > 1)
+            {
+                error = "Page name '" + pageSpec + "' is ambiguous (" + matches.Count.ToString(CultureInfo.InvariantCulture) +
+                    " pages match); use a 1-based index instead.";
+                return false;
+            }
+
+            diagram = matches[0];
+            return true;
+        }
+
+        /// <summary>
+        /// Finds the diagram that contains the element with the given identifier, searching every
+        /// page, or <see langword="null"/> when no page contains it.
+        /// </summary>
+        /// <param name="model">The model to search.</param>
+        /// <param name="id">The element identifier.</param>
+        /// <returns>The containing diagram, or <see langword="null"/>.</returns>
+        public static DrawingSurfaceModel? FindDiagramContaining(ThreatModel model, Guid id)
+        {
+            foreach (DrawingSurfaceModel surface in model.DrawingSurfaceList)
+            {
+                if (DiagramEditor.FindElement(surface, id) != null)
+                {
+                    return surface;
+                }
+            }
+
+            return null;
         }
 
         /// <summary>

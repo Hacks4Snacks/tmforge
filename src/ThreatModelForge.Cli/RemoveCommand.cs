@@ -27,7 +27,7 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            CliArgs parsed = CliArgs.Parse(args, new[] { "id" });
+            CliArgs parsed = CliArgs.Parse(args, new[] { "id", "page" });
             if (parsed.Help)
             {
                 PrintUsage();
@@ -75,7 +75,22 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            DrawingSurfaceModel? diagram = AuthoringSupport.FirstDiagram(model);
+            string? pageSpec = parsed.Get("page");
+            DrawingSurfaceModel? diagram;
+            if (string.IsNullOrEmpty(pageSpec))
+            {
+                diagram = AuthoringSupport.FindDiagramContaining(model, id);
+            }
+            else if (AuthoringSupport.TryResolveDiagram(model, pageSpec!, out DrawingSurfaceModel? resolved, out string? pageError))
+            {
+                diagram = resolved;
+            }
+            else
+            {
+                Console.Error.WriteLine(pageError);
+                return 1;
+            }
+
             if (diagram == null || DiagramEditor.FindElement(diagram, id) == null)
             {
                 Console.Error.WriteLine("Element not found: " + id);
@@ -110,7 +125,9 @@ namespace ThreatModelForge.Cli
         {
             Console.Error.WriteLine("Remove an element (and its connected flows).");
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  tmforge remove --id <guid> [--json] <file>");
+            Console.Error.WriteLine("  tmforge remove --id <guid> [--page <name|index>] [--json] <file>");
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("The element is found on any page by default; --page scopes the search to one page.");
         }
     }
 }

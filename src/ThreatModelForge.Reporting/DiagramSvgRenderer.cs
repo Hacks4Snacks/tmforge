@@ -66,6 +66,90 @@ namespace ThreatModelForge.Reporting
             return root;
         }
 
+        /// <summary>
+        /// Renders every diagram in the model to a single SVG, stacking the pages vertically with a
+        /// title above each. A single-page model renders as just that diagram; an empty model
+        /// renders as an empty SVG. The pages share one hoisted <c>&lt;defs&gt;</c> so marker ids
+        /// are not duplicated.
+        /// </summary>
+        /// <param name="model">The threat model whose diagrams to render.</param>
+        /// <returns>The composed <c>&lt;svg&gt;</c> element.</returns>
+        public XElement RenderModel(ThreatModel model)
+        {
+            if (model == null)
+            {
+                throw new ArgumentNullException(nameof(model));
+            }
+
+            List<DrawingSurfaceModel> surfaces = model.DrawingSurfaceList.ToList();
+            if (surfaces.Count == 0)
+            {
+                return new XElement(Svg + "svg", new XAttribute("role", "img"));
+            }
+
+            if (surfaces.Count == 1)
+            {
+                return this.Render(surfaces[0]);
+            }
+
+            const int gap = 32;
+            const int titleHeight = 28;
+            int offsetY = 0;
+            int maxWidth = 1;
+            XElement? sharedDefs = null;
+            List<XElement> body = new List<XElement>();
+
+            foreach (DrawingSurfaceModel surface in surfaces)
+            {
+                XElement page = this.Render(surface);
+                int width = ParseDimension(page, "width");
+                int height = ParseDimension(page, "height");
+                maxWidth = Math.Max(maxWidth, width);
+
+                XElement? defs = page.Element(Svg + "defs");
+                if (defs != null)
+                {
+                    defs.Remove();
+                    sharedDefs ??= defs;
+                }
+
+                body.Add(new XElement(
+                    Svg + "text",
+                    new XAttribute("x", 4),
+                    new XAttribute("y", offsetY + 18),
+                    new XAttribute("font-family", "'Segoe UI', Helvetica, sans-serif"),
+                    new XAttribute("font-size", 16),
+                    new XAttribute("font-weight", "bold"),
+                    new XAttribute("fill", "#1a3a6b"),
+                    string.IsNullOrEmpty(surface.Header) ? "Diagram" : surface.Header!));
+
+                page.SetAttributeValue("x", 0);
+                page.SetAttributeValue("y", offsetY + titleHeight);
+                body.Add(page);
+
+                offsetY += titleHeight + height + gap;
+            }
+
+            int totalHeight = Math.Max(1, offsetY - gap);
+            XElement root = new XElement(
+                Svg + "svg",
+                new XAttribute("viewBox", string.Format(CultureInfo.InvariantCulture, "0 0 {0} {1}", maxWidth, totalHeight)),
+                new XAttribute("width", maxWidth),
+                new XAttribute("height", totalHeight),
+                new XAttribute("role", "img"));
+            if (sharedDefs != null)
+            {
+                root.Add(sharedDefs);
+            }
+
+            foreach (XElement element in body)
+            {
+                root.Add(element);
+            }
+
+            return root;
+        }
+
         private static (int MinX, int MinY, int MaxX, int MaxY) ComputeBounds(DrawingSurfaceModel diagram)
         {
             int minX = int.MaxValue;
@@ -95,6 +179,11 @@ namespace ThreatModelForge.Reporting
             }
 
             return (minX, minY, maxX, maxY);
+        }
+
+        private static int ParseDimension(XElement svg, string name)
+        {
+            return int.TryParse(svg.Attribute(name)?.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) ? value : 1;
         }
 
         private static XElement BuildDefs()

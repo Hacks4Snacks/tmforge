@@ -29,7 +29,7 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            CliArgs parsed = CliArgs.Parse(args, new[] { "name", "left", "top", "stencil", "width", "height" }, new[] { "force" });
+            CliArgs parsed = CliArgs.Parse(args, new[] { "name", "left", "top", "stencil", "width", "height", "page" }, new[] { "force" });
             if (parsed.Help)
             {
                 PrintUsage();
@@ -108,7 +108,22 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            DrawingSurfaceModel diagram = AuthoringSupport.GetOrCreateFirstDiagram(model);
+            string? pageSpec = parsed.Get("page");
+            DrawingSurfaceModel diagram;
+            if (string.IsNullOrEmpty(pageSpec))
+            {
+                diagram = AuthoringSupport.GetOrCreateFirstDiagram(model);
+            }
+            else if (AuthoringSupport.TryResolveDiagram(model, pageSpec!, out DrawingSurfaceModel? resolved, out string? pageError))
+            {
+                diagram = resolved!;
+            }
+            else
+            {
+                Console.Error.WriteLine(pageError);
+                return 1;
+            }
+
             DiagramEditor editor = new DiagramEditor(model);
 
             (int defaultLeft, int defaultTop) = AuthoringSupport.NextPosition(diagram);
@@ -202,6 +217,7 @@ namespace ThreatModelForge.Cli
             Console.Error.WriteLine("  --name <name>             Element name.");
             Console.Error.WriteLine("  --left <n> --top <n>      Position (default: auto-placed on a grid).");
             Console.Error.WriteLine("  --width <n> --height <n>   Size; boundaries default to 260x180 so they enclose.");
+            Console.Error.WriteLine("  --page <name|index>       Target page (default: the first page; one is created if none exists).");
             Console.Error.WriteLine("  --property KEY=VALUE      Set a custom property (repeatable), e.g. --property AuthenticationScheme=OAuth.");
             Console.Error.WriteLine("  --force                   Store unknown/invalid property values instead of rejecting them.");
             Console.Error.WriteLine("  --json                    Machine-readable output.");

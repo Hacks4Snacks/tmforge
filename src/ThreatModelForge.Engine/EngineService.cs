@@ -282,11 +282,7 @@ namespace ThreatModelForge.Engine
             ThreatModel model = BuildModel(dto, out _);
             if (string.Equals(format, "svg", StringComparison.OrdinalIgnoreCase))
             {
-                DiagramSvgRenderer renderer = new DiagramSvgRenderer();
-                string svg = model.DrawingSurfaceList.Count > 0
-                    ? renderer.Render(model.DrawingSurfaceList[0]).ToString()
-                    : "<svg xmlns=\"http://www.w3.org/2000/svg\" />";
-                return Encoding.UTF8.GetBytes(svg);
+                return Encoding.UTF8.GetBytes(new DiagramSvgRenderer().RenderModel(model).ToString());
             }
 
             string html = new HtmlReportWriter().Write(model);
@@ -296,14 +292,35 @@ namespace ThreatModelForge.Engine
         private static ThreatModel BuildModel(TmForgeModelDto dto, out Dictionary<string, List<string>> nameToIds)
         {
             nameToIds = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-            foreach (TmForgeElementDto element in dto.Elements ?? Array.Empty<TmForgeElementDto>())
-            {
-                AddName(nameToIds, element.Name, element.Id);
-            }
 
-            foreach (TmForgeFlowDto flow in dto.Flows ?? Array.Empty<TmForgeFlowDto>())
+            // For a multi-page model the top-level elements/flows mirror the first page, so index the
+            // pages when present (and only then) to avoid double-counting page one.
+            if (dto.Diagrams != null && dto.Diagrams.Count > 0)
             {
-                AddName(nameToIds, flow.Name, flow.Id);
+                foreach (TmForgeDiagramDto page in dto.Diagrams)
+                {
+                    foreach (TmForgeElementDto element in page.Elements ?? Array.Empty<TmForgeElementDto>())
+                    {
+                        AddName(nameToIds, element.Name, element.Id);
+                    }
+
+                    foreach (TmForgeFlowDto flow in page.Flows ?? Array.Empty<TmForgeFlowDto>())
+                    {
+                        AddName(nameToIds, flow.Name, flow.Id);
+                    }
+                }
+            }
+            else
+            {
+                foreach (TmForgeElementDto element in dto.Elements ?? Array.Empty<TmForgeElementDto>())
+                {
+                    AddName(nameToIds, element.Name, element.Id);
+                }
+
+                foreach (TmForgeFlowDto flow in dto.Flows ?? Array.Empty<TmForgeFlowDto>())
+                {
+                    AddName(nameToIds, flow.Name, flow.Id);
+                }
             }
 
             // Build the engine model through the canonical tmforge-json format provider so the

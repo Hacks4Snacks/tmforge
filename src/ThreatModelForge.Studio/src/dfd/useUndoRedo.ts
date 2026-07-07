@@ -67,5 +67,13 @@ export function useUndoRedo(
     refresh();
   }, [setNodes, setEdges, refresh]);
 
-  return { takeSnapshot, undo, redo, canUndo, canRedo };
+  // Drop all history. Called when the active page changes or a new model is loaded, so undo never
+  // reaches back across a page switch onto the wrong graph.
+  const reset = useCallback(() => {
+    past.current = [];
+    future.current = [];
+    refresh();
+  }, [refresh]);
+
+  return { takeSnapshot, undo, redo, canUndo, canRedo, reset };
 }

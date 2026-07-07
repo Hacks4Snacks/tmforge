@@ -60,11 +60,32 @@ export interface TmForgeValidation {
   disabledRuleIds?: string[];
 }
 
+/**
+ * A named page (diagram) within a {@link TmForgeModel}. Each page has its own elements and flows and
+ * maps to one drawing surface in the .NET model. Cross-page flows are out of scope: a flow's
+ * endpoints are always on the same page.
+ */
+export interface TmForgeDiagram {
+  /** Stable page identifier. */
+  id: string;
+  /** Page (tab) label, for example 'Context' or 'Payments service'. */
+  name: string;
+  elements: TmForgeElement[];
+  flows: TmForgeFlow[];
+}
+
 export interface TmForgeModel {
   schema: 'tmforge-json';
   version: '0.1';
   elements: TmForgeElement[];
   flows: TmForgeFlow[];
+  /**
+   * Named pages. When present, this is the authoritative multi-page form and the top-level
+   * `elements`/`flows` mirror the first page for older single-page readers. Absent for single-page
+   * models. Studio page-tab wiring lands in a later phase; the field is defined here so the wire
+   * contract matches the engine.
+   */
+  diagrams?: TmForgeDiagram[];
   /** Which rule packs or rules to skip when validating this model. */
   validation?: TmForgeValidation;
 }

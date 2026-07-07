@@ -1,5 +1,5 @@
 import { MarkerType } from '@xyflow/react';
-import type { DfdEdge, DfdKind, DfdNode, TmForgeElement, TmForgeFlow, TmForgeModel } from './types';
+import type { DfdEdge, DfdKind, DfdNode, TmForgeElement, TmForgeFlow, TmForgeModel, TmForgeValidation } from './types';
 
 function num(value: unknown, fallback: number): number {
   const n = typeof value === 'string' ? parseFloat(value) : typeof value === 'number' ? value : NaN;
@@ -96,4 +96,60 @@ export function fromModel(model: TmForgeModel): { nodes: DfdNode[]; edges: DfdEd
   }));
 
   return { nodes, edges };
+}
+
+/** A single editor page (diagram): a named React Flow graph. */
+export interface PageGraph {
+  id: string;
+  name: string;
+  nodes: DfdNode[];
+  edges: DfdEdge[];
+}
+
+/**
+ * Canonical model -> editor pages. A multi-page model (`diagrams`) yields one page per diagram,
+ * preserving ids and names; a single-page model yields one page named "Page 1".
+ */
+export function pagesFromModel(model: TmForgeModel): PageGraph[] {
+  if (model.diagrams && model.diagrams.length > 0) {
+    return model.diagrams.map((d, i) => {
+      const { nodes, edges } = fromModel({
+        schema: 'tmforge-json',
+        version: '0.1',
+        elements: d.elements ?? [],
+        flows: d.flows ?? [],
+      });
+      return { id: d.id || crypto.randomUUID(), name: d.name || `Page ${i + 1}`, nodes, edges };
+    });
+  }
+  const { nodes, edges } = fromModel(model);
+  return [{ id: crypto.randomUUID(), name: 'Page 1', nodes, edges }];
+}
+
+/**
+ * Editor pages -> canonical model. Mirrors the engine's `TmForgeJsonFormat`: the top-level
+ * `elements`/`flows` carry the first page for single-page readers, and `diagrams` is emitted only
+ * when there is more than one page. The per-model validation selection is attached when present.
+ */
+export function modelFromPages(pages: PageGraph[], validation?: TmForgeValidation): TmForgeModel {
+  const perPage = pages.map((p) => ({ page: p, graph: toModel(p.nodes, p.edges) }));
+  const first = perPage[0]?.graph;
+  const model: TmForgeModel = {
+    schema: 'tmforge-json',
+    version: '0.1',
+    elements: first?.elements ?? [],
+    flows: first?.flows ?? [],
+  };
+  if (pages.length > 1) {
+    model.diagrams = perPage.map(({ page, graph }) => ({
+      id: page.id,
+      name: page.name,
+      elements: graph.elements,
+      flows: graph.flows,
+    }));
+  }
+  if (validation) {
+    model.validation = validation;
+  }
+  return model;
 }

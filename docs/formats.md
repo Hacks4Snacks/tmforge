@@ -31,22 +31,25 @@ format; when you mutate a `.tm7` with the CLI, it's written back through this by
 ### `tmforge-json` (canonical wire model)
 
 The shape Studio and the API speak: elements, flows, trust boundaries, names, and geometry, plus an
-optional validation selection (disabled packs/rules). Knowledge-base attributes and generated threats
-are not represented, so it's structural rather than lossless. Use it to bridge Studio and the CLI.
+optional validation selection (disabled packs/rules). Multi-page models carry a `diagrams` array (one
+entry per page, with its name); single-page models keep the flat `elements`/`flows` shape, so older
+readers keep working. Knowledge-base attributes and generated threats are not represented, so it's
+structural rather than lossless. Use it to bridge Studio and the CLI.
 
 ### `drawio` (draw.io / diagrams.net)
 
-A structural mapping to and from mxGraph: nodes, flows, trust boundaries, names, and geometry. Import
-recognizes the shapes this provider writes and its documented style convention. Knowledge-base
-attributes and generated threats are not represented.
+A structural mapping to and from mxGraph: nodes, flows, trust boundaries, names, and geometry, with
+each draw.io page mapped to a diagram. Import recognizes the shapes this provider writes and its
+documented style convention. Knowledge-base attributes and generated threats are not represented.
 
 ### `vsdx` (Microsoft Visio)
 
-Editable Visio via template injection. Structure (nodes, flows, trust boundaries, names, geometry) is
-preserved; element custom properties and associated threats are written as per-shape **Visio Shape
-Data** (visible in Visio's Shape Data pane) and re-imported as custom properties. The rich threat
-model itself is not reconstructed, so the mapping is structural. Import recognizes packages this
-provider wrote and the documented master/shape convention.
+Editable Visio via template injection. **Every diagram (page) is exported as its own Visio page and
+re-imported**, so multi-page models keep their pages. Structure (nodes, flows, trust boundaries,
+names, geometry) is preserved; element custom properties and associated threats are written as
+per-shape **Visio Shape Data** (visible in Visio's Shape Data pane) and re-imported as custom
+properties. The rich threat model itself is not reconstructed, so the mapping is structural. Import
+recognizes packages this provider wrote and the documented master/shape convention.
 
 ## Converting
 

@@ -70,6 +70,45 @@ namespace ThreatModelForge.Reporting.Tests
             Assert.AreEqual("8 4", (string?)path.Attribute("stroke-dasharray"));
         }
 
+        /// <summary>
+        /// Verifies that a multi-page model renders one nested SVG (and title) per page, sharing a
+        /// single hoisted defs so marker ids are not duplicated.
+        /// </summary>
+        [TestMethod]
+        public void RenderModelStacksEveryPage()
+        {
+            ThreatModel model = new ThreatModel();
+            DrawingSurfaceModel first = BuildDiagram();
+            first.Header = "Context";
+            DrawingSurfaceModel second = BuildDiagram();
+            second.Header = "Payments";
+            model.DrawingSurfaceList.Add(first);
+            model.DrawingSurfaceList.Add(second);
+
+            XElement svg = new DiagramSvgRenderer().RenderModel(model);
+
+            Assert.AreEqual(Svg + "svg", svg.Name);
+            Assert.AreEqual(2, svg.Elements(Svg + "svg").Count(), "expected one nested svg per page");
+            Assert.AreEqual(1, svg.Descendants(Svg + "defs").Count(), "expected a single shared defs");
+            Assert.IsTrue(svg.Elements(Svg + "text").Any(t => string.Equals((string)t, "Context", StringComparison.Ordinal)));
+            Assert.IsTrue(svg.Elements(Svg + "text").Any(t => string.Equals((string)t, "Payments", StringComparison.Ordinal)));
+        }
+
+        /// <summary>
+        /// Verifies that a single-page model renders as one diagram SVG, not a stacked wrapper.
+        /// </summary>
+        [TestMethod]
+        public void RenderModelSinglePageIsNotWrapped()
+        {
+            ThreatModel model = new ThreatModel();
+            model.DrawingSurfaceList.Add(BuildDiagram());
+
+            XElement svg = new DiagramSvgRenderer().RenderModel(model);
+
+            Assert.AreEqual(Svg + "svg", svg.Name);
+            Assert.IsFalse(svg.Elements(Svg + "svg").Any(), "a single page should not be wrapped in nested svgs");
+        }
+
         private static DrawingSurfaceModel BuildDiagram()
         {
             StencilRectangle rectangle = new StencilRectangle { Guid = Guid.NewGuid(), TypeId = "GE.P", Left = 0, Top = 0, Width = 80, Height = 40 };

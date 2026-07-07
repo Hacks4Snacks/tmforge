@@ -2,6 +2,7 @@ namespace ThreatModelForge.Formats
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.IO;
     using System.Linq;
     using System.Text;
@@ -153,38 +154,27 @@ namespace ThreatModelForge.Formats
                 ?? new TmForgeJsonModel();
 
             ThreatModel model = new ThreatModel { Version = "1.0" };
-            DrawingSurfaceModel diagram = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "Diagram 1" };
-            model.DrawingSurfaceList.Add(diagram);
-
             DiagramEditor editor = new DiagramEditor(model);
-            Dictionary<string, Guid> idMap = new Dictionary<string, Guid>(StringComparer.Ordinal);
 
-            foreach (TmForgeJsonElement element in document.Elements ?? Array.Empty<TmForgeJsonElement>())
+            if (document.Diagrams != null && document.Diagrams.Count > 0)
             {
-                StencilKind kind = MapKind(element.Kind);
-                Guid guid = editor.AddElement(diagram, kind, element.X, element.Y);
-                editor.SetElementName(diagram, guid, element.Name ?? string.Empty);
-                if (kind == StencilKind.TrustBoundary)
+                int index = 1;
+                foreach (TmForgeJsonDiagram page in document.Diagrams)
                 {
-                    editor.ResizeElement(diagram, guid, element.X, element.Y, element.Width ?? 260, element.Height ?? 180);
-                }
-
-                ApplyProperties(diagram.Borders[guid] as Entity, element.Properties);
-
-                if (!string.IsNullOrEmpty(element.Id))
-                {
-                    idMap[element.Id] = guid;
+                    string header = string.IsNullOrEmpty(page.Name)
+                        ? "Diagram " + index.ToString(CultureInfo.InvariantCulture)
+                        : page.Name;
+                    DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = header };
+                    model.DrawingSurfaceList.Add(surface);
+                    PopulateSurface(editor, surface, page.Elements, page.Flows);
+                    index++;
                 }
             }
-
-            foreach (TmForgeJsonFlow flow in document.Flows ?? Array.Empty<TmForgeJsonFlow>())
+            else
             {
-                if (idMap.TryGetValue(flow.Source, out Guid source) && idMap.TryGetValue(flow.Target, out Guid target))
-                {
-                    Guid connector = editor.AddConnector(diagram, source, target);
-                    editor.SetElementName(diagram, connector, flow.Name ?? string.Empty);
-                    ApplyProperties(diagram.Lines[connector] as Entity, flow.Properties);
-                }
+                DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "Diagram 1" };
+                model.DrawingSurfaceList.Add(surface);
+                PopulateSurface(editor, surface, document.Elements, document.Flows);
             }
 
             return model;
@@ -214,45 +204,33 @@ namespace ThreatModelForge.Formats
                 throw new ArgumentNullException(nameof(stream));
             }
 
-            List<TmForgeJsonElement> elements = new List<TmForgeJsonElement>();
-            List<TmForgeJsonFlow> flows = new List<TmForgeJsonFlow>();
-
+            List<TmForgeJsonDiagram> diagrams = new List<TmForgeJsonDiagram>();
+            int index = 1;
             foreach (DrawingSurfaceModel surface in model.DrawingSurfaceList)
             {
-                foreach (DrawingElement element in surface.Borders.Values.OfType<DrawingElement>())
+                (TmForgeJsonElement[] pageElements, TmForgeJsonFlow[] pageFlows) = ExtractSurface(surface);
+                string name = string.IsNullOrEmpty(surface.Header)
+                    ? "Diagram " + index.ToString(CultureInfo.InvariantCulture)
+                    : surface.Header!;
+                diagrams.Add(new TmForgeJsonDiagram
                 {
-                    elements.Add(new TmForgeJsonElement
-                    {
-                        Id = element.Guid.ToString(),
-                        Kind = KindOf(element),
-                        Name = DiagramElementHelper.GetName(element),
-                        X = element.Left,
-                        Y = element.Top,
-                        Width = element.Width,
-                        Height = element.Height,
-                        Properties = DiagramElementHelper.GetCustomProperties(element),
-                    });
-                }
-
-                foreach (Connector connector in surface.Lines.Values.OfType<Connector>())
-                {
-                    flows.Add(new TmForgeJsonFlow
-                    {
-                        Id = connector.Guid.ToString(),
-                        Source = connector.SourceGuid.ToString(),
-                        Target = connector.TargetGuid.ToString(),
-                        Name = DiagramElementHelper.GetName(connector),
-                        Properties = DiagramElementHelper.GetCustomProperties(connector),
-                    });
-                }
+                    Id = surface.Guid.ToString(),
+                    Name = name,
+                    Elements = pageElements,
+                    Flows = pageFlows,
+                });
+                index++;
             }
 
+            // The top-level elements/flows mirror the first page so single-page readers keep working;
+            // the diagrams array is emitted only when the model has more than one page.
             TmForgeJsonModel document = new TmForgeJsonModel
             {
                 Schema = SchemaToken,
                 Version = "0.1",
-                Elements = elements.ToArray(),
-                Flows = flows.ToArray(),
+                Elements = diagrams.Count > 0 ? diagrams[0].Elements : Array.Empty<TmForgeJsonElement>(),
+                Flows = diagrams.Count > 0 ? diagrams[0].Flows : Array.Empty<TmForgeJsonFlow>(),
+                Diagrams = diagrams.Count > 1 ? diagrams.ToArray() : null,
                 Validation = validation,
             };
 
@@ -265,6 +243,78 @@ namespace ThreatModelForge.Formats
             {
                 writer.Write(json);
             }
+        }
+
+        private static void PopulateSurface(
+            DiagramEditor editor,
+            DrawingSurfaceModel surface,
+            IReadOnlyList<TmForgeJsonElement>? elements,
+            IReadOnlyList<TmForgeJsonFlow>? flows)
+        {
+            Dictionary<string, Guid> idMap = new Dictionary<string, Guid>(StringComparer.Ordinal);
+
+            foreach (TmForgeJsonElement element in elements ?? Array.Empty<TmForgeJsonElement>())
+            {
+                StencilKind kind = MapKind(element.Kind);
+                Guid guid = editor.AddElement(surface, kind, element.X, element.Y);
+                editor.SetElementName(surface, guid, element.Name ?? string.Empty);
+                if (kind == StencilKind.TrustBoundary)
+                {
+                    editor.ResizeElement(surface, guid, element.X, element.Y, element.Width ?? 260, element.Height ?? 180);
+                }
+
+                ApplyProperties(surface.Borders[guid] as Entity, element.Properties);
+
+                if (!string.IsNullOrEmpty(element.Id))
+                {
+                    idMap[element.Id] = guid;
+                }
+            }
+
+            foreach (TmForgeJsonFlow flow in flows ?? Array.Empty<TmForgeJsonFlow>())
+            {
+                if (idMap.TryGetValue(flow.Source, out Guid source) && idMap.TryGetValue(flow.Target, out Guid target))
+                {
+                    Guid connector = editor.AddConnector(surface, source, target);
+                    editor.SetElementName(surface, connector, flow.Name ?? string.Empty);
+                    ApplyProperties(surface.Lines[connector] as Entity, flow.Properties);
+                }
+            }
+        }
+
+        private static (TmForgeJsonElement[] Elements, TmForgeJsonFlow[] Flows) ExtractSurface(DrawingSurfaceModel surface)
+        {
+            List<TmForgeJsonElement> elements = new List<TmForgeJsonElement>();
+            List<TmForgeJsonFlow> flows = new List<TmForgeJsonFlow>();
+
+            foreach (DrawingElement element in surface.Borders.Values.OfType<DrawingElement>())
+            {
+                elements.Add(new TmForgeJsonElement
+                {
+                    Id = element.Guid.ToString(),
+                    Kind = KindOf(element),
+                    Name = DiagramElementHelper.GetName(element),
+                    X = element.Left,
+                    Y = element.Top,
+                    Width = element.Width,
+                    Height = element.Height,
+                    Properties = DiagramElementHelper.GetCustomProperties(element),
+                });
+            }
+
+            foreach (Connector connector in surface.Lines.Values.OfType<Connector>())
+            {
+                flows.Add(new TmForgeJsonFlow
+                {
+                    Id = connector.Guid.ToString(),
+                    Source = connector.SourceGuid.ToString(),
+                    Target = connector.TargetGuid.ToString(),
+                    Name = DiagramElementHelper.GetName(connector),
+                    Properties = DiagramElementHelper.GetCustomProperties(connector),
+                });
+            }
+
+            return (elements.ToArray(), flows.ToArray());
         }
 
         private static void ApplyProperties(Entity? entity, IReadOnlyDictionary<string, string>? properties)

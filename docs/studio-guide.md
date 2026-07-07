@@ -52,6 +52,22 @@ connection, not the geometry.
 | Pan / zoom | Drag the canvas / scroll; use the minimap and **fit** control to navigate. |
 | Undo / redo | `Cmd+Z` / `Shift+Cmd+Z` (covers every edit). |
 
+### Pages
+
+A model can hold several diagrams. The **page tab strip** below the canvas lets you work across them:
+
+| Action | How |
+| --- | --- |
+| Switch pages | Click a tab. |
+| Add a page | Click **+**. |
+| Rename a page | Double-click the tab (or press `F2`) and type. |
+| Reorder pages | Drag a tab. |
+| Delete a page | Click the tab's **×** (the last page can't be deleted). |
+
+Each page is an independent canvas with its own undo history; the active page and every page's
+contents persist across reloads. Opening a multi-page `.tm7`, `.drawio`, or Visio model (imported via
+the CLI or API into `tmforge-json`) shows each source diagram on its own page.
+
 ### The inspector
 
 The right-hand panel edits the selected element or flow. For a data flow it exposes the properties
@@ -60,9 +76,10 @@ clear findings without leaving the canvas.
 
 ## Validating against the engine
 
-Click **Validate** to send the current diagram to the live `/v1` engine. Findings come back and are
-**overlaid on the offending nodes and edges**, so you can see exactly what to fix. Open the
-inspector, set the missing property (e.g. a flow's protocol), and re-validate.
+Click **Validate** to send the whole model (every page) to the live `/v1` engine. Findings come back
+and are **overlaid on the offending nodes and edges**, so you can see exactly what to fix. In a
+multi-page model, tabs that carry findings are badged, and clicking a finding jumps to its page. Open
+the inspector, set the missing property (e.g. a flow's protocol), and re-validate.
 
 If the engine is offline, Studio falls back to an offline stub so the canvas keeps working; connect
 it to a running API to get the real rule set. See [Validation rules & CI](validation-rules.md) for

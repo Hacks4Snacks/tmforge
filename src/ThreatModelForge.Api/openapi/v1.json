@@ -563,6 +563,35 @@
         },
         "description": "Describes an authoring stencil: a named, categorized specialization of one of the four DFD\nprimitives (`process`, `datastore`, `external`, `boundary`). A stencil\nmaps to its string StencilDto.Base primitive for analysis, and its identity plus preset\nproperties enrich the model without requiring per-stencil rules."
       },
+      "TmForgeDiagramDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "elements": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/TmForgeElementDto"
+            }
+          },
+          "flows": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/TmForgeFlowDto"
+            }
+          }
+        }
+      },
       "TmForgeElementDto": {
         "type": "object",
         "properties": {
@@ -677,6 +706,15 @@
             ],
             "items": {
               "$ref": "#/components/schemas/TmForgeFlowDto"
+            }
+          },
+          "diagrams": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/TmForgeDiagramDto"
             }
           },
           "validation": {

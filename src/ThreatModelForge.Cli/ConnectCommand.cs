@@ -27,7 +27,7 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            CliArgs parsed = CliArgs.Parse(args, new[] { "source", "target", "name" }, new[] { "force" });
+            CliArgs parsed = CliArgs.Parse(args, new[] { "source", "target", "name", "page" }, new[] { "force" });
             if (parsed.Help)
             {
                 PrintUsage();
@@ -82,7 +82,22 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            DrawingSurfaceModel? diagram = AuthoringSupport.FirstDiagram(model);
+            string? pageSpec = parsed.Get("page");
+            DrawingSurfaceModel? diagram;
+            if (string.IsNullOrEmpty(pageSpec))
+            {
+                diagram = AuthoringSupport.FirstDiagram(model);
+            }
+            else if (AuthoringSupport.TryResolveDiagram(model, pageSpec!, out DrawingSurfaceModel? resolved, out string? pageError))
+            {
+                diagram = resolved;
+            }
+            else
+            {
+                Console.Error.WriteLine(pageError);
+                return 1;
+            }
+
             if (diagram == null)
             {
                 Console.Error.WriteLine("The model has no diagram to connect within.");
@@ -145,8 +160,9 @@ namespace ThreatModelForge.Cli
         {
             Console.Error.WriteLine("Add a data flow between two elements.");
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  tmforge connect --source <guid> --target <guid> [--name <name>] [--property KEY=VALUE]... [--json] <file>");
+            Console.Error.WriteLine("  tmforge connect --source <guid> --target <guid> [--name <name>] [--page <name|index>] [--property KEY=VALUE]... [--json] <file>");
             Console.Error.WriteLine();
+            Console.Error.WriteLine("Both endpoints must be on the same page; --page selects it (default: the first page).");
             Console.Error.WriteLine("Set flow properties the linter checks, e.g. --property Protocol=HTTPS --property Port=443 --property DataType=\"Customer Content\".");
             Console.Error.WriteLine("Mark a non-network flow to skip protocol/port/cleartext checks: --property Channel=In-Process|Local-file|Unix-socket|Loopback.");
             Console.Error.WriteLine("List every property and its allowed values with 'tmforge properties --base flow'.");
