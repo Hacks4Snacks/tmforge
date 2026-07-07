@@ -30,6 +30,8 @@ tmforge <command> [options] <file>
 | [`properties`](#properties) | Inspect | List the typed custom-property schema. |
 | [`render`](#render) | Inspect | Draw the diagram in the terminal. |
 | [`diff`](#diff) | Inspect | Structurally compare two models (or emit a git textconv). |
+| [`merge`](#merge) | Merge | Three-way merge two models against a common ancestor (git driver). |
+| [`git-setup`](#git-setup) | Git | Wire git to use tmforge for .tm7 diff/merge (no committed .gitattributes needed). |
 | [`new`](#new) | Author | Create a new model (empty or from a template). |
 | [`add`](#add) | Author | Add a process, store, external entity, or boundary. |
 | [`connect`](#connect) | Author | Add a data flow between two elements. |
@@ -183,6 +185,67 @@ git config diff.tmforge.textconv "tmforge diff --textconv"
 
 Afterwards, `git diff` on a `.tm7` shows lines such as `process "API Gateway"  <id>` and
 `Protocol=HTTPS`, so a reviewer sees exactly what changed.
+
+> The committed `.gitattributes` is **optional** — you don't need this repository's source. Run
+> [`tmforge git-setup`](#git-setup) to apply the config and a local (or global) mapping for you.
+
+### `merge`
+
+Three-way merge two edited models against their common ancestor, matched by element id.
+Non-overlapping edits from both sides combine automatically; genuine conflicts (both sides changed
+the same attribute, or one side deleted what the other modified) keep the `ours` value, are reported,
+and are written to `<pathname>.conflicts.json`. The merged model is always valid — it never contains
+textual conflict markers. The exit code is `0` on a clean merge and `1` when conflicts remain.
+
+```text
+tmforge merge <base> <ours> <theirs> [<pathname>] [--output <path>] [--json]
+```
+
+```bash
+tmforge merge base.tm7 ours.tm7 theirs.tm7 --output merged.tm7
+```
+
+By default the result is written back to `<ours>`. Resolve any reported conflicts with
+`tmforge set --id <guid> ...`.
+
+#### Use as a git merge driver
+
+Wire it up so `git merge`, `rebase`, and `cherry-pick` deconflict `.tm7` automatically:
+
+```gitattributes
+# .gitattributes (shipped in this repo)
+*.tm7 merge=tmforge
+```
+
+```bash
+git config merge.tmforge.name   "Threat Model Forge semantic merge"
+git config merge.tmforge.driver "tmforge merge %O %A %B %P"
+```
+
+Git invokes the driver with the ancestor (`%O`), our version (`%A`, also where the result is
+written), their version (`%B`), and the path (`%P`). A clean merge is applied silently; on conflict
+the file keeps `ours` and the conflicts are listed on the console and in the sidecar.
+
+### `git-setup`
+
+Wire git to use tmforge for `.tm7` diffs and merges — **without** a committed `.gitattributes` and
+**without** access to any repository's source. It registers the diff textconv and merge driver in
+git config and maps `*.tm7` to them via `.git/info/attributes` (this repo) or your global attributes
+file (`--global`).
+
+```text
+tmforge git-setup [--global] [--print]
+```
+
+```bash
+tmforge git-setup            # configure the current repository (local; nothing is committed)
+tmforge git-setup --global   # configure every repository for this user
+tmforge git-setup --print    # print the exact commands instead of applying them
+```
+
+`tmforge diff` and `tmforge merge` also work **standalone** with no git configuration at all — the
+setup above only enables the automatic `git diff` / `git merge` behavior. (Fully zero-config
+auto-invocation isn't possible: git requires drivers to be configured explicitly, by design.)
 
 ---
 

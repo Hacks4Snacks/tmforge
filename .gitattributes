@@ -1,7 +1,9 @@
 # Threat Model Forge repository attributes.
 
-# Render .tm7 diffs as readable structure (instead of opaque DataContract XML) via the
-# tmforge textconv. Enable per clone, once:
+# Render .tm7 diffs as readable structure and merge them semantically (instead of textual
+# DataContract XML) via the tmforge diff/merge driver. Enable per clone, once:
 #     git config diff.tmforge.textconv "tmforge diff --textconv"
-# See docs/cli-reference.md (the `diff` command).
-*.tm7 diff=tmforge
+#     git config merge.tmforge.name    "Threat Model Forge semantic merge"
+#     git config merge.tmforge.driver  "tmforge merge %O %A %B %P"
+# See docs/cli-reference.md (the `diff` and `merge` commands).
+*.tm7 diff=tmforge merge=tmforge

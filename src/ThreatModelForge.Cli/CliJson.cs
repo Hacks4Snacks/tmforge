@@ -41,5 +41,16 @@ namespace ThreatModelForge.Cli
 
             Console.Out.WriteLine(JsonSerializer.Serialize(envelope, Options));
         }
+
+        /// <summary>
+        /// Serializes a value with the shared options (camelCase, indented, string enums). Used for
+        /// side artifacts such as the merge conflict report.
+        /// </summary>
+        /// <param name="value">The value to serialize.</param>
+        /// <returns>The indented JSON text.</returns>
+        public static string Serialize(object value)
+        {
+            return JsonSerializer.Serialize(value, Options);
+        }
     }
 }
