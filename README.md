@@ -29,7 +29,7 @@ checks** you can gate a build on. No Windows, no GUI required.
   canonical JSON wire format.
 - **Zero-runtime install.** Self-contained, single-file binaries for six platforms, or one
   container for the API + Studio.
-- **Agent- and pipeline-friendly.** Every command speaks `--json` with a stable, versioned
+- **Agent and pipeline-friendly.** Every command speaks `--json` with a stable, versioned
   envelope.
 
 ## Try it in 30 seconds
@@ -45,10 +45,10 @@ Prefer the terminal? With `tmforge` on your `PATH` (see [Install](#install)):
 
 ```bash
 tmforge new payments.tm7 --name "Payments"
-tmforge add process  payments.tm7 --name "Checkout API"
-tmforge add store    payments.tm7 --name "Orders DB"
+tmforge add process payments.tm7 --name "Checkout API"
+tmforge add store payments.tm7 --name "Orders DB"
 tmforge add boundary payments.tm7 --name "Azure VNet"
-tmforge lint   payments.tm7                    # validate: exits 2 on findings, CI-ready
+tmforge lint payments.tm7                    # validate: exits 2 on findings, CI-ready
 tmforge report payments.tm7 --out payments.html
 ```
 
@@ -58,7 +58,7 @@ New here? Start with the [Quick start](docs/quickstart.md).
 
 - **Author & edit** data-flow diagrams in the browser (the React **Studio** SPA): add
   processes, external entities, data stores, and trust boundaries; draw data flows; resize and
-  bend connectors.
+  bend connectors; organize a model across multiple pages.
 - **Author headlessly** from the CLI (`new`, `add`, `connect`, `set`, …) or the API, so agents
   and pipelines build models with no GUI.
 - **Read & write `.tm7` losslessly**, byte-for-byte compatible with MTMT.

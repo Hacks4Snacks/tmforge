@@ -134,6 +134,72 @@ namespace ThreatModelForge.Formats.Tests
         }
 
         /// <summary>
+        /// Verifies that a multi-page model exports one Visio page per diagram (each registered in
+        /// <c>pages.xml</c>, the page relationships, and the content types) and imports back to one
+        /// surface per page, preserving page names and the total node and connector counts.
+        /// </summary>
+        [TestMethod]
+        public void WritesAndReadsMultiplePages()
+        {
+            ThreatModel model = new ThreatModel { Version = "1.0" };
+            model.DrawingSurfaceList.Add(BuildSurface("Context", "User", "Gateway"));
+            model.DrawingSurfaceList.Add(BuildSurface("Payments", "Payment Svc", "Ledger"));
+
+            VisioFormat format = new VisioFormat();
+            byte[] vsdx;
+            using (MemoryStream buffer = new MemoryStream())
+            {
+                format.Write(model, buffer);
+                vsdx = buffer.ToArray();
+            }
+
+            using (MemoryStream zipStream = new MemoryStream(vsdx, writable: false))
+            using (ZipArchive zip = new ZipArchive(zipStream, ZipArchiveMode.Read))
+            {
+                Assert.IsNotNull(zip.GetEntry("visio/pages/page1.xml"), "expected page 1 part");
+                Assert.IsNotNull(zip.GetEntry("visio/pages/page2.xml"), "expected page 2 part");
+
+                foreach (ZipArchiveEntry entry in zip.Entries)
+                {
+                    if (entry.FullName.EndsWith(".xml", StringComparison.Ordinal) || entry.FullName.EndsWith(".rels", StringComparison.Ordinal))
+                    {
+                        using Stream partStream = entry.Open();
+                        XDocument.Load(partStream);
+                    }
+                }
+
+                ZipArchiveEntry? pagesPart = zip.GetEntry("visio/pages/pages.xml");
+                Assert.IsNotNull(pagesPart);
+                using (Stream pagesStream = pagesPart!.Open())
+                {
+                    XDocument pagesDoc = XDocument.Load(pagesStream);
+                    Assert.AreEqual(2, pagesDoc.Descendants().Count(e => e.Name.LocalName == "Page"), "pages.xml should list two pages");
+                }
+
+                ZipArchiveEntry? contentTypesPart = zip.GetEntry("[Content_Types].xml");
+                Assert.IsNotNull(contentTypesPart);
+                using (Stream contentTypesStream = contentTypesPart!.Open())
+                {
+                    string contentTypes = new StreamReader(contentTypesStream).ReadToEnd();
+                    StringAssert.Contains(contentTypes, "/visio/pages/page2.xml", "content types should register page 2");
+                }
+            }
+
+            ThreatModel roundTripped;
+            using (MemoryStream input = new MemoryStream(vsdx, writable: false))
+            {
+                roundTripped = format.Read(input);
+            }
+
+            Assert.AreEqual(2, roundTripped.DrawingSurfaceList.Count, "both pages should import as surfaces");
+            Assert.AreEqual(4, CountNodes(roundTripped), "all four nodes across both pages should survive");
+            Assert.AreEqual(2, CountConnectors(roundTripped), "both connectors should survive");
+            List<string?> headers = roundTripped.DrawingSurfaceList.Select(s => s.Header).ToList();
+            CollectionAssert.Contains(headers, "Context");
+            CollectionAssert.Contains(headers, "Payments");
+        }
+
+        /// <summary>
         /// Verifies Tier-3 heuristic import: an arbitrary Visio diagram (standard stencil masters,
         /// none of this provider's own fill/pattern markers) is classified by master name and label
         /// into processes, data stores, external entities, and trust boundaries, with flows rebuilt
@@ -290,6 +356,24 @@ namespace ThreatModelForge.Formats.Tests
         {
             XElement? cell = row.Elements().FirstOrDefault(c => c.Name.LocalName == "Cell" && (string?)c.Attribute("N") == name);
             return (string?)cell?.Attribute("V") ?? string.Empty;
+        }
+
+        private static DrawingSurfaceModel BuildSurface(string header, string processName, string storeName)
+        {
+            StencilEllipse process = new StencilEllipse { Guid = Guid.NewGuid(), TypeId = "GE.P", GenericTypeId = "GE.P", Left = 40, Top = 40, Width = 90, Height = 50 };
+            process.Properties.Add(new StringDisplayAttribute { Name = "Name", DisplayName = "Name", Value = processName });
+            StencilParallelLines store = new StencilParallelLines { Guid = Guid.NewGuid(), TypeId = "GE.DS", GenericTypeId = "GE.DS", Left = 300, Top = 40, Width = 110, Height = 50 };
+            store.Properties.Add(new StringDisplayAttribute { Name = "Name", DisplayName = "Name", Value = storeName });
+
+            DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = header };
+            surface.Borders[process.Guid] = process;
+            surface.Borders[store.Guid] = store;
+
+            Connector connector = new Connector { Guid = Guid.NewGuid(), SourceGuid = process.Guid, TargetGuid = store.Guid };
+            connector.Properties.Add(new StringDisplayAttribute { Name = "Name", DisplayName = "Name", Value = "flow" });
+            surface.Lines[connector.Guid] = connector;
+
+            return surface;
         }
 
         private static int CountNodes(ThreatModel model)

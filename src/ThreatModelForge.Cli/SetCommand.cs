@@ -29,7 +29,7 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            CliArgs parsed = CliArgs.Parse(args, new[] { "id", "name" }, new[] { "force" });
+            CliArgs parsed = CliArgs.Parse(args, new[] { "id", "name", "page" }, new[] { "force" });
             if (parsed.Help)
             {
                 PrintUsage();
@@ -85,14 +85,27 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
+            string? pageSpec = parsed.Get("page");
             Entity? target = null;
-            foreach (DrawingSurfaceModel diagram in model.DrawingSurfaceList)
+            if (string.IsNullOrEmpty(pageSpec))
             {
-                target = DiagramEditor.FindElement(diagram, id);
-                if (target != null)
+                foreach (DrawingSurfaceModel diagram in model.DrawingSurfaceList)
                 {
-                    break;
+                    target = DiagramEditor.FindElement(diagram, id);
+                    if (target != null)
+                    {
+                        break;
+                    }
                 }
+            }
+            else if (AuthoringSupport.TryResolveDiagram(model, pageSpec!, out DrawingSurfaceModel? resolved, out string? pageError))
+            {
+                target = DiagramEditor.FindElement(resolved!, id);
+            }
+            else
+            {
+                Console.Error.WriteLine(pageError);
+                return 1;
             }
 
             if (target == null)
@@ -140,7 +153,7 @@ namespace ThreatModelForge.Cli
         {
             Console.Error.WriteLine("Set the name and/or custom properties of an existing element or flow.");
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  tmforge set --id <guid> [--name <name>] [--property KEY=VALUE]... [--json] <file>");
+            Console.Error.WriteLine("  tmforge set --id <guid> [--name <name>] [--page <name|index>] [--property KEY=VALUE]... [--json] <file>");
             Console.Error.WriteLine();
             Console.Error.WriteLine("Resolve linter findings, e.g. --property Protocol=HTTPS --property Port=443,");
             Console.Error.WriteLine("--property DataType=\"Customer Content\", or --property AuthenticationScheme=OAuth.");

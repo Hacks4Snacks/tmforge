@@ -6,6 +6,7 @@ namespace ThreatModelForge.Formats
     using System.IO.Compression;
     using System.Linq;
     using System.Reflection;
+    using System.Text.RegularExpressions;
     using System.Xml.Linq;
     using ThreatModelForge.Editing;
     using ThreatModelForge.KnowledgeBase;
@@ -42,7 +43,7 @@ namespace ThreatModelForge.Formats
             canRead: true,
             canWrite: true,
             roundTrips: false,
-            fidelityNote: "Editable Visio (.vsdx) via template injection. Structure (nodes, flows, trust boundaries, names, geometry) is preserved; element custom properties and associated threats are written as per-shape Visio Shape Data and re-imported as custom properties. Import recognizes packages this provider wrote (and the documented master/Shape convention).");
+            fidelityNote: "Editable Visio (.vsdx) via template injection. Every diagram (page) is exported as its own Visio page and re-imported. Structure (nodes, flows, trust boundaries, names, geometry) is preserved; element custom properties and associated threats are written as per-shape Visio Shape Data and re-imported as custom properties. Import recognizes packages this provider wrote (and the documented master/Shape convention).");
 
         private static readonly IReadOnlyList<string> BoundaryKeywords = new[]
         {
@@ -115,36 +116,112 @@ namespace ThreatModelForge.Formats
                 throw new ArgumentNullException(nameof(stream));
             }
 
-            string pageXml;
             string pagesXml;
+            string pagesRels;
             string mastersXml;
+            Dictionary<string, string> pageXmlByFile = new Dictionary<string, string>(StringComparer.Ordinal);
             using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true))
             {
-                ZipArchiveEntry? pageEntry = archive.GetEntry("visio/pages/page1.xml")
-                    ?? archive.Entries.FirstOrDefault(e =>
-                        e.FullName.StartsWith("visio/pages/page", StringComparison.Ordinal)
-                        && e.FullName.EndsWith(".xml", StringComparison.Ordinal)
-                        && !e.FullName.EndsWith("pages.xml", StringComparison.Ordinal));
-                if (pageEntry == null)
-                {
-                    throw new InvalidDataException("The Visio package has no page content part.");
-                }
-
-                pageXml = ReadEntry(pageEntry);
                 ZipArchiveEntry? pagesEntry = archive.GetEntry("visio/pages/pages.xml");
                 pagesXml = pagesEntry != null ? ReadEntry(pagesEntry) : string.Empty;
+                ZipArchiveEntry? pagesRelsEntry = archive.GetEntry("visio/pages/_rels/pages.xml.rels");
+                pagesRels = pagesRelsEntry != null ? ReadEntry(pagesRelsEntry) : string.Empty;
                 ZipArchiveEntry? mastersEntry = archive.GetEntry("visio/masters/masters.xml");
                 mastersXml = mastersEntry != null ? ReadEntry(mastersEntry) : string.Empty;
+
+                foreach (ZipArchiveEntry entry in archive.Entries)
+                {
+                    Match match = Regex.Match(entry.FullName, "^visio/pages/(page\\d+\\.xml)$");
+                    if (match.Success)
+                    {
+                        pageXmlByFile[match.Groups[1].Value] = ReadEntry(entry);
+                    }
+                }
             }
 
-            double pageHeight = ReadPageHeight(pagesXml);
             IReadOnlyDictionary<int, string> masterNames = ParseMasters(mastersXml);
-
             ThreatModel model = new ThreatModel { Version = "1.0" };
-            DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "Diagram 1" };
-            model.DrawingSurfaceList.Add(surface);
             DiagramEditor editor = new DiagramEditor(model);
 
+            List<(string Name, string File, double Height)> pageInfos = ParsePageInfos(pagesXml, pagesRels);
+            if (pageInfos.Count == 0)
+            {
+                // No usable pages.xml (or its pages carry no relationship): fall back to the
+                // lowest-numbered page part on its own, matching the previous single-page read.
+                string? file = pageXmlByFile.Keys.OrderBy(k => k, StringComparer.Ordinal).FirstOrDefault();
+                if (file != null)
+                {
+                    pageInfos.Add((string.Empty, file, DefaultPageHeightInches));
+                }
+            }
+
+            int number = 0;
+            foreach ((string name, string file, double height) in pageInfos)
+            {
+                number++;
+                if (!pageXmlByFile.TryGetValue(file, out string? pageXml))
+                {
+                    continue;
+                }
+
+                string header = string.IsNullOrWhiteSpace(name)
+                    ? "Diagram " + number.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    : name;
+                DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = header };
+                model.DrawingSurfaceList.Add(surface);
+                ReadPageInto(editor, surface, pageXml, height, masterNames);
+            }
+
+            if (model.DrawingSurfaceList.Count == 0)
+            {
+                throw new InvalidDataException("The Visio package has no page content part.");
+            }
+
+            return model;
+        }
+
+        /// <inheritdoc/>
+        public void Write(ThreatModel model, Stream stream)
+        {
+            if (model == null)
+            {
+                throw new ArgumentNullException(nameof(model));
+            }
+
+            if (stream == null)
+            {
+                throw new ArgumentNullException(nameof(stream));
+            }
+
+            List<(string Name, VsdxDiagram Page)> pages = new List<(string Name, VsdxDiagram Page)>();
+            if (model.DrawingSurfaceList.Count == 0)
+            {
+                pages.Add(("Diagram 1", BuildDiagram(model, new DrawingSurfaceModel())));
+            }
+            else
+            {
+                int number = 0;
+                foreach (DrawingSurfaceModel surface in model.DrawingSurfaceList)
+                {
+                    number++;
+                    string name = string.IsNullOrWhiteSpace(surface.Header)
+                        ? "Diagram " + number.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        : surface.Header!;
+                    pages.Add((name, BuildDiagram(model, surface)));
+                }
+            }
+
+            byte[] vsdx = VsdxDiagram.ToVsdx(LoadTemplate(), pages);
+            stream.Write(vsdx, 0, vsdx.Length);
+        }
+
+        private static void ReadPageInto(
+            DiagramEditor editor,
+            DrawingSurfaceModel surface,
+            string pageXml,
+            double pageHeight,
+            IReadOnlyDictionary<int, string> masterNames)
+        {
             XDocument page = XDocument.Parse(pageXml);
             (Dictionary<int, int> connectorSource, Dictionary<int, int> connectorTarget) = ParseConnects(page);
             HashSet<int> connectorIds = new HashSet<int>(connectorSource.Keys);
@@ -205,38 +282,65 @@ namespace ThreatModelForge.Formats
             }
 
             BuildConnectors(editor, surface, connectorSource, connectorTarget, nodeGuids, connectorLabels);
-            return model;
         }
 
-        /// <inheritdoc/>
-        public void Write(ThreatModel model, Stream stream)
+        private static List<(string Name, string File, double Height)> ParsePageInfos(string pagesXml, string pagesRels)
         {
-            if (model == null)
+            List<(string Name, string File, double Height)> result = new List<(string Name, string File, double Height)>();
+            if (string.IsNullOrEmpty(pagesXml))
             {
-                throw new ArgumentNullException(nameof(model));
+                return result;
             }
 
-            if (stream == null)
+            Dictionary<string, string> rels = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (Match relationship in Regex.Matches(pagesRels, "<Relationship\\b[^>]*>"))
             {
-                throw new ArgumentNullException(nameof(stream));
-            }
-
-            VsdxDiagram diagram = BuildDiagram(model, SelectSurface(model));
-            byte[] vsdx = diagram.ToVsdx(LoadTemplate());
-            stream.Write(vsdx, 0, vsdx.Length);
-        }
-
-        private static DrawingSurfaceModel SelectSurface(ThreatModel model)
-        {
-            for (int i = 0; i < model.DrawingSurfaceList.Count; i++)
-            {
-                if (model.DrawingSurfaceList[i].Borders.Count > 0)
+                Match id = Regex.Match(relationship.Value, "Id=['\"]([^'\"]+)['\"]");
+                Match target = Regex.Match(relationship.Value, "Target=['\"]([^'\"]+)['\"]");
+                if (id.Success && target.Success)
                 {
-                    return model.DrawingSurfaceList[i];
+                    string file = target.Groups[1].Value;
+                    int slash = file.LastIndexOf('/');
+                    rels[id.Groups[1].Value] = slash >= 0 ? file.Substring(slash + 1) : file;
                 }
             }
 
-            return model.DrawingSurfaceList.Count > 0 ? model.DrawingSurfaceList[0] : new DrawingSurfaceModel();
+            XDocument document;
+            try
+            {
+                document = XDocument.Parse(pagesXml);
+            }
+            catch (System.Xml.XmlException)
+            {
+                return result;
+            }
+
+            foreach (XElement pageElement in document.Descendants().Where(e => e.Name.LocalName == "Page"))
+            {
+                string name = pageElement.Attribute("Name")?.Value ?? pageElement.Attribute("NameU")?.Value ?? string.Empty;
+                XElement? relElement = pageElement.Descendants().FirstOrDefault(e => e.Name.LocalName == "Rel");
+                string relId = relElement?.Attributes().FirstOrDefault(a => a.Name.LocalName == "id")?.Value ?? string.Empty;
+                if (rels.TryGetValue(relId, out string? file) && !string.IsNullOrEmpty(file))
+                {
+                    result.Add((name, file, ReadPageSheetHeight(pageElement)));
+                }
+            }
+
+            return result;
+        }
+
+        private static double ReadPageSheetHeight(XElement page)
+        {
+            XElement? cell = page.Descendants().FirstOrDefault(e =>
+                e.Name.LocalName == "Cell" && string.Equals(e.Attribute("N")?.Value, "PageHeight", StringComparison.Ordinal));
+            if (cell != null
+                && double.TryParse(cell.Attribute("V")?.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double parsed)
+                && parsed > 0)
+            {
+                return parsed;
+            }
+
+            return DefaultPageHeightInches;
         }
 
         private static VsdxDiagram BuildDiagram(ThreatModel model, DrawingSurfaceModel surface)
@@ -614,34 +718,6 @@ namespace ThreatModelForge.Formats
             using Stream entryStream = entry.Open();
             using StreamReader reader = new StreamReader(entryStream);
             return reader.ReadToEnd();
-        }
-
-        private static double ReadPageHeight(string pagesXml)
-        {
-            if (string.IsNullOrEmpty(pagesXml))
-            {
-                return DefaultPageHeightInches;
-            }
-
-            try
-            {
-                XDocument document = XDocument.Parse(pagesXml);
-                XElement? cell = document.Descendants().FirstOrDefault(e =>
-                    e.Name.LocalName == "Cell"
-                    && string.Equals(e.Attribute("N")?.Value, "PageHeight", StringComparison.Ordinal));
-                if (cell != null
-                    && double.TryParse(cell.Attribute("V")?.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double parsed)
-                    && parsed > 0)
-                {
-                    return parsed;
-                }
-            }
-            catch (System.Xml.XmlException)
-            {
-                // Fall back to the default page height below.
-            }
-
-            return DefaultPageHeightInches;
         }
 
         private static Dictionary<string, string> TopLevelCells(XElement shape)

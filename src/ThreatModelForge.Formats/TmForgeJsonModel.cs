@@ -1,6 +1,7 @@
 namespace ThreatModelForge.Formats
 {
     using System;
+    using System.Collections.Generic;
 
     /// <summary>
     /// The <c>tmforge-json</c> document: the canvas's canonical in-memory model and the wire shape
@@ -20,6 +21,13 @@ namespace ThreatModelForge.Formats
 
         /// <summary>Gets the directed data flows between elements.</summary>
         public TmForgeJsonFlow[] Flows { get; init; } = Array.Empty<TmForgeJsonFlow>();
+
+        /// <summary>
+        /// Gets the named pages (diagrams). When present, this is the authoritative multi-page form and
+        /// the top-level <see cref="Elements"/> and <see cref="Flows"/> mirror the first page for older,
+        /// single-page readers. Absent (<see langword="null"/>) for single-page models.
+        /// </summary>
+        public IReadOnlyList<TmForgeJsonDiagram>? Diagrams { get; init; }
 
         /// <summary>Gets the per-model validation selection (which rule packs or rules to skip).</summary>
         public TmForgeJsonValidation? Validation { get; init; }

@@ -35,6 +35,7 @@ tmforge <command> [options] <file>
 | [`remove`](#remove) | Author | Remove an element (and its connected flows). |
 | [`rename`](#rename) | Author | Rename an element. |
 | [`set`](#set) | Author | Set an element/flow's name or properties. |
+| [`page`](#page) | Author | List, add, rename, reorder, or remove pages (diagrams). |
 | [`lint`](#lint) | Validate | Evaluate the rule set against a model. |
 | [`report`](#report) | Report | Generate a self-contained HTML report. |
 | [`convert`](#convert) | Convert | Convert a model between file formats. |
@@ -173,7 +174,7 @@ tmforge new payments.tmforge.json --format tmforge-json
 
 ### `add`
 
-Add an element to the first diagram. Use a **positional kind** for a generic element, **or**
+Add an element to a page (the first diagram by default; target another with `--page`). Use a **positional kind** for a generic element, **or**
 `--stencil <id>` for a typed one (the two are mutually exclusive).
 
 ```text
@@ -187,6 +188,7 @@ tmforge add --stencil <id> [options] <file>
 | `--stencil <id>` | Concrete stencil from the catalog; stamps `StencilType=<id>` plus preset defaults. |
 | `--left <n>` / `--top <n>` | Explicit coordinates (otherwise auto-laid-out). |
 | `--width <n>` / `--height <n>` | Size (boundaries default to 260×180 so they enclose in `render`). |
+| `--page <name\|index>` | Target page: a 1-based index or a page name (default: the first page; one is created if the model has none). |
 | `--property KEY=VALUE` | Repeatable. Sets a rule-checked custom property. |
 
 ```bash
@@ -209,6 +211,7 @@ tmforge connect --source <guid> --target <guid> [--name <name>] [--property KEY=
 | `--source <guid>` | Source element GUID (required). |
 | `--target <guid>` | Target element GUID (required). |
 | `--name <name>` | Flow label. |
+| `--page <name\|index>` | Page to connect within (default: the first page). Both endpoints must be on it. |
 | `--property KEY=VALUE` | Repeatable. Sets flow custom properties (`Protocol`, `Port`, `DataType`, `Channel`, …). |
 
 Mark a non-network flow with `--property Channel=In-Process` (also `Local-file`, `Unix-socket`, or
@@ -223,18 +226,19 @@ tmforge connect payments.tm7 \
 
 ### `remove`
 
-Remove an element and its connected flows.
+Remove an element and its connected flows. The element is found on any page by default; `--page`
+scopes the search to one page.
 
 ```text
-tmforge remove --id <guid> [--json] <file>
+tmforge remove --id <guid> [--page <name|index>] [--json] <file>
 ```
 
 ### `rename`
 
-Rename an element.
+Rename an element. The element is found on any page by default; `--page` scopes the search.
 
 ```text
-tmforge rename --id <guid> --name <name> [--json] <file>
+tmforge rename --id <guid> --name <name> [--page <name|index>] [--json] <file>
 ```
 
 ### `set`
@@ -244,12 +248,44 @@ findings (e.g. add a missing `Protocol`) without recreating the element. List ev
 and its allowed values with [`tmforge properties`](#properties).
 
 ```text
-tmforge set --id <guid> [--name <name>] [--property KEY=VALUE ...] [--json] <file>
+tmforge set --id <guid> [--name <name>] [--page <name|index>] [--property KEY=VALUE ...] [--json] <file>
 ```
 
 ```bash
 tmforge set payments.tm7 --id 3333... --property Protocol=HTTPS --property Port=443
 tmforge set payments.tm7 --id 3333... --name "Authenticated request" --property AuthenticationScheme=OAuth
+```
+
+### `page`
+
+List and manage the **pages** (diagrams) of a model. A `.tm7` model can hold several diagrams (for
+example a context diagram plus per-service DFDs); the authoring verbs target one page at a time with
+`--page`, and read-only verbs (`list`, `show`, `render`) already report every page.
+
+```text
+tmforge page ls [--json] <file>
+tmforge page add [--name <name>] [--json] <file>
+tmforge page rename --page <name|index> --name <newname> [--json] <file>
+tmforge page rm --page <name|index> [--json] <file>
+tmforge page reorder --page <name|index> --to <index> [--json] <file>
+```
+
+| Subcommand | Purpose |
+| --- | --- |
+| `ls` | List pages with their 1-based index, name, and element / flow / boundary counts. |
+| `add` | Append a page (named `--name`, else `Diagram N`). |
+| `rename` | Rename the selected page. |
+| `rm` | Delete the selected page (the last page cannot be removed). |
+| `reorder` | Move the selected page to the 1-based position `--to`. |
+
+`--page` accepts a **1-based index** or a **page name** (case-insensitive; an ambiguous name is
+rejected — use the index).
+
+```bash
+tmforge page ls payments.tm7
+tmforge page add payments.tm7 --name "Payments service"
+tmforge add process payments.tm7 --name "Ledger" --page "Payments service"
+tmforge page reorder payments.tm7 --page "Payments service" --to 1
 ```
 
 ---
@@ -296,7 +332,7 @@ tmforge lint payments.tm7 --suppressionFile suppressions.json --json
 
 ### `report`
 
-Generate a self-contained HTML report with an inline SVG diagram.
+Generate a self-contained HTML report with an inline SVG diagram per page.
 
 ```text
 tmforge report [--out <path.html>] [--json] <model.tm7>

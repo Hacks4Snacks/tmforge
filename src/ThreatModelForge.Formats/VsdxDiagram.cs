@@ -11,8 +11,8 @@ namespace ThreatModelForge.Formats
 
     /// <summary>
     /// Builds an editable Visio <c>.vsdx</c> by injecting a data-flow diagram into a known-good
-    /// Visio template ("template injection"): a copy of the template has its first page replaced
-    /// with generated shapes and the scaffolding (masters, theme, windows, thumbnail) is preserved.
+    /// Visio template ("template injection"): a copy of the template has its pages replaced with
+    /// one generated page per diagram, and the scaffolding (masters, theme, windows, thumbnail) is preserved.
     /// Connectors are real Dynamic-connector instances carrying explicit endpoint coordinate values
     /// (so Visio for the web, which does not run the router on load, renders them correctly on first
     /// open) alongside glue formulas (so Visio desktop keeps them live-glued when shapes move).
@@ -52,6 +52,127 @@ namespace ThreatModelForge.Formats
         {
             this.width = width;
             this.height = height;
+        }
+
+        /// <summary>
+        /// Packages the supplied diagrams as the pages of a copy of the template and returns the
+        /// resulting <c>.vsdx</c> bytes: page 1 replaces the template's page, and each additional
+        /// diagram is added as a new <c>visio/pages/pageN.xml</c> part (with its relationship,
+        /// content-type override, and page rels), so a multi-page model round-trips one Visio page
+        /// per diagram.
+        /// </summary>
+        /// <param name="templateBytes">The known-good Visio template package.</param>
+        /// <param name="pages">The diagrams to emit, in order, each with its page (tab) name.</param>
+        /// <returns>The generated <c>.vsdx</c> bytes.</returns>
+        internal static byte[] ToVsdx(byte[] templateBytes, IReadOnlyList<(string Name, VsdxDiagram Page)> pages)
+        {
+            Dictionary<string, byte[]> entries = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            List<string> order = new List<string>();
+            using (MemoryStream input = new MemoryStream(templateBytes, writable: false))
+            using (ZipArchive zip = new ZipArchive(input, ZipArchiveMode.Read))
+            {
+                foreach (ZipArchiveEntry entry in zip.Entries)
+                {
+                    using MemoryStream buffer = new MemoryStream();
+                    using (Stream entryStream = entry.Open())
+                    {
+                        entryStream.CopyTo(buffer);
+                    }
+
+                    entries[entry.FullName] = buffer.ToArray();
+                    order.Add(entry.FullName);
+                }
+            }
+
+            string masters = Encoding.UTF8.GetString(entries["visio/masters/masters.xml"]);
+            string masterId = FindConnectorMaster(masters);
+            string pagesXml = Encoding.UTF8.GetString(entries["visio/pages/pages.xml"]);
+            string pagesRels = Encoding.UTF8.GetString(entries["visio/pages/_rels/pages.xml.rels"]);
+            string firstPage = FirstPageFile(pagesXml, pagesRels);
+            string firstPagePath = "visio/pages/" + firstPage;
+            string firstPageRelsPath = "visio/pages/_rels/" + firstPage + ".rels";
+            byte[] pageRels = entries.TryGetValue(firstPageRelsPath, out byte[] found) ? found : Array.Empty<byte>();
+
+            Match block = Regex.Match(pagesXml, "<Page\\b.*?</Page>", RegexOptions.Singleline);
+            string pagesHeader = pagesXml.Substring(0, block.Index);
+            string pageBlockTemplate = block.Value;
+
+            List<byte[]> pageContents = new List<byte[]>();
+            StringBuilder pageBlocks = new StringBuilder();
+            StringBuilder relBuilder = new StringBuilder();
+            StringBuilder contentTypeOverrides = new StringBuilder();
+            for (int i = 0; i < pages.Count; i++)
+            {
+                int number = i + 1;
+                VsdxDiagram page = pages[i].Page;
+                pageContents.Add(Encoding.UTF8.GetBytes(page.RenderPage(masterId)));
+                pageBlocks.Append(CustomizePageBlock(pageBlockTemplate, i, pages[i].Name, page.width, page.height));
+                relBuilder.Append("<Relationship Id=\"rId").Append(number.ToString(CultureInfo.InvariantCulture))
+                    .Append("\" Type=\"http://schemas.microsoft.com/visio/2010/relationships/page\" Target=\"page")
+                    .Append(number.ToString(CultureInfo.InvariantCulture)).Append(".xml\"/>");
+                if (number >= 2)
+                {
+                    contentTypeOverrides.Append("<Override PartName=\"/visio/pages/page")
+                        .Append(number.ToString(CultureInfo.InvariantCulture))
+                        .Append(".xml\" ContentType=\"application/vnd.ms-visio.page+xml\"/>");
+                }
+            }
+
+            byte[] newPages = Encoding.UTF8.GetBytes(pagesHeader + pageBlocks + "</Pages>");
+            byte[] newPagesRels = Encoding.UTF8.GetBytes(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\r\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+                + relBuilder + "</Relationships>");
+            string contentTypes = Encoding.UTF8.GetString(entries["[Content_Types].xml"]);
+            if (contentTypeOverrides.Length > 0)
+            {
+                contentTypes = contentTypes.Replace("</Types>", contentTypeOverrides + "</Types>");
+            }
+
+            using MemoryStream outputStream = new MemoryStream();
+            using (ZipArchive output = new ZipArchive(outputStream, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                WriteEntry(output, "[Content_Types].xml", Encoding.UTF8.GetBytes(contentTypes));
+                foreach (string name in order)
+                {
+                    if (string.Equals(name, "[Content_Types].xml", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    if (string.Equals(name, "visio/pages/pages.xml", StringComparison.Ordinal))
+                    {
+                        WriteEntry(output, name, newPages);
+                    }
+                    else if (string.Equals(name, "visio/pages/_rels/pages.xml.rels", StringComparison.Ordinal))
+                    {
+                        WriteEntry(output, name, newPagesRels);
+                    }
+                    else if (string.Equals(name, firstPagePath, StringComparison.Ordinal))
+                    {
+                        WriteEntry(output, name, pageContents[0]);
+                    }
+                    else if (IsOtherPagePart(name, firstPage))
+                    {
+                        continue;
+                    }
+                    else
+                    {
+                        WriteEntry(output, name, entries[name]);
+                    }
+                }
+
+                for (int i = 1; i < pages.Count; i++)
+                {
+                    int number = i + 1;
+                    WriteEntry(output, "visio/pages/page" + number.ToString(CultureInfo.InvariantCulture) + ".xml", pageContents[i]);
+                    if (pageRels.Length > 0)
+                    {
+                        WriteEntry(output, "visio/pages/_rels/page" + number.ToString(CultureInfo.InvariantCulture) + ".xml.rels", pageRels);
+                    }
+                }
+            }
+
+            return outputStream.ToArray();
         }
 
         /// <summary>
@@ -130,76 +251,22 @@ namespace ThreatModelForge.Formats
             this.texts.Add((centerX, centerY, w, label ?? string.Empty, size, "#1F3864"));
         }
 
-        /// <summary>
-        /// Injects this diagram as page 1 of a copy of the supplied template and returns the
-        /// resulting <c>.vsdx</c> package bytes.
-        /// </summary>
-        /// <param name="templateBytes">The known-good Visio template package.</param>
-        /// <returns>The generated <c>.vsdx</c> bytes.</returns>
-        internal byte[] ToVsdx(byte[] templateBytes)
+        private static string CustomizePageBlock(string template, int index, string name, double width, double height)
         {
-            Dictionary<string, byte[]> entries = new Dictionary<string, byte[]>(StringComparer.Ordinal);
-            List<string> order = new List<string>();
-            using (MemoryStream input = new MemoryStream(templateBytes, writable: false))
-            using (ZipArchive zip = new ZipArchive(input, ZipArchiveMode.Read))
-            {
-                foreach (ZipArchiveEntry entry in zip.Entries)
-                {
-                    using MemoryStream buffer = new MemoryStream();
-                    using (Stream entryStream = entry.Open())
-                    {
-                        entryStream.CopyTo(buffer);
-                    }
-
-                    entries[entry.FullName] = buffer.ToArray();
-                    order.Add(entry.FullName);
-                }
-            }
-
-            string masters = Encoding.UTF8.GetString(entries["visio/masters/masters.xml"]);
-            string masterId = FindConnectorMaster(masters);
-            string pagesXml = Encoding.UTF8.GetString(entries["visio/pages/pages.xml"]);
-            string pagesRels = Encoding.UTF8.GetString(entries["visio/pages/_rels/pages.xml.rels"]);
-            string firstPage = this.FirstPageFile(pagesXml, pagesRels);
-            string firstPagePath = "visio/pages/" + firstPage;
-
-            byte[] pageBytes = Encoding.UTF8.GetBytes(this.RenderPage(masterId));
-            string newPages = this.SetPageSize(TrimToFirstPage(pagesXml));
-
-            using MemoryStream outputStream = new MemoryStream();
-            using (ZipArchive output = new ZipArchive(outputStream, ZipArchiveMode.Create, leaveOpen: true))
-            {
-                WriteEntry(output, "[Content_Types].xml", entries["[Content_Types].xml"]);
-                foreach (string name in order)
-                {
-                    if (string.Equals(name, "[Content_Types].xml", StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
-
-                    if (string.Equals(name, "visio/pages/pages.xml", StringComparison.Ordinal))
-                    {
-                        WriteEntry(output, name, Encoding.UTF8.GetBytes(newPages));
-                    }
-                    else if (string.Equals(name, firstPagePath, StringComparison.Ordinal))
-                    {
-                        WriteEntry(output, name, pageBytes);
-                    }
-                    else if (IsOtherPagePart(name, firstPage))
-                    {
-                        // A multi-page template's non-first pages are dropped; the bundled
-                        // single-page template has none, so this is a no-op there.
-                        continue;
-                    }
-                    else
-                    {
-                        WriteEntry(output, name, entries[name]);
-                    }
-                }
-            }
-
-            return outputStream.ToArray();
+            string esc = AttrEsc(name);
+            string block = new Regex("ID='0'").Replace(template, "ID='" + index.ToString(CultureInfo.InvariantCulture) + "'", 1);
+            block = block.Replace(
+                "NameU='Page-1' Name='Page-1'",
+                "NameU='" + esc + "' Name='" + esc + "' IsCustomName='1' IsCustomNameU='1'");
+            block = new Regex("(<Cell N='PageWidth' V=')[^']*'").Replace(block, "$1" + width.ToString(CultureInfo.InvariantCulture) + "'", 1);
+            block = new Regex("(<Cell N='PageHeight' V=')[^']*'").Replace(block, "$1" + height.ToString(CultureInfo.InvariantCulture) + "'", 1);
+            block = new Regex("ViewCenterX='[^']*'").Replace(block, "ViewCenterX='" + S(width / 2) + "'", 1);
+            block = new Regex("ViewCenterY='[^']*'").Replace(block, "ViewCenterY='" + S(height / 2) + "'", 1);
+            return block.Replace("<Rel r:id='rId1'/>", "<Rel r:id='rId" + (index + 1).ToString(CultureInfo.InvariantCulture) + "'/>");
         }
+
+        private static string AttrEsc(string s) =>
+            (s ?? string.Empty).Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("'", "&apos;").Replace("\"", "&quot;");
 
         private static string Esc(string s) =>
             (s ?? string.Empty).Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
@@ -441,13 +508,6 @@ namespace ThreatModelForge.Formats
                 + $"<Text><cp IX='0'/>{Esc(label)}</Text></Shape>";
         }
 
-        private static string TrimToFirstPage(string pagesXml)
-        {
-            Match m = Regex.Match(pagesXml, "<Page\\b.*?</Page>", RegexOptions.Singleline);
-            string prefix = pagesXml.Substring(0, m.Index);
-            return prefix + m.Value + "</Pages>";
-        }
-
         private static string FindConnectorMaster(string mastersXml)
         {
             foreach (Match block in Regex.Matches(mastersXml, "<Master\\b[^>]*>"))
@@ -488,7 +548,7 @@ namespace ThreatModelForge.Formats
             stream.Write(data, 0, data.Length);
         }
 
-        private string FirstPageFile(string pagesXml, string pagesRels)
+        private static string FirstPageFile(string pagesXml, string pagesRels)
         {
             Match firstPage = Regex.Match(pagesXml, "<Page\\b.*?</Page>", RegexOptions.Singleline);
             Match rel = Regex.Match(firstPage.Value, "<Rel\\s+r:id=['\"]([^'\"]+)['\"]");
@@ -505,15 +565,6 @@ namespace ThreatModelForge.Formats
             }
 
             throw new InvalidOperationException("Could not resolve the first page file from pages.xml.rels.");
-        }
-
-        private string SetPageSize(string pagesXml)
-        {
-            string s = new Regex("(<Cell N='PageWidth' V=')[^']*'").Replace(pagesXml, "$1" + this.width.ToString(CultureInfo.InvariantCulture) + "'", 1);
-            s = new Regex("(<Cell N='PageHeight' V=')[^']*'").Replace(s, "$1" + this.height.ToString(CultureInfo.InvariantCulture) + "'", 1);
-            s = new Regex("ViewCenterX='[^']*'").Replace(s, "ViewCenterX='" + S(this.width / 2) + "'", 1);
-            s = new Regex("ViewCenterY='[^']*'").Replace(s, "ViewCenterY='" + S(this.height / 2) + "'", 1);
-            return s;
         }
 
         private string RenderPage(string masterId)

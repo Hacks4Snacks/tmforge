@@ -29,9 +29,10 @@ import { Inspector } from './Inspector';
 import { ValidationSettings } from './ValidationSettings';
 import { FALLBACK_PACKS, FALLBACK_STENCILS } from './stencils';
 import { createHttpEngine, loadWasmEngine, offlineEngine, probeEngine, type Finding, type FormatInfo, type IEngineClient, type PackInfo, type PropertyDescriptorInfo, type RuleInfo, type RulePackInfo, type StencilInfo } from './engineClient';
-import { DEFAULT_NODE_SIZE, fromModel, toModel } from './mapping';
+import { DEFAULT_NODE_SIZE, modelFromPages, pagesFromModel, type PageGraph } from './mapping';
 import { useUndoRedo } from './useUndoRedo';
 import { FlowEdge } from './edges/FlowEdge';
+import { PageTabs } from './PageTabs';
 import { DfdActionsContext, type DfdActions } from './editorContext';
 import { Toaster, toast } from './toast';
 import type { DfdEdge, DfdKind, DfdNode, TmForgeModel, TmForgeValidation } from './types';
@@ -59,14 +60,8 @@ const KIND_COLOR: Record<DfdKind, string> = {
   boundary: '#64748b',
 };
 
-const EMPTY_MODEL: TmForgeModel = {
-  schema: 'tmforge-json',
-  version: '0.1',
-  elements: [],
-  flows: [],
-};
-
-const STORAGE_KEY = 'tmforge.studio.model.v1';
+const STORAGE_KEY = 'tmforge.studio.workspace.v2';
+const LEGACY_MODEL_KEY = 'tmforge.studio.model.v1';
 const THEME_KEY = 'tmforge.studio.theme';
 const RECENTS_KEY = 'tmforge.studio.recentStencils.v1';
 /** How many recently used stencils to remember. */
@@ -89,18 +84,46 @@ function initialTheme(): Theme {
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
-/** Reads a previously saved model from browser storage, or null when none/invalid. */
-function loadStoredModel(): TmForgeModel | null {
+interface StoredWorkspace {
+  pages: PageGraph[];
+  activePageId: string;
+  validation?: TmForgeValidation;
+}
+
+/** Reads the saved multi-page workspace (v2), migrating a legacy single-page model (v1) when present. */
+function loadStoredWorkspace(): StoredWorkspace | null {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return null;
+    if (raw) {
+      const parsed = JSON.parse(raw) as { model?: TmForgeModel; activePageId?: string };
+      if (parsed?.model?.schema === 'tmforge-json') {
+        const pages = pagesFromModel(parsed.model);
+        const activePageId = pages.some((p) => p.id === parsed.activePageId) ? parsed.activePageId! : pages[0].id;
+        return { pages, activePageId, validation: parsed.model.validation };
+      }
     }
-    const parsed = JSON.parse(raw) as TmForgeModel;
-    return parsed?.schema === 'tmforge-json' ? parsed : null;
   } catch {
-    return null;
+    /* fall through to legacy / empty */
   }
+  try {
+    const raw = window.localStorage.getItem(LEGACY_MODEL_KEY);
+    if (raw) {
+      const model = JSON.parse(raw) as TmForgeModel;
+      if (model?.schema === 'tmforge-json') {
+        const pages = pagesFromModel(model);
+        return { pages, activePageId: pages[0].id, validation: model.validation };
+      }
+    }
+  } catch {
+    /* fall through to empty */
+  }
+  return null;
+}
+
+/** A fresh workspace with a single empty page. */
+function emptyWorkspace(): StoredWorkspace {
+  const id = crypto.randomUUID();
+  return { pages: [{ id, name: 'Page 1', nodes: [], edges: [] }], activePageId: id };
 }
 
 /** Reads the recently used stencil ids from browser storage (most recent first). */
@@ -142,16 +165,14 @@ function persistStringList(key: string, value: string[]): void {
   }
 }
 
-// Restore the last saved model on load, else start from an empty canvas.
-const INITIAL_MODEL = loadStoredModel() ?? EMPTY_MODEL;
-const INITIAL = fromModel(INITIAL_MODEL);
+// Restore the last saved workspace on load, else start from a single empty page.
+const INITIAL_WORKSPACE = loadStoredWorkspace() ?? emptyWorkspace();
+const INITIAL_ACTIVE =
+  INITIAL_WORKSPACE.pages.find((p) => p.id === INITIAL_WORKSPACE.activePageId) ?? INITIAL_WORKSPACE.pages[0];
+const INITIAL_DISABLED_PACKS = INITIAL_WORKSPACE.validation?.disabledPacks ?? [];
+const INITIAL_DISABLED_RULE_IDS = INITIAL_WORKSPACE.validation?.disabledRuleIds ?? [];
 const INITIAL_SAVED_JSON = JSON.stringify(
-  modelOf(
-    INITIAL.nodes,
-    INITIAL.edges,
-    INITIAL_MODEL.validation?.disabledPacks ?? [],
-    INITIAL_MODEL.validation?.disabledRuleIds ?? [],
-  ),
+  modelFromPages(INITIAL_WORKSPACE.pages, buildValidation(INITIAL_DISABLED_PACKS, INITIAL_DISABLED_RULE_IDS)),
 );
 
 /** Minimal shape of the File System Access API used to open and overwrite files (Chromium). */
@@ -192,22 +213,25 @@ function buildValidation(disabledPacks: string[], disabledRuleIds: string[]): Tm
   return validation.disabledPacks || validation.disabledRuleIds ? validation : undefined;
 }
 
-/** The canonical model for the current graph plus the per-model validation selection. */
-function modelOf(
+/** Returns copies of the graph with the `flagged` class applied to elements a finding referenced. */
+function applyFlags(
   nodes: DfdNode[],
   edges: DfdEdge[],
-  disabledPacks: string[],
-  disabledRuleIds: string[],
-): TmForgeModel {
-  const model = toModel(nodes, edges);
-  const validation = buildValidation(disabledPacks, disabledRuleIds);
-  return validation ? { ...model, validation } : model;
+  flagged: ReadonlySet<string>,
+): { nodes: DfdNode[]; edges: DfdEdge[] } {
+  return {
+    nodes: nodes.map((n) => ({ ...n, className: flagged.has(n.id) ? 'flagged' : undefined })),
+    edges: edges.map((e) => ({ ...e, className: flagged.has(e.id) ? 'flagged' : undefined })),
+  };
 }
 
 export function Editor() {
-  const [nodes, setNodes, onNodesChange] = useNodesState<DfdNode>(INITIAL.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<DfdEdge>(INITIAL.edges);
+  const [pages, setPages] = useState<PageGraph[]>(INITIAL_WORKSPACE.pages);
+  const [activePageId, setActivePageId] = useState<string>(INITIAL_ACTIVE.id);
+  const [nodes, setNodes, onNodesChange] = useNodesState<DfdNode>(INITIAL_ACTIVE.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<DfdEdge>(INITIAL_ACTIVE.edges);
   const [findings, setFindings] = useState<Finding[]>([]);
+  const flaggedIdsRef = useRef<ReadonlySet<string>>(new Set());
   const [engine, setEngine] = useState<IEngineClient>(offlineEngine);
   const [engineOnline, setEngineOnline] = useState(false);
   const [formats, setFormats] = useState<FormatInfo[]>([]);
@@ -219,12 +243,8 @@ export function Editor() {
   const [favoriteIds, setFavoriteIds] = useState<string[]>(() => loadStringList(FAVORITES_KEY));
   const [rules, setRules] = useState<RuleInfo[]>([]);
   const [rulePacks, setRulePacks] = useState<RulePackInfo[]>([]);
-  const [disabledRulePacks, setDisabledRulePacks] = useState<string[]>(
-    () => INITIAL_MODEL.validation?.disabledPacks ?? [],
-  );
-  const [disabledRuleIds, setDisabledRuleIds] = useState<string[]>(
-    () => INITIAL_MODEL.validation?.disabledRuleIds ?? [],
-  );
+  const [disabledRulePacks, setDisabledRulePacks] = useState<string[]>(() => INITIAL_DISABLED_PACKS);
+  const [disabledRuleIds, setDisabledRuleIds] = useState<string[]>(() => INITIAL_DISABLED_RULE_IDS);
   const [showRules, setShowRules] = useState(false);
   const validationActiveRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -232,7 +252,7 @@ export function Editor() {
   const fileFormatRef = useRef<string>('tmforge-json');
   const [fileName, setFileName] = useState<string | null>(null);
   const { screenToFlowPosition, fitView } = useReactFlow();
-  const { takeSnapshot, undo, redo, canUndo, canRedo } = useUndoRedo(nodes, edges, setNodes, setEdges);
+  const { takeSnapshot, undo, redo, canUndo, canRedo, reset } = useUndoRedo(nodes, edges, setNodes, setEdges);
 
   const [theme, setTheme] = useState<Theme>(initialTheme);
   useEffect(() => {
@@ -386,28 +406,164 @@ export function Editor() {
     };
   }, [engine]);
 
-  // Persistence. `currentJson` serializes the model the way Save writes it (toModel ignores
-  // selection, so selecting a node never marks the model dirty); `dirty` compares it to the snapshot
-  // from the last explicit Save. A debounced localStorage write runs on every change as a silent
-  // crash-recovery net, so a reload never loses work regardless of saving to a file.
+  // All pages, with the live React Flow graph substituted for the active page (the store's copy of
+  // the active page is only refreshed on switch / page op, so composed reads use the live graph).
+  const allPages = useMemo<PageGraph[]>(
+    () => pages.map((p) => (p.id === activePageId ? { ...p, nodes, edges } : p)),
+    [pages, activePageId, nodes, edges],
+  );
+
+  // Persistence. `currentJson` serializes the model the way Save writes it (selection is not part of
+  // the model, so selecting a node never marks it dirty); `dirty` compares it to the snapshot from
+  // the last explicit Save. A debounced localStorage write of the whole workspace (pages + active
+  // tab) runs on every change as a crash-recovery net, so a reload never loses work.
   const currentModel = useMemo(
-    () => modelOf(nodes, edges, disabledRulePacks, disabledRuleIds),
-    [nodes, edges, disabledRulePacks, disabledRuleIds],
+    () => modelFromPages(allPages, buildValidation(disabledRulePacks, disabledRuleIds)),
+    [allPages, disabledRulePacks, disabledRuleIds],
   );
   const currentJson = useMemo(() => JSON.stringify(currentModel), [currentModel]);
   const [savedJson, setSavedJson] = useState(INITIAL_SAVED_JSON);
   const dirty = currentJson !== savedJson;
 
+  const workspaceJson = useMemo(
+    () => JSON.stringify({ v: 2, activePageId, model: currentModel }),
+    [activePageId, currentModel],
+  );
   useEffect(() => {
     const id = window.setTimeout(() => {
       try {
-        window.localStorage.setItem(STORAGE_KEY, currentJson);
+        window.localStorage.setItem(STORAGE_KEY, workspaceJson);
       } catch {
         /* storage unavailable (private mode / quota) — ignore */
       }
     }, 600);
     return () => window.clearTimeout(id);
-  }, [currentJson]);
+  }, [workspaceJson]);
+
+  // ---- pages: switch, add, rename, delete, reorder ----
+  const switchPage = useCallback(
+    (targetId: string) => {
+      if (targetId === activePageId) {
+        return;
+      }
+      const committed = allPages;
+      const target = committed.find((p) => p.id === targetId);
+      if (!target) {
+        return;
+      }
+      setPages(committed);
+      setActivePageId(targetId);
+      const applied = validationActiveRef.current
+        ? applyFlags(target.nodes, target.edges, flaggedIdsRef.current)
+        : { nodes: target.nodes, edges: target.edges };
+      setNodes(applied.nodes);
+      setEdges(applied.edges);
+      setSelection({ node: null, edge: null });
+      reset();
+      window.setTimeout(() => fitView({ padding: 0.25, maxZoom: 1.15, duration: 200 }), 0);
+    },
+    [allPages, activePageId, setNodes, setEdges, reset, fitView],
+  );
+
+  const addPage = useCallback(() => {
+    const id = crypto.randomUUID();
+    setPages([...allPages, { id, name: `Page ${pages.length + 1}`, nodes: [], edges: [] }]);
+    setActivePageId(id);
+    setNodes([]);
+    setEdges([]);
+    setSelection({ node: null, edge: null });
+    reset();
+  }, [allPages, pages.length, setNodes, setEdges, reset]);
+
+  const renamePage = useCallback((id: string, name: string) => {
+    setPages((prev) => prev.map((p) => (p.id === id ? { ...p, name } : p)));
+  }, []);
+
+  const deletePage = useCallback(
+    (id: string) => {
+      if (pages.length <= 1) {
+        return;
+      }
+      const committed = allPages;
+      const victim = committed.find((p) => p.id === id);
+      if (
+        victim &&
+        (victim.nodes.length > 0 || victim.edges.length > 0) &&
+        !window.confirm(`Delete page “${victim.name}” and its contents?`)
+      ) {
+        return;
+      }
+      const index = committed.findIndex((p) => p.id === id);
+      const remaining = committed.filter((p) => p.id !== id);
+      setPages(remaining);
+      if (id === activePageId) {
+        const next = remaining[Math.min(index, remaining.length - 1)];
+        setActivePageId(next.id);
+        const applied = validationActiveRef.current
+          ? applyFlags(next.nodes, next.edges, flaggedIdsRef.current)
+          : { nodes: next.nodes, edges: next.edges };
+        setNodes(applied.nodes);
+        setEdges(applied.edges);
+        setSelection({ node: null, edge: null });
+        reset();
+      }
+    },
+    [allPages, pages.length, activePageId, setNodes, setEdges, reset],
+  );
+
+  const reorderPage = useCallback(
+    (from: number, to: number) => {
+      const committed = allPages;
+      if (from < 0 || to < 0 || from >= committed.length || to >= committed.length) {
+        return;
+      }
+      const next = [...committed];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      setPages(next);
+    },
+    [allPages],
+  );
+
+  // Which page each element id lives on, and which pages currently carry a finding (for tab badges).
+  const elementPageIndex = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const page of allPages) {
+      for (const n of page.nodes) {
+        map.set(n.id, page.id);
+      }
+      for (const e of page.edges) {
+        map.set(e.id, page.id);
+      }
+    }
+    return map;
+  }, [allPages]);
+
+  const findingPageIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const finding of findings) {
+      for (const id of finding.elementIds) {
+        const pageId = elementPageIndex.get(id);
+        if (pageId) {
+          set.add(pageId);
+        }
+      }
+    }
+    return set;
+  }, [findings, elementPageIndex]);
+
+  const jumpToFinding = useCallback(
+    (finding: Finding) => {
+      for (const id of finding.elementIds) {
+        const pageId = elementPageIndex.get(id);
+        if (pageId && pageId !== activePageId) {
+          switchPage(pageId);
+          return;
+        }
+      }
+    },
+    [elementPageIndex, activePageId, switchPage],
+  );
 
   const serializeModel = useCallback(
     async (formatId: string): Promise<Blob> => {
@@ -720,6 +876,7 @@ export function Editor() {
     setNodes((nds) => nds.map((n) => (n.className ? { ...n, className: undefined } : n)));
     setEdges((eds) => eds.map((e) => (e.className ? { ...e, className: undefined } : e)));
     setFindings([]);
+    flaggedIdsRef.current = new Set();
     validationActiveRef.current = false;
   }, [setNodes, setEdges]);
 
@@ -734,9 +891,11 @@ export function Editor() {
     setFindings(result);
     validationActiveRef.current = true;
     const flagged = new Set(result.flatMap((f) => f.elementIds));
-    setNodes((nds) => nds.map((n) => ({ ...n, className: flagged.has(n.id) ? 'flagged' : undefined })));
-    setEdges((eds) => eds.map((e) => ({ ...e, className: flagged.has(e.id) ? 'flagged' : undefined })));
-  }, [engine, currentModel, setNodes, setEdges]);
+    flaggedIdsRef.current = flagged;
+    const applied = applyFlags(nodes, edges, flagged);
+    setNodes(applied.nodes);
+    setEdges(applied.edges);
+  }, [engine, currentModel, nodes, edges, setNodes, setEdges]);
 
   // When a validation is already on screen, changing the rule selection re-runs it so the findings
   // reflect the new choice immediately. A ref holds the latest runValidate to avoid a dependency loop.
@@ -763,21 +922,26 @@ export function Editor() {
 
   const loadModel = useCallback(
     (model: TmForgeModel) => {
-      takeSnapshot();
-      const next = fromModel(model);
+      const nextPages = pagesFromModel(model);
       const nextPacks = model.validation?.disabledPacks ?? [];
       const nextRuleIds = model.validation?.disabledRuleIds ?? [];
-      setNodes(next.nodes);
-      setEdges(next.edges);
+      const first = nextPages[0];
+      setPages(nextPages);
+      setActivePageId(first.id);
+      setNodes(first.nodes);
+      setEdges(first.edges);
       setDisabledRulePacks(nextPacks);
       setDisabledRuleIds(nextRuleIds);
       setFindings([]);
+      flaggedIdsRef.current = new Set();
       validationActiveRef.current = false;
+      setSelection({ node: null, edge: null });
+      reset();
       // A freshly loaded model is the new saved baseline, so it does not read as dirty.
-      setSavedJson(JSON.stringify(modelOf(next.nodes, next.edges, nextPacks, nextRuleIds)));
+      setSavedJson(JSON.stringify(modelFromPages(nextPages, buildValidation(nextPacks, nextRuleIds))));
       window.setTimeout(() => fitView({ padding: 0.25, maxZoom: 1.15, duration: 300 }), 0);
     },
-    [setNodes, setEdges, fitView, takeSnapshot],
+    [setNodes, setEdges, fitView, reset],
   );
 
   const readModelFromBytes = useCallback(
@@ -836,11 +1000,17 @@ export function Editor() {
   }, [engine, loadModel, readModelFromBytes]);
 
   const clearAll = useCallback(() => {
-    takeSnapshot();
+    const id = crypto.randomUUID();
+    setPages([{ id, name: 'Page 1', nodes: [], edges: [] }]);
+    setActivePageId(id);
     setNodes([]);
     setEdges([]);
     setFindings([]);
-  }, [setNodes, setEdges, takeSnapshot]);
+    flaggedIdsRef.current = new Set();
+    validationActiveRef.current = false;
+    setSelection({ node: null, edge: null });
+    reset();
+  }, [setNodes, setEdges, reset]);
 
   const actions = useMemo<DfdActions>(
     () => ({ beginEdit: takeSnapshot, renameNode, renameEdge, setEdgeLabelOffset }),
@@ -883,7 +1053,8 @@ export function Editor() {
           onTogglePack={togglePack}
           onToggleFavorite={toggleFavorite}
         />
-        <div className="canvas" onDrop={onDrop} onDragOver={onDragOver}>
+        <div className="canvas">
+          <div className="canvas-flow" onDrop={onDrop} onDragOver={onDragOver}>
           <ReactFlow<DfdNode, DfdEdge>
             nodes={nodes}
             edges={edges}
@@ -951,14 +1122,33 @@ export function Editor() {
                       <h3>
                         {findings.length} finding{findings.length === 1 ? '' : 's'}
                       </h3>
-                      {findings.map((f) => (
-                        <div key={f.id} className="finding">
-                          <span className={`sev sev-${f.severity}`}>{f.severity}</span>
-                          <span>
-                            {f.ruleId ? <code className="rule-id">{f.ruleId}</code> : null} {f.message}
-                          </span>
-                        </div>
-                      ))}
+                      {findings.map((f) => {
+                        const pageId = f.elementIds.map((id) => elementPageIndex.get(id)).find(Boolean);
+                        const pageName =
+                          pageId && pageId !== activePageId ? pages.find((p) => p.id === pageId)?.name : undefined;
+                        return (
+                          <div
+                            key={f.id}
+                            className="finding"
+                            role="button"
+                            tabIndex={0}
+                            title={pageName ? `On page “${pageName}” — click to open` : undefined}
+                            onClick={() => jumpToFinding(f)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                jumpToFinding(f);
+                              }
+                            }}
+                          >
+                            <span className={`sev sev-${f.severity}`}>{f.severity}</span>
+                            <span>
+                              {f.ruleId ? <code className="rule-id">{f.ruleId}</code> : null} {f.message}
+                              {pageName ? <span className="finding-page">{pageName}</span> : null}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -1012,6 +1202,17 @@ export function Editor() {
               </div>
             </div>
           )}
+          </div>
+          <PageTabs
+            pages={pages}
+            activePageId={activePageId}
+            findingPageIds={findingPageIds}
+            onSwitch={switchPage}
+            onAdd={addPage}
+            onRename={renamePage}
+            onDelete={deletePage}
+            onReorder={reorderPage}
+          />
         </div>
         <Inspector
           node={selectedNode}

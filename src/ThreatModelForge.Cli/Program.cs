@@ -62,6 +62,9 @@ namespace ThreatModelForge.Cli
                 case "set":
                     return SetCommand.Run(rest);
 
+                case "page":
+                    return PageCommand.Run(rest);
+
                 case "lint":
                     return LintCommand.Run(rest);
 
@@ -107,6 +110,7 @@ namespace ThreatModelForge.Cli
             Console.Error.WriteLine("  remove    Remove an element (and its connected flows).");
             Console.Error.WriteLine("  rename    Rename an element.");
             Console.Error.WriteLine("  set       Set an element/flow's name or properties (protocol, port, auth, ...).");
+            Console.Error.WriteLine("  page      List, add, rename, reorder, or remove pages (diagrams).");
             Console.Error.WriteLine("  lint      Validate a threat model against a rule set.");
             Console.Error.WriteLine("  report    Generate an HTML report from a threat model.");
             Console.Error.WriteLine("  convert   Convert a threat model between file formats.");
