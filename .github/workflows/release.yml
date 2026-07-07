@@ -149,7 +149,7 @@ jobs:
           echo "----- release-metadata.json -----"; cat release-metadata.json
           if [[ "$version" == *-* ]]; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
 
-      - name: Create GitHub Release
+      - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -157,8 +157,17 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           pre=""
           if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then pre="--prerelease"; fi
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "tmforge $version" \
-            --generate-notes \
-            $pre
+          # release-please already creates the GitHub Release when the release PR
+          # merges, so attach assets to the existing release. Only create it when it
+          # doesn't exist (e.g. a manually pushed tag or workflow_dispatch run).
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "tmforge $version" \
+              --generate-notes \
+              $pre
+          fi
