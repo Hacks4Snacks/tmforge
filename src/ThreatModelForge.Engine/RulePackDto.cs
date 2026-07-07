@@ -1,4 +1,4 @@
-namespace ThreatModelForge.Api
+namespace ThreatModelForge.Engine
 {
     /// <summary>
     /// Describes a rule pack: a named, selectable group of related analysis rules (for example, the

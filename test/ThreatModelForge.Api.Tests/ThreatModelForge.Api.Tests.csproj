@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\ThreatModelForge.Api\ThreatModelForge.Api.csproj" />
+    <ProjectReference Include="..\..\src\ThreatModelForge.Engine\ThreatModelForge.Engine.csproj" />
   </ItemGroup>
 
 </Project>

@@ -10,7 +10,7 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);SA0001</NoWarn>
     <!-- Stable bootstrap filenames (no fingerprint) so main.js's literal `./_framework/dotnet.js`
-         import resolves on a dumb static host — the ENH-0002 GitHub Pages target. -->
+         import resolves on a dumb static host — the GitHub Pages target. -->
     <WasmFingerprintAssets>false</WasmFingerprintAssets>
     <!-- Prove fidelity first: no trimming/AOT yet (trimmer roots come in a later phase).
          Single-threaded runtime (no COOP/COEP header requirement on static hosts). -->
@@ -22,13 +22,11 @@
     <StaticWebAssetFingerprintPattern Include="JS" Pattern="*.js" Expression="#[.{fingerprint}]!" />
   </ItemGroup>
 
-  <!-- The real engine libraries, run in-browser. Analysis.Rules is loaded reflectively via
-       Assembly.Load("ThreatModelForge.Analysis.Rules"); the ProjectReference keeps it in the bundle. -->
+  <!-- The shared engine facade, run in-browser. Brings Core / Formats / Editing / Analysis /
+       Analysis.Rules / Reporting transitively, including the Analysis.Rules assembly that
+       EngineService reflectively loads via Assembly.Load. -->
   <ItemGroup>
-    <ProjectReference Include="..\ThreatModelForge.Core\ThreatModelForge.Core.csproj" />
-    <ProjectReference Include="..\ThreatModelForge.Formats\ThreatModelForge.Formats.csproj" />
-    <ProjectReference Include="..\ThreatModelForge.Analysis\ThreatModelForge.Analysis.csproj" />
-    <ProjectReference Include="..\ThreatModelForge.Analysis.Rules\ThreatModelForge.Analysis.Rules.csproj" />
+    <ProjectReference Include="..\ThreatModelForge.Engine\ThreatModelForge.Engine.csproj" />
   </ItemGroup>
 
 </Project>

@@ -5,6 +5,7 @@ namespace ThreatModelForge.Api
     using Microsoft.AspNetCore.Http;
     using Microsoft.AspNetCore.Http.HttpResults;
     using Microsoft.Extensions.DependencyInjection;
+    using ThreatModelForge.Engine;
 
     /// <summary>
     /// The Threat Model Forge engine API host. Exposes a small, versioned <c>/v1</c> surface over

@@ -1,4 +1,4 @@
-namespace ThreatModelForge.Api
+namespace ThreatModelForge.Engine
 {
     using System.Collections.Generic;
 

@@ -7,6 +7,7 @@
     <Project Path="src/ThreatModelForge.Cli/ThreatModelForge.Cli.csproj" />
     <Project Path="src/ThreatModelForge.Core/ThreatModelForge.Core.csproj" />
     <Project Path="src/ThreatModelForge.Editing/ThreatModelForge.Editing.csproj" />
+    <Project Path="src/ThreatModelForge.Engine/ThreatModelForge.Engine.csproj" />
     <Project Path="src/ThreatModelForge.Formats/ThreatModelForge.Formats.csproj" />
     <Project Path="src/ThreatModelForge.Reporting/ThreatModelForge.Reporting.csproj" />
     <Project Path="src/ThreatModelForge.Wasm/ThreatModelForge.Wasm.csproj" />
