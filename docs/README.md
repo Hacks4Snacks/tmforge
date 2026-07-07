@@ -9,6 +9,7 @@ Threat Modeling Tool (MTMT).
 
 | If you want to… | Read |
 | --- | --- |
+| Try it right now, no install (runs in your browser) | [Live demo](https://hacks4snacks.github.io/tmforge/) |
 | Understand what the platform is and its features | [Overview & features](overview.md) |
 | Get running in a few minutes | [Quick start](quickstart.md) |
 | Install the CLI, container, or global tool | [Installation](installation.md) |

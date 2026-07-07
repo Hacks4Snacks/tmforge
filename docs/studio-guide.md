@@ -7,7 +7,11 @@ engine ship as one artifact.
 
 ## Launch Studio
 
-The engine API hosts Studio. The quickest way is the container image:
+The fastest way to try Studio is the hosted, no-install
+**[browser demo](https://hacks4snacks.github.io/tmforge/)**, where the .NET engine runs entirely in
+your browser via WebAssembly.
+
+To run it locally, the engine API hosts Studio. The quickest way is the container image:
 
 ```bash
 docker run --rm -p 8080:8080 tmforge      # then open http://localhost:8080/
