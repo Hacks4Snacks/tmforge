@@ -7,9 +7,9 @@ the `tmforge` CLI, then shows the same flow in the browser with Studio.
 
 Pick one:
 
-- A prebuilt `tmforge` binary (no .NET runtime needed) — see [Installation](installation.md).
-- The container image (`tmforge-cli`) — needs Docker.
-- The source tree — needs the .NET SDK pinned in `global.json` (10.0.301).
+- A prebuilt `tmforge` binary (no .NET runtime needed). See [Installation](installation.md).
+- The container image (`tmforge-cli`), which needs Docker.
+- The source tree, which needs the .NET SDK pinned in `global.json` (10.0.301).
 
 The examples below assume `tmforge` is on your `PATH`. From a container, prefix commands with
 `docker run --rm -v "$PWD:/work" tmforge-cli`. From source, replace `tmforge` with
@@ -27,8 +27,8 @@ tmforge --version
 tmforge new payments.tm7 --name "Payments"
 ```
 
-This writes an empty `.tm7` model titled "Payments". You can also start from another format —
-`tmforge new payments.tmforge.json --format tmforge-json` — or from a template file with
+This writes an empty `.tm7` model titled "Payments". You can also start from another format (for
+example `tmforge new payments.tmforge.json --format tmforge-json`) or from a template file with
 `--template`.
 
 ## 2. Add elements
@@ -66,8 +66,8 @@ tmforge connect payments.tm7 \
   --property Protocol=HTTPS --property Port=443
 ```
 
-`--property KEY=VALUE` (repeatable) stamps the rule-checked custom properties — `Protocol`,
-`Port`, `DataType`, `AuthenticationScheme`, and so on — that validation inspects.
+`--property KEY=VALUE` (repeatable) stamps the rule-checked custom properties (`Protocol`,
+`Port`, `DataType`, `AuthenticationScheme`, and so on) that validation inspects.
 
 ## 4. Inspect it
 
@@ -89,7 +89,7 @@ tmforge lint payments.tm7
 
 | Exit code | Meaning |
 | --- | --- |
-| `0` | Clean — no findings |
+| `0` | Clean, no findings |
 | `1` | Tool error (bad arguments, load failure) |
 | `2` | The model was analyzed and has findings |
 
@@ -147,6 +147,6 @@ Full pipeline examples are in the [deployment guide](deployment.md#cicd).
 
 ## Where to go next
 
-- [CLI reference](cli-reference.md) — every command and option.
-- [Overview & features](overview.md) — concepts and the bigger picture.
-- [Studio guide](studio-guide.md) — browser authoring in depth.
+- [CLI reference](cli-reference.md): every command and option.
+- [Overview & features](overview.md): concepts and the bigger picture.
+- [Studio guide](studio-guide.md): browser authoring in depth.

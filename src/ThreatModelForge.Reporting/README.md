@@ -10,8 +10,8 @@ mitigation.
 
 The core pieces are:
 
-- `DiagramSvgRenderer` — renders a `DrawingSurfaceModel` to an SVG element.
-- `HtmlReportWriter` — produces the full HTML report from a `ThreatModel`, optionally
+- `DiagramSvgRenderer`: renders a `DrawingSurfaceModel` to an SVG element.
+- `HtmlReportWriter`: produces the full HTML report from a `ThreatModel`, optionally
   enriched with a knowledge base (`.tb7`) for threat-type titles and categories.
 
 All model-supplied text is emitted through `System.Xml.Linq`, which escapes it

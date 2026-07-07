@@ -2,7 +2,7 @@
 
 **Studio** is the Threat Model Forge browser front end: a React single-page app whose data-flow-diagram
 (DFD) canvas is built on [React Flow](https://reactflow.dev). It talks to the real .NET engine over
-the versioned [`/v1` API](api-reference.md), and the API serves Studio from its root — so the UI and
+the versioned [`/v1` API](api-reference.md), and the API serves Studio from its root, so the UI and
 engine ship as one artifact.
 
 ## Launch Studio
@@ -39,7 +39,7 @@ Drag any of the four DFD stencils from the palette onto the canvas:
 ### Drawing data flows
 
 Hover a node to reveal its ports, then drag from any port to another node. Connections use React
-Flow's **loose** mode, so a flow can start or end on any side of a node — you focus on the logical
+Flow's **loose** mode, so a flow can start or end on any side of a node. You focus on the logical
 connection, not the geometry.
 
 ### Editing
@@ -50,12 +50,12 @@ connection, not the geometry.
 | Delete the selection | `Delete` key. |
 | Resize a trust boundary | Drag its handles (it's a resizable region). |
 | Pan / zoom | Drag the canvas / scroll; use the minimap and **fit** control to navigate. |
-| Undo / redo | `⌘Z` / `⇧⌘Z` (covers every edit). |
+| Undo / redo | `Cmd+Z` / `Shift+Cmd+Z` (covers every edit). |
 
 ### The inspector
 
 The right-hand panel edits the selected element or flow. For a data flow it exposes the properties
-the validation rules care about — for example **protocol** and **data classification** — so you can
+the validation rules care about (for example **protocol** and **data classification**), so you can
 clear findings without leaving the canvas.
 
 ## Validating against the engine
@@ -72,15 +72,15 @@ what the rules check.
 
 Studio round-trips through the canonical **`tmforge-json`** wire model:
 
-- **Export tmforge-json** — save the diagram as `.tmforge.json`, which the CLI and API speak
+- **Export tmforge-json**: save the diagram as `.tmforge.json`, which the CLI and API speak
   natively.
-- **Import JSON** — load a `.tmforge.json` document back onto the canvas.
+- **Import JSON**: load a `.tmforge.json` document back onto the canvas.
 
 This is the bridge between visual authoring and the [CLI](cli-reference.md): export from Studio,
 then `tmforge lint` / `tmforge report` / `tmforge convert` in a pipeline, or vice versa.
 
 > **Format parsing lives in the engine, not the browser.** The canvas never parses `.tm7`, `.vsdx`,
-> or `.drawio` itself — use the API's `convert` / `read` endpoints or the CLI for those. Studio
+> or `.drawio` itself. Use the API's `convert` / `read` endpoints or the CLI for those. Studio
 > speaks `tmforge-json`; the engine handles every other format behind `/v1`.
 
 ## Local development
@@ -88,10 +88,10 @@ then `tmforge lint` / `tmforge report` / `tmforge convert` in a pipeline, or vic
 To hack on Studio itself with hot reload, run the Vite dev server against a locally running API:
 
 ```bash
-# Terminal 1 — the engine API (Studio calls it on :5205)
+# Terminal 1: the engine API (Studio calls it on :5205)
 dotnet run --project src/ThreatModelForge.Api
 
-# Terminal 2 — the Studio dev server with hot reload
+# Terminal 2: the Studio dev server with hot reload
 cd src/ThreatModelForge.Studio
 npm install
 npm run dev        # http://localhost:5199
@@ -101,7 +101,7 @@ During development the API allows CORS from the Vite dev server at `http://local
 
 ### Regenerating the API client
 
-Studio's typed client is generated from the engine's OpenAPI document — the single source of truth.
+Studio's typed client is generated from the engine's OpenAPI document, the single source of truth.
 After the `/v1` contract changes, refresh it:
 
 ```bash
@@ -114,6 +114,6 @@ Vite + React 18 + TypeScript + `@xyflow/react` v12 (React Flow, MIT). No UI kit;
 
 ## See also
 
-- [Engine API reference](api-reference.md) — the `/v1` surface Studio depends on.
-- [Formats & interoperability](formats.md) — `tmforge-json` and the other formats.
-- [CLI reference](cli-reference.md) — drive the same engine headlessly.
+- [Engine API reference](api-reference.md): the `/v1` surface Studio depends on.
+- [Formats & interoperability](formats.md): `tmforge-json` and the other formats.
+- [CLI reference](cli-reference.md): drive the same engine headlessly.

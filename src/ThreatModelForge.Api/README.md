@@ -25,7 +25,7 @@ Studio's typed client is generated from it. A checked-in copy lives at
 | `POST /v1/model/convert?to=<format>` | Model | Convert a model to another format (`tm7`, `drawio`, `vsdx`, `tmforge-json`). |
 | `POST /v1/model/export/tm7` | Model | Export a model as a `.tm7` file. |
 | `POST /v1/model/report?format=<html\|svg>` | Report | Render a model to an HTML or SVG report. |
-| `GET /openapi/v1.json` | — | The OpenAPI document. |
+| `GET /openapi/v1.json` | n/a | The OpenAPI document. |
 
 Any non-API path falls back to the SPA's `index.html`, so client-side routes resolve while
 `/v1` and `/openapi` are matched first.

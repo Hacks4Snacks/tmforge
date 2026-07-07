@@ -13,7 +13,7 @@ its file format and fidelity while removing those constraints:
 - **Cross-platform.** Native binaries and container images for Linux, macOS, and Windows (x64 and
   arm64). No Windows dependency.
 - **Automatable.** A headless CLI and an HTTP API let agents and CI pipelines author and validate
-  models without a GUI — "threat-model-as-code."
+  models without a GUI ("threat-model-as-code").
 - **Lossless `.tm7`.** Reads and writes `.tm7` **byte-for-byte** identically to MTMT, so models
   move between tools without drift.
 - **Pluggable formats.** Beyond `.tm7`, import/export draw.io and Visio for interoperability, plus
@@ -25,20 +25,20 @@ its file format and fidelity while removing those constraints:
 
 Everything runs on one .NET engine over a single canonical, `.tm7`-shaped in-memory model.
 
-### 1. CLI — `tmforge`
+### 1. CLI (`tmforge`)
 
 The headless, scriptable face. Inspect, author, validate, report on, and convert models from a
 shell or CI pipeline. Every command supports `--json` for machine-readable output and stable exit
 codes so agents and pipelines can drive it deterministically. See the
 [CLI reference](cli-reference.md).
 
-### 2. Studio — browser authoring
+### 2. Studio (browser authoring)
 
 A React single-page app whose data-flow-diagram canvas is built on React Flow. Drag stencils onto
 a canvas, draw data flows, rename and resize elements, and validate against the live engine with
 findings overlaid on the offending nodes and edges. See the [Studio guide](studio-guide.md).
 
-### 3. Engine API — `/v1`
+### 3. Engine API (`/v1`)
 
 A small, versioned HTTP surface over the engine that also serves Studio from its root, so the API
 and UI ship as one hosted artifact. See the [API reference](api-reference.md).
@@ -67,7 +67,7 @@ what you set in Studio, the CLI, or MTMT stays consistent.
   rename, resizable trust boundaries, pan/zoom/minimap/fit, undo/redo, and an inspector to edit
   flow properties.
 - **Headless authoring** (CLI): `new`, `add`, `connect`, `remove`, `rename`, and `set` verbs
-  mutate models in place with atomic writes and deterministic auto-layout — no GUI or server
+  mutate models in place with atomic writes and deterministic auto-layout. No GUI or server
   required.
 - **Stencils.** Type elements from a built-in stencil catalog (`tmforge stencils`,
   `add --stencil <id>`) so authored models carry real stencil metadata.
@@ -84,8 +84,8 @@ what you set in Studio, the CLI, or MTMT stays consistent.
 
 ### Validation
 
-- **A built-in rule set** organized into rule packs — Core Hygiene, STRIDE Completeness,
-  Input Validation, Data Protection, Transport Security, and Identity & Access — covering
+- **A built-in rule set** organized into rule packs (Core Hygiene, STRIDE Completeness,
+  Input Validation, Data Protection, Transport Security, and Identity & Access), covering
   connectivity, naming, trust-boundary modeling, and declared security properties.
 - **CI integration**: SARIF + HTML findings reports, suppression files, rule-set overrides, and
   a distinct exit code for "found issues" vs. "tool error." See
@@ -93,7 +93,7 @@ what you set in Studio, the CLI, or MTMT stays consistent.
 
 ### Reporting
 
-- **Self-contained HTML reports** (`report`) with inline SVG diagrams — a single file you can
+- **Self-contained HTML reports** (`report`) with inline SVG diagrams. A single file you can
   attach to a review or a pull request.
 
 ### Interoperability
@@ -108,10 +108,10 @@ import/export, and CI validation.
 
 **Deferred:** in-product **STRIDE threat generation** and knowledge-base compilation are not in
 v0.1. You author and validate models; automated threat suggestion is planned as a later, optional
-generation pack. (The `.tm7` threat *data model* is fully preserved — threats authored in MTMT
+generation pack. (The `.tm7` threat *data model* is fully preserved: threats authored in MTMT
 round-trip and are listed by `tmforge list threats`.)
 
 ## Next steps
 
-- [Quick start](quickstart.md) — build your first model end to end.
-- [Installation](installation.md) — get the tools onto your machine or into CI.
+- [Quick start](quickstart.md): build your first model end to end.
+- [Installation](installation.md): get the tools onto your machine or into CI.

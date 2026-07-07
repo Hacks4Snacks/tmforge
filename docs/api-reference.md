@@ -1,7 +1,7 @@
 # Engine API reference
 
 The Threat Model Forge **engine API** exposes a small, versioned `/v1` HTTP surface over the real
-.NET engine, and serves the [Studio](studio-guide.md) single-page app from its root — so the API and
+.NET engine, and serves the [Studio](studio-guide.md) single-page app from its root, so the API and
 UI ship as one hosted artifact.
 
 The API contract is the single source of truth: the OpenAPI document at `/openapi/v1.json` is what
@@ -11,10 +11,10 @@ Studio's typed client is generated from. A checked-in copy lives at
 ## Run
 
 ```bash
-# From source — serves the built Studio SPA at the root.
+# From source: serves the built Studio SPA at the root.
 dotnet run --project src/ThreatModelForge.Api        # http://localhost:5205/
 
-# Container — the published engine API + Studio image (pulls on first run).
+# Container: the published engine API + Studio image (pulls on first run).
 docker run --rm -p 8080:8080 ghcr.io/hacks4snacks/tmforge   # http://localhost:8080/
 ```
 
@@ -38,9 +38,9 @@ and `/openapi` are matched first.
 | `POST /v1/model/convert?to=<format>` | Model | Convert a model to another format. |
 | `POST /v1/model/export/tm7` | Model | Export a model as a `.tm7` file. |
 | `POST /v1/model/report?format=<html\|svg>` | Report | Render a model to an HTML or SVG report. |
-| `GET /openapi/v1.json` | — | The OpenAPI document. |
+| `GET /openapi/v1.json` | n/a | The OpenAPI document. |
 
-`<format>` is one of `tm7`, `tmforge-json`, `drawio`, or `vsdx` — see
+`<format>` is one of `tm7`, `tmforge-json`, `drawio`, or `vsdx`. See
 [Formats & interoperability](formats.md).
 
 ## Usage examples
@@ -67,7 +67,7 @@ curl http://localhost:8080/v1/stencils         # authoring stencils
 
 ### Validate a model
 
-`POST /v1/model/validate` returns findings for a supplied model — the same rule engine `tmforge lint`
+`POST /v1/model/validate` returns findings for a supplied model, the same rule engine `tmforge lint`
 uses. This is how Studio's **Validate** button overlays findings on the canvas.
 
 ### Convert / export
@@ -81,7 +81,7 @@ uses. This is how Studio's **Validate** button overlays findings on the canvas.
 
 ### Report
 
-`POST /v1/model/report?format=html` (or `format=svg`) renders a report from a model — the hosted
+`POST /v1/model/report?format=html` (or `format=svg`) renders a report from a model, the hosted
 equivalent of `tmforge report`.
 
 ## OpenAPI & client generation
@@ -95,11 +95,11 @@ sync (Studio's `npm run gen:api` reads that file). See the
 
 - The container listens on port **8080**; from source it listens on **5205**.
 - In development the API permits CORS from the Studio dev server at `http://localhost:5199`.
-- The API is stateless — it operates on the model bytes you send it, so it scales horizontally.
+- The API is stateless: it operates on the model bytes you send it, so it scales horizontally.
   See [Deployment](deployment.md).
 
 ## See also
 
-- [Studio guide](studio-guide.md) — the browser client of this API.
-- [Deployment](deployment.md) — running the API in containers and Kubernetes.
-- [Formats & interoperability](formats.md) — the formats the model endpoints speak.
+- [Studio guide](studio-guide.md): the browser client of this API.
+- [Deployment](deployment.md): running the API in containers and Kubernetes.
+- [Formats & interoperability](formats.md): the formats the model endpoints speak.
