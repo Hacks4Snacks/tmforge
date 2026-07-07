@@ -132,6 +132,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/model/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["MergeModels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/model/export/tm7": {
         parameters: {
             query?: never;
@@ -237,6 +253,26 @@ export interface components {
         HealthStatusDto: {
             status?: string;
         };
+        MergeConflictDto: {
+            elementId?: null | string;
+            elementKind?: null | string;
+            name?: null | string;
+            diagramName?: null | string;
+            kind?: null | string;
+            property?: null | string;
+            base?: null | string;
+            ours?: null | string;
+            theirs?: null | string;
+        };
+        MergeRequestDto: {
+            base?: null | components["schemas"]["TmForgeModelDto"];
+            ours?: null | components["schemas"]["TmForgeModelDto"];
+            theirs?: null | components["schemas"]["TmForgeModelDto"];
+        };
+        MergeResultDto: {
+            merged?: null | components["schemas"]["TmForgeModelDto"];
+            conflicts?: null | components["schemas"]["MergeConflictDto"][];
+        };
         /**
          * @description Describes a stencil pack: a named, togglable group of related stencils (for example, the
          *     Azure pack). The palette uses packs so the user can show or hide whole families at once.
@@ -310,6 +346,12 @@ export interface components {
                 [key: string]: string;
             };
         };
+        TmForgeDiagramDto: {
+            id?: string;
+            name?: string;
+            elements?: null | components["schemas"]["TmForgeElementDto"][];
+            flows?: null | components["schemas"]["TmForgeFlowDto"][];
+        };
         TmForgeElementDto: {
             id?: string;
             kind?: string;
@@ -340,6 +382,7 @@ export interface components {
             version?: null | string;
             elements?: null | components["schemas"]["TmForgeElementDto"][];
             flows?: null | components["schemas"]["TmForgeFlowDto"][];
+            diagrams?: null | components["schemas"]["TmForgeDiagramDto"][];
             validation?: null | components["schemas"]["TmForgeValidationDto"];
         };
         TmForgeValidationDto: {
@@ -515,6 +558,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FindingDto"][];
+                };
+            };
+        };
+    };
+    MergeModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MergeRequestDto"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MergeResultDto"];
                 };
             };
         };

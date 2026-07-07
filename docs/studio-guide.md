@@ -104,6 +104,31 @@ then `tmforge lint` / `tmforge report` / `tmforge convert` in a pipeline, or vic
 > or `.drawio` itself. Use the API's `convert` / `read` endpoints or the CLI for those. Studio
 > speaks `tmforge-json`; the engine handles every other format behind `/v1`.
 
+## Merging edits from two branches
+
+When two people edit the same model on different branches, click **Merge** in the toolbar to
+reconcile them visually — the canvas equivalent of the [`tmforge merge`](cli-reference.md#merge) git
+driver. The modal takes:
+
+- **Ours** — your version.
+- **Theirs** — the incoming version.
+- **Base** *(optional)* — the common ancestor both edits started from, when you have it.
+
+**With a base**, Studio runs the same identity-keyed three-way merge as the CLI: non-overlapping
+changes (a rename on one side, a new data store on the other) combine automatically, and only genuine
+**conflicts** — where both sides changed the same property — are listed. **Without a base** (often the
+original isn't at hand), it falls back to a two-way merge: elements unique to either side are unioned,
+and every element both versions changed differently is listed as a conflict for you to resolve — the
+modal shows a notice to that effect.
+
+Pick **Ours** or **Theirs** for each conflict (the default keeps yours), then **Load into editor** to
+drop the resolved model onto the canvas, or **Download .tm7** to save it. Structural conflicts (an
+element deleted on one side and edited on the other, or a data flow left dangling) keep your version
+and are flagged for you to fix after loading.
+
+> The merge matches elements by their stable id, so it is most reliable on real `.tm7` files (and on
+> `.tmforge.json` exported by this build, which preserves ids).
+
 ## Local development
 
 To hack on Studio itself with hot reload, run the Vite dev server against a locally running API:

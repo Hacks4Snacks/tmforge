@@ -33,6 +33,7 @@ import { DEFAULT_NODE_SIZE, modelFromPages, pagesFromModel, type PageGraph } fro
 import { useUndoRedo } from './useUndoRedo';
 import { FlowEdge } from './edges/FlowEdge';
 import { PageTabs } from './PageTabs';
+import { MergeResolveModal } from './MergeResolveModal';
 import { DfdActionsContext, type DfdActions } from './editorContext';
 import { Toaster, toast } from './toast';
 import type { DfdEdge, DfdKind, DfdNode, TmForgeModel, TmForgeValidation } from './types';
@@ -246,6 +247,7 @@ export function Editor() {
   const [disabledRulePacks, setDisabledRulePacks] = useState<string[]>(() => INITIAL_DISABLED_PACKS);
   const [disabledRuleIds, setDisabledRuleIds] = useState<string[]>(() => INITIAL_DISABLED_RULE_IDS);
   const [showRules, setShowRules] = useState(false);
+  const [showMerge, setShowMerge] = useState(false);
   const validationActiveRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const fileHandleRef = useRef<WritableFileHandle | null>(null);
@@ -1031,6 +1033,7 @@ export function Editor() {
         onExport={exportAs}
         onImport={openFile}
         onSave={saveModel}
+        onMerge={() => setShowMerge(true)}
         dirty={dirty}
         fileName={fileName}
         onValidate={runValidate}
@@ -1229,6 +1232,21 @@ export function Editor() {
         />
       </div>
     </div>
+    {showMerge ? (
+      <MergeResolveModal
+        engine={engine}
+        onClose={() => setShowMerge(false)}
+        onResolved={(model) => {
+          loadModel(model);
+          // A merged model has no writable file handle yet, so Save falls back to Save As / download.
+          fileHandleRef.current = null;
+          fileFormatRef.current = 'tmforge-json';
+          setFileName('merged.tm7');
+          setShowMerge(false);
+          toast('Loaded the merged model into the editor.', 'success');
+        }}
+      />
+    ) : null}
     <Toaster />
     </DfdActionsContext.Provider>
   );

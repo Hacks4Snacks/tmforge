@@ -35,6 +35,12 @@ namespace ThreatModelForge.Cli
                 case "show":
                     return ShowCommand.Run(rest);
 
+                case "diff":
+                    return DiffCommand.Run(rest);
+
+                case "merge":
+                    return MergeCommand.Run(rest);
+
                 case "stencils":
                     return StencilsCommand.Run(rest);
 
@@ -74,6 +80,9 @@ namespace ThreatModelForge.Cli
                 case "convert":
                     return ConvertCommand.Run(rest);
 
+                case "git-setup":
+                    return GitSetupCommand.Run(rest);
+
                 case "-?":
                 case "-h":
                 case "--help":
@@ -101,6 +110,8 @@ namespace ThreatModelForge.Cli
             Console.Error.WriteLine("  open      Summarize a threat model (counts of elements, flows, and threats).");
             Console.Error.WriteLine("  list      List components, flows, boundaries, threats, or diagrams.");
             Console.Error.WriteLine("  show      Show an element/flow's name, type, and custom properties.");
+            Console.Error.WriteLine("  diff      Show a structural diff between two models (added/removed/modified).");
+            Console.Error.WriteLine("  merge     Three-way merge two models against a common ancestor (git driver).");
             Console.Error.WriteLine("  stencils  List the built-in authoring stencils (ids for 'add --stencil').");
             Console.Error.WriteLine("  properties  List the typed property schema (custom properties the linter reads).");
             Console.Error.WriteLine("  render    Render the diagram in the terminal (Unicode/ANSI; --plain for ASCII).");
@@ -114,6 +125,7 @@ namespace ThreatModelForge.Cli
             Console.Error.WriteLine("  lint      Validate a threat model against a rule set.");
             Console.Error.WriteLine("  report    Generate an HTML report from a threat model.");
             Console.Error.WriteLine("  convert   Convert a threat model between file formats.");
+            Console.Error.WriteLine("  git-setup Wire git to use tmforge for .tm7 diff/merge (or --print the commands).");
             Console.Error.WriteLine();
             Console.Error.WriteLine("Add --json for machine-readable output. Options accept --name value or --name=value.");
             Console.Error.WriteLine("Run 'tmforge <command> --help' for command-specific options.");
