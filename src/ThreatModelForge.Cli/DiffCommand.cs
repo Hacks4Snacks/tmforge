@@ -4,6 +4,7 @@ namespace ThreatModelForge.Cli
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
+    using System.Text;
     using ThreatModelForge.Editing;
     using ThreatModelForge.Model;
 
@@ -22,11 +23,16 @@ namespace ThreatModelForge.Cli
         /// <returns>Zero on success; a non-zero value on error.</returns>
         public static int Run(string[] args)
         {
-            CliArgs parsed = CliArgs.Parse(args, Array.Empty<string>());
+            CliArgs parsed = CliArgs.Parse(args, Array.Empty<string>(), new[] { "textconv" });
             if (parsed.Help)
             {
                 PrintUsage();
                 return 0;
+            }
+
+            if (parsed.HasFlag("textconv"))
+            {
+                return RunTextConv(parsed);
             }
 
             IReadOnlyList<string> positionals = parsed.Positionals;
@@ -64,6 +70,70 @@ namespace ThreatModelForge.Cli
 
             WriteText(difference);
             return 0;
+        }
+
+        private static int RunTextConv(CliArgs parsed)
+        {
+            IReadOnlyList<string> positionals = parsed.Positionals;
+            if (positionals.Count < 1)
+            {
+                PrintUsage();
+                return 1;
+            }
+
+            string path = positionals[0];
+            if (!File.Exists(path))
+            {
+                Console.Error.WriteLine("File not found: " + path);
+                return 1;
+            }
+
+            (ThreatModel model, _) = CliModelLoader.Load(path);
+            Console.Out.Write(RenderCanonical(model));
+            return 0;
+        }
+
+        private static string RenderCanonical(ThreatModel model)
+        {
+            IReadOnlyList<ElementDescriptor> descriptors = ModelSnapshot.Capture(model);
+
+            List<Guid> surfaceOrder = new List<Guid>();
+            Dictionary<Guid, List<ElementDescriptor>> bySurface = new Dictionary<Guid, List<ElementDescriptor>>();
+            Dictionary<Guid, string> surfaceNames = new Dictionary<Guid, string>();
+            foreach (ElementDescriptor descriptor in descriptors)
+            {
+                if (!bySurface.TryGetValue(descriptor.DiagramId, out List<ElementDescriptor>? group))
+                {
+                    group = new List<ElementDescriptor>();
+                    bySurface[descriptor.DiagramId] = group;
+                    surfaceNames[descriptor.DiagramId] = descriptor.DiagramName;
+                    surfaceOrder.Add(descriptor.DiagramId);
+                }
+
+                group.Add(descriptor);
+            }
+
+            StringBuilder builder = new StringBuilder();
+            builder.Append("threat model\n");
+            foreach (Guid surfaceId in surfaceOrder)
+            {
+                builder.Append("diagram \"").Append(surfaceNames[surfaceId]).Append("\"\n");
+                IEnumerable<ElementDescriptor> ordered = bySurface[surfaceId]
+                    .OrderBy(element => element.Kind, StringComparer.Ordinal)
+                    .ThenBy(element => element.Id.ToString(), StringComparer.Ordinal);
+                foreach (ElementDescriptor element in ordered)
+                {
+                    builder.Append("  ").Append(element.Kind).Append(" \"").Append(element.Name).Append("\"  ").Append(element.Id).Append('\n');
+                    foreach (KeyValuePair<string, string> attribute in element.Attributes
+                        .Where(pair => pair.Key != ModelSnapshot.NameKey && pair.Key != ModelSnapshot.KindKey)
+                        .OrderBy(pair => pair.Key, StringComparer.Ordinal))
+                    {
+                        builder.Append("    ").Append(attribute.Key).Append('=').Append(attribute.Value).Append('\n');
+                    }
+                }
+            }
+
+            return builder.ToString();
         }
 
         private static object BuildPayload(ModelDifference difference)
@@ -151,9 +221,16 @@ namespace ThreatModelForge.Cli
             Console.Error.WriteLine("Show a structural diff between two threat models, matched by element id.");
             Console.Error.WriteLine("Usage:");
             Console.Error.WriteLine("  tmforge diff <base> <revised> [--json]");
+            Console.Error.WriteLine("  tmforge diff --textconv <model>");
             Console.Error.WriteLine();
             Console.Error.WriteLine("Elements are compared by their stable id, so re-layout or re-serialization produces");
             Console.Error.WriteLine("no diff. Reports added, removed, and modified elements with per-property changes.");
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("--textconv prints a canonical, deterministic outline of a single model, for use as a");
+            Console.Error.WriteLine("git textconv so 'git diff' renders readable .tm7 changes. Wire it up with:");
+            Console.Error.WriteLine("  .gitattributes:  *.tm7 diff=tmforge");
+            Console.Error.WriteLine("  git config diff.tmforge.textconv \"tmforge diff --textconv\"");
+            Console.Error.WriteLine();
             Console.Error.WriteLine("Identity is preserved in .tm7; other formats may not round-trip element ids.");
         }
     }

@@ -29,6 +29,7 @@ tmforge <command> [options] <file>
 | [`stencils`](#stencils) | Inspect | List the built-in authoring stencils. |
 | [`properties`](#properties) | Inspect | List the typed custom-property schema. |
 | [`render`](#render) | Inspect | Draw the diagram in the terminal. |
+| [`diff`](#diff) | Inspect | Structurally compare two models (or emit a git textconv). |
 | [`new`](#new) | Author | Create a new model (empty or from a template). |
 | [`add`](#add) | Author | Add a process, store, external entity, or boundary. |
 | [`connect`](#connect) | Author | Add a data flow between two elements. |
@@ -143,6 +144,45 @@ tmforge render [--plain] [--width <n>] [--height <n>] <file>
 tmforge render payments.tm7
 tmforge render payments.tm7 --plain --width 120
 ```
+
+### `diff`
+
+Structurally compare two models, matched by each element's **stable id** — so re-layout or
+re-serialization produces no diff, and a rename shows as a single modification rather than a
+delete-plus-add. Reports added, removed, and modified elements, with per-property changes for
+modifications. Geometry (position and size) is ignored.
+
+```text
+tmforge diff [--json] <base> <revised>
+tmforge diff --textconv <model>
+```
+
+```bash
+tmforge diff payments.v1.tm7 payments.v2.tm7
+tmforge diff payments.v1.tm7 payments.v2.tm7 --json
+```
+
+Identity is preserved in `.tm7`; other formats do not round-trip element ids, so `diff` is most
+useful on `.tm7`.
+
+#### Readable `.tm7` diffs in git
+
+`--textconv` prints a canonical, deterministic outline of a **single** model. Wired as a git
+[textconv](https://git-scm.com/docs/gitattributes#_generating_diff_text_via_textconv) it makes
+`git diff`, `git log -p`, and pull requests render `.tm7` changes as readable structure instead of
+opaque XML. Enable it once per clone:
+
+```gitattributes
+# .gitattributes (shipped in this repo)
+*.tm7 diff=tmforge
+```
+
+```bash
+git config diff.tmforge.textconv "tmforge diff --textconv"
+```
+
+Afterwards, `git diff` on a `.tm7` shows lines such as `process "API Gateway"  <id>` and
+`Protocol=HTTPS`, so a reviewer sees exactly what changed.
 
 ---
 

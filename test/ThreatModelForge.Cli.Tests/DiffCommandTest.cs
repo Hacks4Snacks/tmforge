@@ -109,6 +109,42 @@ namespace ThreatModelForge.Cli.Tests
             Assert.AreEqual(1, exit);
         }
 
+        /// <summary>
+        /// Verifies that the textconv rendering is deterministic and shows the model's structure.
+        /// </summary>
+        [TestMethod]
+        public void TextconvIsDeterministicAndReadable()
+        {
+            string path = this.Write("model.tm7", BuildBase(out _));
+
+            (int firstExit, string first) = Capture(new[] { "--textconv", path });
+            (int secondExit, string second) = Capture(new[] { "--textconv", path });
+
+            Assert.AreEqual(0, firstExit);
+            Assert.AreEqual(0, secondExit);
+            Assert.AreEqual(first, second);
+            StringAssert.Contains(first, "diagram \"Main\"");
+            StringAssert.Contains(first, "process \"Web App\"");
+        }
+
+        /// <summary>
+        /// Verifies that re-serializing a model does not change its textconv rendering, so a mere
+        /// round-trip produces an empty git diff.
+        /// </summary>
+        [TestMethod]
+        public void TextconvIsStableAcrossReserialization()
+        {
+            string originalPath = this.Write("original.tm7", BuildBase(out _));
+            string reserializedPath = this.Write("reserialized.tm7", Load(originalPath));
+
+            (int firstExit, string original) = Capture(new[] { "--textconv", originalPath });
+            (int secondExit, string reserialized) = Capture(new[] { "--textconv", reserializedPath });
+
+            Assert.AreEqual(0, firstExit);
+            Assert.AreEqual(0, secondExit);
+            Assert.AreEqual(original, reserialized);
+        }
+
         private static (int Exit, string Output) Capture(string[] args)
         {
             StringWriter writer = new StringWriter();

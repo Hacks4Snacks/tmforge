@@ -1,0 +1,7 @@
+# Threat Model Forge repository attributes.
+
+# Render .tm7 diffs as readable structure (instead of opaque DataContract XML) via the
+# tmforge textconv. Enable per clone, once:
+#     git config diff.tmforge.textconv "tmforge diff --textconv"
+# See docs/cli-reference.md (the `diff` command).
+*.tm7 diff=tmforge
