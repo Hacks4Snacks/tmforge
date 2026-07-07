@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.2.0...v0.3.0) (2026-07-07)
+
+
+### Features
+
+* Multi-page threat model support ([#8](https://github.com/Hacks4Snacks/tmforge/issues/8)) ([0bfa42b](https://github.com/Hacks4Snacks/tmforge/commit/0bfa42b08167d93dda68ab93fae30d811ca91721))
+* update docs ([#10](https://github.com/Hacks4Snacks/tmforge/issues/10)) ([7f71c77](https://github.com/Hacks4Snacks/tmforge/commit/7f71c77ad262674d0e3363dc0debad1d48f19367))
+
 ## [0.2.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.1.0...v0.2.0) (2026-07-07)
 
 
