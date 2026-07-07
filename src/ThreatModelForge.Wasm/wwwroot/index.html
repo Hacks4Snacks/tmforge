@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Threat Model Forge - WASM engine host</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preload" id="webassembly" />
+  <script type="importmap"></script>
+  <script type='module' src="main#[.{fingerprint}].js"></script>
+</head>
+
+<body>
+  <h1>Threat Model Forge - WASM engine host</h1>
+  <p>Standalone smoke page (the Studio consumes the engine via its WasmEngineClient). Result:
+    <strong id="result">running...</strong>
+  </p>
+  <pre id="out"></pre>
+</body>
+
+</html>

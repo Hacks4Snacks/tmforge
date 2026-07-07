@@ -1,4 +1,4 @@
-namespace ThreatModelForge.Api
+namespace ThreatModelForge.Engine
 {
     /// <summary>
     /// Describes a single analysis rule offered by the engine, so the validation settings UI can

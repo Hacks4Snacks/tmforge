@@ -9,6 +9,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "stage:wasm": "dotnet publish ../ThreatModelForge.Wasm/ThreatModelForge.Wasm.csproj -c Release -o obj/wasm-pub && rm -rf public/wasm && mkdir -p public/wasm && cp -R obj/wasm-pub/wwwroot/_framework public/wasm/_framework",
     "gen:api": "openapi-typescript ../ThreatModelForge.Api/openapi/v1.json -o src/dfd/engine/schema.d.ts"
   },
   "dependencies": {

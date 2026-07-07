@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ThreatModelForge.Engine</RootNamespace>
+    <!-- The host-agnostic engine facade, extracted from the Api so the /v1 API and the WASM host run
+         identical logic (validate, convert, read, report, catalogs) over the same DTO vocabulary.
+         net10.0 (not netstandard2.0) so the moved DTOs' `init` accessors and in-box System.Text.Json
+         work as they did in the Api. Doc-gen off + SA0001 suppressed to preserve the moved files'
+         compilation exactly; StyleCop still enforces documentation via SA1600. -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);SA0001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ThreatModelForge.Core\ThreatModelForge.Core.csproj" />
+    <ProjectReference Include="..\ThreatModelForge.Formats\ThreatModelForge.Formats.csproj" />
+    <ProjectReference Include="..\ThreatModelForge.Editing\ThreatModelForge.Editing.csproj" />
+    <ProjectReference Include="..\ThreatModelForge.Analysis\ThreatModelForge.Analysis.csproj" />
+    <!-- Referenced so the assembly is present in the output for Assembly.Load at runtime. -->
+    <ProjectReference Include="..\ThreatModelForge.Analysis.Rules\ThreatModelForge.Analysis.Rules.csproj" />
+    <!-- Report facade (HTML / SVG) renders via the reporting library. -->
+    <ProjectReference Include="..\ThreatModelForge.Reporting\ThreatModelForge.Reporting.csproj" />
+  </ItemGroup>
+
+</Project>

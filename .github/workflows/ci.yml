@@ -30,6 +30,42 @@ jobs:
       - name: Test
         run: dotnet test dirs.proj -c Release --no-build
 
+  wasm:
+    name: WASM engine build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.301
+
+      # The browser-wasm project is opt-in (BuildWasm) and excluded from dirs.proj,
+      # so publish it directly. This catches interop signature drift and trimming
+      # regressions that the default build/test never exercises.
+      - name: Install WASM workloads
+        run: dotnet workload install wasm-tools wasm-experimental
+
+      - name: Publish WASM engine (Release, trimmed)
+        run: dotnet publish src/ThreatModelForge.Wasm/ThreatModelForge.Wasm.csproj -c Release -o artifacts/wasm
+
+      - name: Assert trimmed bundle manifest
+        run: |
+          set -euo pipefail
+          fw=artifacts/wasm/wwwroot/_framework
+          need() { test -f "$fw/$1" || { echo "::error::$1 missing from WASM bundle ($2)"; exit 1; }; }
+          need dotnet.js "runtime host"
+          need ThreatModelForge.Wasm.wasm "JSExport interop layer"
+          # Engine assemblies must survive trimming (rooted via ILLink.Descriptors.xml).
+          for a in Core Editing Formats Analysis Analysis.Rules Reporting Engine; do
+            need "ThreatModelForge.$a.wasm" "engine assembly trimmed away"
+          done
+          # .tm7 round-trip (DataContractSerializer) and DTO IO (System.Text.Json) must stay wired.
+          need System.Private.DataContractSerialization.wasm ".tm7 serialization"
+          need System.Text.Json.wasm "DTO JSON serialization"
+          echo "WASM bundle OK: $(ls "$fw"/*.wasm | wc -l | tr -d ' ') assemblies"
+
   containers:
     name: Container build & smoke test
     runs-on: ubuntu-latest

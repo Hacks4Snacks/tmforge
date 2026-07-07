@@ -150,7 +150,7 @@ export function Toolbar(props: ToolbarProps) {
         title={props.demo ? 'Runs entirely in your browser — no server. Your model never leaves this page.' : props.engineLabel}
       >
         <span className="engine-dot" />
-        {props.engineOnline ? 'engine /v1' : props.demo ? 'demo · in-browser' : 'offline · stub'}
+        {props.engineLabel}
       </span>
 
       <span className="toolbar-div" />

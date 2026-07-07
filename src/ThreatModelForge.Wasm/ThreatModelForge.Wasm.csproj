@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ThreatModelForge.Wasm</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <!-- App entry point: XML doc output isn't meaningful, so disable it and suppress SA0001
+         (mirrors ThreatModelForge.Api). StyleCop still enforces every other rule on the source. -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);SA0001</NoWarn>
+    <!-- Stable bootstrap filenames (no fingerprint) so main.js's literal `./_framework/dotnet.js`
+         import resolves on a dumb static host — the GitHub Pages target. -->
+    <WasmFingerprintAssets>false</WasmFingerprintAssets>
+    <!-- Trim on publish to shrink the payload. The engine's reflection targets (the DataContractSerializer
+         model graph, the reflectively-loaded rule set, format providers, report renderers) are rooted via
+         ILLink.Descriptors.xml, so the linker can still trim the framework / BCL. Trim-analysis warnings are
+         expected (the engine libraries use reflection) and suppressed — the roots keep what is needed.
+         AOT stays off: the reflection-based serializer is not AOT-safe without a source-generated path. -->
+    <PublishTrimmed>true</PublishTrimmed>
+    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+    <RunAOTCompilation>false</RunAOTCompilation>
+    <!-- Keep System.Text.Json's reflection-based serializer under trimming (the DTO types it reflects
+         over are rooted via ILLink.Descriptors.xml). Without this the linker disables it, and every
+         JsonSerializer call throws JsonSerializerIsReflectionDisabled. -->
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <StaticWebAssetFingerprintPattern Include="JS" Pattern="*.js" Expression="#[.{fingerprint}]!" />
+    <TrimmerRootDescriptor Include="ILLink.Descriptors.xml" />
+  </ItemGroup>
+
+  <!-- The shared engine facade, run in-browser. Brings Core / Formats / Editing / Analysis /
+       Analysis.Rules / Reporting transitively, including the Analysis.Rules assembly that
+       EngineService reflectively loads via Assembly.Load. -->
+  <ItemGroup>
+    <ProjectReference Include="..\ThreatModelForge.Engine\ThreatModelForge.Engine.csproj" />
+  </ItemGroup>
+
+</Project>

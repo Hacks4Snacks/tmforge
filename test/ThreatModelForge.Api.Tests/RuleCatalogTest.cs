@@ -4,6 +4,7 @@ namespace ThreatModelForge.Api.Tests
     using System.Collections.Generic;
     using System.Linq;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
+    using ThreatModelForge.Engine;
 
     /// <summary>
     /// Unit tests guarding the analysis rule catalog surfaced by <see cref="EngineService"/>.

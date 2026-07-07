@@ -30,14 +30,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ThreatModelForge.Core\ThreatModelForge.Core.csproj" />
-    <ProjectReference Include="..\ThreatModelForge.Formats\ThreatModelForge.Formats.csproj" />
-    <ProjectReference Include="..\ThreatModelForge.Editing\ThreatModelForge.Editing.csproj" />
-    <ProjectReference Include="..\ThreatModelForge.Analysis\ThreatModelForge.Analysis.csproj" />
-    <!-- Referenced so the assembly is present in the output for Assembly.Load at runtime. -->
-    <ProjectReference Include="..\ThreatModelForge.Analysis.Rules\ThreatModelForge.Analysis.Rules.csproj" />
-    <!-- Report endpoint (HTML / SVG) renders via the reporting library. -->
-    <ProjectReference Include="..\ThreatModelForge.Reporting\ThreatModelForge.Reporting.csproj" />
+    <!-- The engine facade (validate / convert / read / report / catalogs), extracted from this project.
+         Brings Core / Formats / Editing / Analysis / Analysis.Rules / Reporting transitively, including
+         the Analysis.Rules assembly that EngineService reflectively loads at runtime. -->
+    <ProjectReference Include="..\ThreatModelForge.Engine\ThreatModelForge.Engine.csproj" />
   </ItemGroup>
 
   <!-- Build the Threat Model Forge Studio SPA (npm) and stage it into wwwroot so `dotnet build`

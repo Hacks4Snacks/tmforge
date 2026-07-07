@@ -68,6 +68,60 @@ Use `GET /v1/health` as a liveness/readiness probe.
 curl -fsS http://localhost:8080/v1/health
 ```
 
+## Studio static demo (in-browser engine, no backend)
+
+The Studio can run as a **fully static site** with the .NET engine compiled to **WebAssembly**. The
+same validation, `.tm7` round-trip, format conversion, and reports the `/v1` engine provides, running
+**in the browser with no server**. This is how the public GitHub Pages demo is deployed, and it doubles
+as a genuine offline/air-gapped build: the model never leaves the page.
+
+The Studio picks its engine transport at startup and degrades cleanly:
+
+| Order | Transport | When |
+| --- | --- | --- |
+| 1 | `/v1` HTTP engine | a `/v1/health` probe answers (hosted image, or a dev API) |
+| 2 | **WASM engine** | no `/v1`, but the WASM bundle loads — full engine, in-browser |
+| 3 | Offline | WASM cannot load (disabled/blocked) — authoring only; engine ops report an honest error |
+
+### Build it
+
+The WASM engine project (`src/ThreatModelForge.Wasm`) is **opt-in** and needs the WASM workloads. The
+Studio ships an npm script that publishes it and stages the runtime into `public/wasm/`:
+
+```bash
+# one-time: the browser-wasm workloads
+dotnet workload install wasm-tools wasm-experimental
+
+cd src/ThreatModelForge.Studio
+npm ci
+npm run stage:wasm                 # dotnet publish (Release, trimmed) -> copy _framework into public/wasm
+VITE_DEMO=true npm run build       # emits dist/ with the SPA + wasm/_framework
+```
+
+Serve `dist/` from any static host:
+
+```bash
+python3 -m http.server -d dist 8080     # -> http://localhost:8080/
+```
+
+- `VITE_DEMO=true` wires the WASM transport into the demo build.
+- `VITE_BASE` sets the base path when the site is served from a sub-path (e.g. `/tmforge/` on project
+  Pages); omit it for a root deploy.
+- The bundle is the .NET WASM runtime + trimmed engine assemblies + ICU — roughly **3.3 MB brotli**,
+  loaded lazily and cached, and only fetched when no `/v1` answers.
+
+### GitHub Pages
+
+The [`pages.yml`](../.github/workflows/pages.yml) workflow does exactly the above on push: installs the
+workloads, runs `npm run stage:wasm`, builds with `VITE_DEMO=true` and `VITE_BASE=/<repo>/`, and
+publishes `dist/` to Pages. Trimming keeps the `.tm7` `DataContractSerializer` and the engine
+assemblies (rooted via `ILLink.Descriptors.xml`); a `wasm` job in
+[`ci.yml`](../.github/workflows/ci.yml) guards that on every build.
+
+> **Static-host note:** asset fingerprinting is disabled (`WasmFingerprintAssets=false`) so the
+> runtime's literal `./_framework/dotnet.js` import resolves on a plain static server. This is already
+> set in the project, no per-deploy configuration needed.
+
 ## Kubernetes
 
 A minimal Deployment + Service for the API + Studio image. The example uses the published GHCR
