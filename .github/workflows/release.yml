@@ -45,8 +45,9 @@ jobs:
           - { rid: linux-arm64, os: ubuntu-24.04-arm, archive: tar, exe: tmforge }
           - { rid: win-x64,     os: windows-latest,   archive: zip, exe: tmforge.exe }
           - { rid: win-arm64,   os: windows-11-arm,   archive: zip, exe: tmforge.exe }
-          - { rid: osx-x64,     os: macos-13,         archive: tar, exe: tmforge }
-          - { rid: osx-arm64,   os: macos-14,         archive: tar, exe: tmforge }
+          # osx-x64 cross-compiles on Apple Silicon
+          - { rid: osx-x64,     os: macos-15,         archive: tar, exe: tmforge, cross: true }
+          - { rid: osx-arm64,   os: macos-15,         archive: tar, exe: tmforge }
     steps:
       - uses: actions/checkout@v4
 
@@ -87,9 +88,14 @@ jobs:
         run: |
           bin="${{ steps.v.outputs.stage }}/${{ matrix.exe }}"
           chmod +x "$bin" || true
-          "./$bin" --version
-          "./$bin" --version | grep -q "${{ steps.v.outputs.version }}"
-          "./$bin" open test/ThreatModelForge.Core.Tests/SampleModel.tm7 > /dev/null
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            # osx-x64 is cross-compiled on an Apple Silicon runner
+            file "$bin" | grep -q "Mach-O 64-bit executable x86_64"
+          else
+            "./$bin" --version
+            "./$bin" --version | grep -q "${{ steps.v.outputs.version }}"
+            "./$bin" open test/ThreatModelForge.Core.Tests/SampleModel.tm7 > /dev/null
+          fi
 
       - name: Archive (tar.gz)
         if: matrix.archive == 'tar'
