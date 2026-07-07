@@ -15,6 +15,34 @@ export interface Finding {
   elementIds: string[];
 }
 
+/** A single point a three-way merge could not reconcile automatically (the merge kept `ours`). */
+export interface MergeConflict {
+  /** The stable id of the element the conflict concerns. */
+  elementId: string;
+  /** The element kind ('process' | 'store' | 'external' | 'boundary' | 'flow'). */
+  elementKind: string;
+  /** The element's display name. */
+  name: string;
+  /** The diagram (page) the element belongs to. */
+  diagramName: string;
+  /** 'Property' (same attribute, different values) | 'DeleteModify' | 'AddAdd' | 'DanglingReference'. */
+  kind: string;
+  /** The attribute key in conflict (e.g. 'name', 'Protocol', 'source', 'target'); empty for a structural conflict. */
+  property: string;
+  /** The ancestor value, when applicable. */
+  base?: string;
+  /** The `ours` value the merge kept. */
+  ours?: string;
+  /** The `theirs` value the merge dropped. */
+  theirs?: string;
+}
+
+/** The result of a three-way merge: the merged model plus any conflicts (all resolved to `ours`). */
+export interface MergeResult {
+  merged: TmForgeModel;
+  conflicts: MergeConflict[];
+}
+
 /** A file format the engine can read and/or write. */
 export interface FormatInfo {
   id: string;
@@ -121,6 +149,12 @@ export interface IEngineClient {
   convert(model: TmForgeModel, toFormatId: string): Promise<Blob>;
   /** Renders an HTML or SVG report for the model. */
   report(model: TmForgeModel, format: 'html' | 'svg'): Promise<Blob>;
+  /**
+   * Merges two edited models, matched by element id. With a `base` (common ancestor) it is a
+   * three-way merge so non-overlapping edits combine automatically; pass `null` when the ancestor
+   * is unavailable for a two-way merge, where any overlapping difference is reported as a conflict.
+   */
+  merge(base: TmForgeModel | null, ours: TmForgeModel, theirs: TmForgeModel): Promise<MergeResult>;
 }
 
 /**
@@ -271,6 +305,24 @@ function toModel(dto: components['schemas']['TmForgeModelDto']): TmForgeModel {
   };
 }
 
+/** Normalizes a generated MergeResultDto (all fields optional/nullable) onto the UI's MergeResult. */
+function toMergeResult(dto: components['schemas']['MergeResultDto']): MergeResult {
+  return {
+    merged: toModel(dto.merged ?? ({} as components['schemas']['TmForgeModelDto'])),
+    conflicts: (dto.conflicts ?? []).map((c) => ({
+      elementId: c.elementId ?? '',
+      elementKind: c.elementKind ?? '',
+      name: c.name ?? '',
+      diagramName: c.diagramName ?? '',
+      kind: c.kind ?? '',
+      property: c.property ?? '',
+      base: c.base ?? undefined,
+      ours: c.ours ?? undefined,
+      theirs: c.theirs ?? undefined,
+    })),
+  };
+}
+
 class OfflineEngineClient implements IEngineClient {
   public readonly label = 'offline (engine unavailable)';
 
@@ -360,6 +412,12 @@ class OfflineEngineClient implements IEngineClient {
   public report(): Promise<Blob> {
     return Promise.reject(
       new Error('Reports require the .NET engine. Start the API (see the spike README), then reload.'),
+    );
+  }
+
+  public merge(): Promise<MergeResult> {
+    return Promise.reject(
+      new Error('Three-way merge requires the .NET engine. Start the API (or use the hosted app), then reload.'),
     );
   }
 }
@@ -502,6 +560,16 @@ class HttpEngineClient implements IEngineClient {
     }
     return await response.blob();
   }
+
+  public async merge(base: TmForgeModel | null, ours: TmForgeModel, theirs: TmForgeModel): Promise<MergeResult> {
+    const { data, response } = await this.client.POST('/v1/model/merge', {
+      body: { base: base ?? undefined, ours, theirs },
+    });
+    if (!response.ok || !data) {
+      throw new Error(`Engine merge failed (${response.status}).`);
+    }
+    return toMergeResult(data);
+  }
 }
 
 /** The `[JSExport]` methods on the WASM `ThreatModelForge.Wasm.Engine` type (all string in/out). */
@@ -519,6 +587,7 @@ interface WasmEngineExports {
   ExportTm7(tmforgeJson: string): string;
   ConvertModel(tmforgeJson: string, toFormatId: string): string;
   Report(tmforgeJson: string, format: string): string;
+  Merge(baseJson: string, oursJson: string, theirsJson: string): string;
 }
 
 /**
@@ -600,6 +669,13 @@ class WasmEngineClient implements IEngineClient {
 
   public async report(model: TmForgeModel, format: 'html' | 'svg'): Promise<Blob> {
     return blobFromBase64(this.wasm.Report(JSON.stringify(model), format), format === 'svg' ? 'image/svg+xml' : 'text/html');
+  }
+
+  public async merge(base: TmForgeModel | null, ours: TmForgeModel, theirs: TmForgeModel): Promise<MergeResult> {
+    const dto = JSON.parse(
+      this.wasm.Merge(base ? JSON.stringify(base) : '', JSON.stringify(ours), JSON.stringify(theirs)),
+    ) as components['schemas']['MergeResultDto'];
+    return toMergeResult(dto);
   }
 }
 

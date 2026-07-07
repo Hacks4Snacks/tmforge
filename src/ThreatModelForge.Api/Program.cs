@@ -66,6 +66,15 @@ namespace ThreatModelForge.Api
                 .WithName("ValidateModel")
                 .WithTags("Model");
             app.MapPost(
+                "/v1/model/merge",
+                (MergeRequestDto request) => TypedResults.Ok(
+                    EngineService.Merge(
+                        request.Base,
+                        request.Ours ?? new TmForgeModelDto(),
+                        request.Theirs ?? new TmForgeModelDto())))
+                .WithName("MergeModels")
+                .WithTags("Model");
+            app.MapPost(
                 "/v1/model/export/tm7",
                 (TmForgeModelDto model) => TypedResults.File(EngineService.ExportTm7(model), "application/xml", "model.tm7"))
                 .WithName("ExportModelTm7")

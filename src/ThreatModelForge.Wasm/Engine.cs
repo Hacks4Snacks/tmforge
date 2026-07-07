@@ -68,6 +68,18 @@ namespace ThreatModelForge.Wasm
         public static string Validate(string tmforgeJson)
             => Serialize(EngineService.Validate(Deserialize(tmforgeJson)));
 
+        /// <summary>Merges two edited tmforge-json models, keyed by element identity.</summary>
+        /// <param name="baseJson">The common ancestor model, or an empty string for a two-way merge.</param>
+        /// <param name="oursJson">The local model.</param>
+        /// <param name="theirsJson">The incoming model.</param>
+        /// <returns>The merged model and conflicts as JSON (the /v1 MergeResultDto shape).</returns>
+        [JSExport]
+        public static string Merge(string baseJson, string oursJson, string theirsJson)
+            => Serialize(EngineService.Merge(
+                string.IsNullOrWhiteSpace(baseJson) ? null : Deserialize(baseJson),
+                Deserialize(oursJson),
+                Deserialize(theirsJson)));
+
         /// <summary>Detects the format of a document, or returns an empty string when none matches.</summary>
         /// <param name="contentBase64">The raw document bytes, base64-encoded.</param>
         /// <returns>The detected format as JSON, or an empty string when unrecognized.</returns>

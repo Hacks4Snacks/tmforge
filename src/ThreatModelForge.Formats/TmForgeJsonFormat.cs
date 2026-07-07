@@ -41,6 +41,13 @@ namespace ThreatModelForge.Formats
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         };
 
+        /// <summary>
+        /// The stable identity for the single implicit page of a flat (non-<c>diagrams</c>) document,
+        /// so separate reads of single-page models share a surface id and the merge folds one side's
+        /// additions onto the other's page instead of spawning a second page.
+        /// </summary>
+        private static readonly Guid DefaultSurfaceGuid = new Guid("7e3f1d52-0000-4000-8000-000000000001");
+
         /// <inheritdoc/>
         public string Id => FormatId;
 
@@ -164,7 +171,7 @@ namespace ThreatModelForge.Formats
                     string header = string.IsNullOrEmpty(page.Name)
                         ? "Diagram " + index.ToString(CultureInfo.InvariantCulture)
                         : page.Name;
-                    DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = header };
+                    DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = ResolveSurfaceGuid(page.Id), Header = header };
                     model.DrawingSurfaceList.Add(surface);
                     PopulateSurface(editor, surface, page.Elements, page.Flows);
                     index++;
@@ -172,7 +179,7 @@ namespace ThreatModelForge.Formats
             }
             else
             {
-                DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "Diagram 1" };
+                DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = DefaultSurfaceGuid, Header = "Diagram 1" };
                 model.DrawingSurfaceList.Add(surface);
                 PopulateSurface(editor, surface, document.Elements, document.Flows);
             }
@@ -257,6 +264,7 @@ namespace ThreatModelForge.Formats
             {
                 StencilKind kind = MapKind(element.Kind);
                 Guid guid = editor.AddElement(surface, kind, element.X, element.Y);
+                guid = PreserveId(surface.Borders, guid, element.Id);
                 editor.SetElementName(surface, guid, element.Name ?? string.Empty);
                 if (kind == StencilKind.TrustBoundary)
                 {
@@ -276,10 +284,49 @@ namespace ThreatModelForge.Formats
                 if (idMap.TryGetValue(flow.Source, out Guid source) && idMap.TryGetValue(flow.Target, out Guid target))
                 {
                     Guid connector = editor.AddConnector(surface, source, target);
+                    connector = PreserveId(surface.Lines, connector, flow.Id);
                     editor.SetElementName(surface, connector, flow.Name ?? string.Empty);
                     ApplyProperties(surface.Lines[connector] as Entity, flow.Properties);
                 }
             }
+        }
+
+        /// <summary>
+        /// Resolves a diagram's surface identity from the id carried by the source document when it
+        /// is a GUID (so pages align across files for the three-way merge), or a fresh id otherwise.
+        /// </summary>
+        /// <param name="id">The diagram id from the source document, if any.</param>
+        /// <returns>The surface <see cref="Guid"/> to use.</returns>
+        private static Guid ResolveSurfaceGuid(string? id)
+        {
+            return Guid.TryParse(id, out Guid parsed) ? parsed : Guid.NewGuid();
+        }
+
+        /// <summary>
+        /// Re-keys a freshly created element to the identifier carried by the source document when
+        /// that identifier is a GUID, so element identity survives the tmforge-json round-trip (which
+        /// the structural diff and three-way merge match on). Non-GUID ids keep the generated one.
+        /// </summary>
+        /// <param name="elements">The surface dictionary (borders or lines) the element lives in.</param>
+        /// <param name="current">The generated identifier the element was added under.</param>
+        /// <param name="id">The identifier from the source document, if any.</param>
+        /// <returns>The identifier the element is keyed under after this call.</returns>
+        private static Guid PreserveId(IDictionary<Guid, object> elements, Guid current, string? id)
+        {
+            if (string.IsNullOrEmpty(id) || !Guid.TryParse(id, out Guid parsed) || parsed == current || elements.ContainsKey(parsed))
+            {
+                return current;
+            }
+
+            if (elements.TryGetValue(current, out object? value) && value is Entity entity)
+            {
+                elements.Remove(current);
+                entity.Guid = parsed;
+                elements[parsed] = entity;
+                return parsed;
+            }
+
+            return current;
         }
 
         private static (TmForgeJsonElement[] Elements, TmForgeJsonFlow[] Flows) ExtractSurface(DrawingSurfaceModel surface)

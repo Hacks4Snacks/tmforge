@@ -122,6 +122,64 @@ namespace ThreatModelForge.Editing
             return new MergeResult { Merged = ours, Conflicts = conflicts };
         }
 
+        /// <summary>
+        /// Performs a two-way, identity-keyed merge of two edited models when their common ancestor
+        /// is unavailable. Elements are still matched by <see cref="Entity.Guid"/>: one present on
+        /// only one side is carried into the result, and where both sides carry the same element with
+        /// a differing attribute the <c>ours</c> value is kept and a <see cref="MergeConflict"/> is
+        /// recorded — without an ancestor the merge cannot tell which side changed it, so every
+        /// overlapping difference is surfaced for the caller to resolve. Nothing is deleted (a missing
+        /// element is indistinguishable from one the other side never had). The <paramref name="ours"/>
+        /// model is mutated in place and returned.
+        /// </summary>
+        /// <param name="ours">The local model; mutated into the merged result and returned.</param>
+        /// <param name="theirs">The other model whose additions are folded into <paramref name="ours"/>.</param>
+        /// <returns>The merged model and any conflicts (all resolved in favor of <c>ours</c>).</returns>
+        public static MergeResult Merge(ThreatModel ours, ThreatModel theirs)
+        {
+            if (ours == null)
+            {
+                throw new ArgumentNullException(nameof(ours));
+            }
+
+            if (theirs == null)
+            {
+                throw new ArgumentNullException(nameof(theirs));
+            }
+
+            Dictionary<Guid, ElementDescriptor> oursById = ById(ModelSnapshot.Capture(ours));
+            Dictionary<Guid, ElementDescriptor> theirsById = ById(ModelSnapshot.Capture(theirs));
+            Dictionary<Guid, ElementRef> theirsRefs = IndexElements(theirs);
+            Dictionary<Guid, ElementRef> oursRefs = IndexElements(ours);
+            Dictionary<Guid, DrawingSurfaceModel> oursSurfaces = SurfacesById(ours);
+
+            List<MergeConflict> conflicts = new List<MergeConflict>();
+            ElementDescriptor noAncestor = new ElementDescriptor();
+
+            foreach (KeyValuePair<Guid, ElementDescriptor> entry in theirsById)
+            {
+                Guid id = entry.Key;
+                if (!oursById.TryGetValue(id, out ElementDescriptor? oursExisting))
+                {
+                    // Present only in theirs — with no ancestor this reads as an addition; fold it in.
+                    if (theirsRefs.TryGetValue(id, out ElementRef? incoming))
+                    {
+                        Add(incoming, ours, oursSurfaces);
+                    }
+                }
+                else if (oursRefs.TryGetValue(id, out ElementRef? oursReference))
+                {
+                    // Present on both sides — compare against an empty ancestor so any divergence
+                    // becomes an ours/theirs conflict instead of silently taking a side.
+                    MergeAttributes(oursReference.Entity, noAncestor, oursExisting, entry.Value, conflicts);
+                }
+            }
+
+            DetectDangling(ours, conflicts);
+
+            return new MergeResult { Merged = ours, Conflicts = conflicts };
+        }
+
         private static void MergeAttributes(Entity entity, ElementDescriptor baseDescriptor, ElementDescriptor oursDescriptor, ElementDescriptor theirDescriptor, List<MergeConflict> conflicts)
         {
             HashSet<string> keys = new HashSet<string>(baseDescriptor.Attributes.Keys, StringComparer.Ordinal);

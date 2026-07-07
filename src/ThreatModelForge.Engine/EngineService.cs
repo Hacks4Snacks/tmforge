@@ -214,12 +214,7 @@ namespace ThreatModelForge.Engine
                 model = registry.Load(input, string.IsNullOrEmpty(formatId) ? null : formatId);
             }
 
-            using (MemoryStream output = new MemoryStream())
-            {
-                new TmForgeJsonFormat().Write(model, output);
-                return JsonSerializer.Deserialize<TmForgeModelDto>(output.ToArray(), CanonicalJsonOptions)
-                    ?? new TmForgeModelDto();
-            }
+            return ToDto(model);
         }
 
         /// <summary>
@@ -289,6 +284,47 @@ namespace ThreatModelForge.Engine
             return Encoding.UTF8.GetBytes(html);
         }
 
+        /// <summary>
+        /// Merges two edited models, keyed by element identity. When <paramref name="baseModel"/> is
+        /// supplied it is a three-way merge against that common ancestor, so non-overlapping edits
+        /// combine automatically; when it is <c>null</c> (the ancestor is unavailable) it falls back
+        /// to a two-way merge where any divergence on a shared element is reported as a conflict.
+        /// Genuine conflicts are resolved in favor of <paramref name="ours"/> and reported so the
+        /// caller can present them for resolution.
+        /// </summary>
+        /// <param name="baseModel">The common ancestor model, or <c>null</c> for a two-way merge.</param>
+        /// <param name="ours">The local model.</param>
+        /// <param name="theirs">The incoming model.</param>
+        /// <returns>The merged model and any conflicts (all resolved to <c>ours</c>).</returns>
+        public static MergeResultDto Merge(TmForgeModelDto? baseModel, TmForgeModelDto ours, TmForgeModelDto theirs)
+        {
+            ThreatModel oursTm = BuildModel(ours ?? new TmForgeModelDto(), out _);
+            ThreatModel theirsTm = BuildModel(theirs ?? new TmForgeModelDto(), out _);
+
+            MergeResult result = baseModel == null
+                ? ModelMerge.Merge(oursTm, theirsTm)
+                : ModelMerge.Merge(BuildModel(baseModel, out _), oursTm, theirsTm);
+
+            List<MergeConflictDto> conflicts = new List<MergeConflictDto>();
+            foreach (MergeConflict conflict in result.Conflicts)
+            {
+                conflicts.Add(new MergeConflictDto
+                {
+                    ElementId = conflict.ElementId.ToString(),
+                    ElementKind = conflict.ElementKind,
+                    Name = conflict.Name,
+                    DiagramName = conflict.DiagramName,
+                    Kind = conflict.Kind.ToString(),
+                    Property = conflict.Property,
+                    Base = conflict.Base,
+                    Ours = conflict.Ours,
+                    Theirs = conflict.Theirs,
+                });
+            }
+
+            return new MergeResultDto { Merged = ToDto(result.Merged), Conflicts = conflicts };
+        }
+
         private static ThreatModel BuildModel(TmForgeModelDto dto, out Dictionary<string, List<string>> nameToIds)
         {
             nameToIds = new Dictionary<string, List<string>>(StringComparer.Ordinal);
@@ -329,6 +365,16 @@ namespace ThreatModelForge.Engine
             using (MemoryStream stream = new MemoryStream(json))
             {
                 return new TmForgeJsonFormat().Read(stream);
+            }
+        }
+
+        private static TmForgeModelDto ToDto(ThreatModel model)
+        {
+            using (MemoryStream output = new MemoryStream())
+            {
+                new TmForgeJsonFormat().Write(model, output);
+                return JsonSerializer.Deserialize<TmForgeModelDto>(output.ToArray(), CanonicalJsonOptions)
+                    ?? new TmForgeModelDto();
             }
         }
 

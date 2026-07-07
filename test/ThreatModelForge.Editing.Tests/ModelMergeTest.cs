@@ -174,6 +174,35 @@ namespace ThreatModelForge.Editing.Tests
             Assert.AreSame(ours, result.Merged);
         }
 
+        /// <summary>
+        /// Verifies the two-way overload (no common ancestor): elements unique to either side are
+        /// unioned, while a shared element whose attribute diverges is reported as a conflict and
+        /// kept as <c>ours</c>, since without an ancestor neither side can be presumed authoritative.
+        /// </summary>
+        [TestMethod]
+        public void TwoWayUnionsAddsAndConflictsOnSharedDivergence()
+        {
+            (ThreatModel baseModel, Guid process, _, _) = BuildBase();
+            ThreatModel ours = Reload(baseModel);
+            ThreatModel theirs = Reload(baseModel);
+            Rename(ours, process, "Auth");
+            Rename(theirs, process, "Frontend");
+            Guid mine = new DiagramEditor(ours).AddElement(ours.DrawingSurfaceList[0], StencilKind.Process, 10, 10);
+            Guid incoming = new DiagramEditor(theirs).AddElement(theirs.DrawingSurfaceList[0], StencilKind.Process, 20, 20);
+
+            MergeResult result = ModelMerge.Merge(ours, theirs);
+
+            MergeConflict conflict = result.Conflicts.Single();
+            Assert.AreEqual(MergeConflictKind.Property, conflict.Kind);
+            Assert.AreEqual(ModelSnapshot.NameKey, conflict.Property);
+            Assert.IsNull(conflict.Base);
+            Assert.AreEqual("Auth", conflict.Ours);
+            Assert.AreEqual("Frontend", conflict.Theirs);
+            Assert.AreEqual("Auth", NameOf(result.Merged, process));
+            Assert.IsNotNull(DiagramEditor.FindElement(result.Merged.DrawingSurfaceList[0], mine));
+            Assert.IsNotNull(DiagramEditor.FindElement(result.Merged.DrawingSurfaceList[0], incoming));
+        }
+
         private static void Rename(ThreatModel model, Guid id, string name)
         {
             new DiagramEditor(model).SetElementName(model.DrawingSurfaceList[0], id, name);

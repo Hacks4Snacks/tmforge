@@ -76,6 +76,8 @@ interface ToolbarProps {
   onExport: (formatId: string) => void;
   onImport: () => void;
   onSave: () => void;
+  /** Opens the three-way merge / conflict-resolution dialog. */
+  onMerge: () => void;
   /** True when the model has changes not yet written to a file. */
   dirty: boolean;
   /** Name of the file the model is bound to (what Save overwrites), or null when unsaved. */
@@ -124,6 +126,13 @@ export function Toolbar(props: ToolbarProps) {
           Save
         </button>
         <ExportMenu formats={props.exportFormats} onExport={props.onExport} />
+        <button
+          className="btn"
+          onClick={props.onMerge}
+          title="Three-way merge two edited .tm7 files against their common ancestor"
+        >
+          Merge
+        </button>
       </div>
 
       <span className="toolbar-div" />

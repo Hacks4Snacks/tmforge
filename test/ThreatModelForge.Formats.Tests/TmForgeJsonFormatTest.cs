@@ -47,6 +47,27 @@ namespace ThreatModelForge.Formats.Tests
         }
 
         /// <summary>
+        /// Verifies that a GUID element id in the source document is preserved as the element's
+        /// identity, so the structural diff and three-way merge can match elements across files.
+        /// A non-GUID id keeps the generated identity (unchanged behavior).
+        /// </summary>
+        [TestMethod]
+        public void ReadPreservesGuidElementIds()
+        {
+            System.Guid id = System.Guid.NewGuid();
+            string json = "{\"schema\":\"tmforge-json\",\"version\":\"0.1\",\"elements\":[" +
+                "{\"id\":\"" + id + "\",\"kind\":\"process\",\"name\":\"P\",\"x\":0,\"y\":0}]}";
+
+            ThreatModel model;
+            using (MemoryStream stream = new MemoryStream(Encoding.UTF8.GetBytes(json)))
+            {
+                model = new TmForgeJsonFormat().Read(stream);
+            }
+
+            Assert.IsTrue(model.DrawingSurfaceList[0].Borders.ContainsKey(id));
+        }
+
+        /// <summary>
         /// Verifies content sniffing matches a tmforge-json document and rejects a <c>.tm7</c>
         /// document, leaving the stream position unchanged.
         /// </summary>

@@ -196,6 +196,36 @@
         }
       }
     },
+    "/v1/model/merge": {
+      "post": {
+        "tags": [
+          "Model"
+        ],
+        "operationId": "MergeModels",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MergeRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MergeResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/model/export/tm7": {
       "post": {
         "tags": [
@@ -419,6 +449,124 @@
         "properties": {
           "status": {
             "type": "string"
+          }
+        }
+      },
+      "MergeConflictDto": {
+        "type": "object",
+        "properties": {
+          "elementId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "elementKind": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "diagramName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "property": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "base": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "ours": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "theirs": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "MergeRequestDto": {
+        "type": "object",
+        "properties": {
+          "base": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TmForgeModelDto"
+              }
+            ]
+          },
+          "ours": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TmForgeModelDto"
+              }
+            ]
+          },
+          "theirs": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TmForgeModelDto"
+              }
+            ]
+          }
+        }
+      },
+      "MergeResultDto": {
+        "type": "object",
+        "properties": {
+          "merged": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TmForgeModelDto"
+              }
+            ]
+          },
+          "conflicts": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/MergeConflictDto"
+            }
           }
         }
       },
