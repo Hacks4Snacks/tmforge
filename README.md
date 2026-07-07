@@ -63,7 +63,7 @@ New here? Start with the [Quick start](docs/quickstart.md).
 - **Author & edit** data-flow diagrams in the browser (the React **Studio** SPA): add
   processes, external entities, data stores, and trust boundaries; draw data flows; resize and
   bend connectors; organize a model across multiple pages.
-- **Author headlessly** from the CLI (`new`, `add`, `connect`, `set`, …) or the API, so agents
+- **Author headlessly** from the CLI (`new`, `add`, `connect`, `set`, ...) or the API, so agents
   and pipelines build models with no GUI.
 - **Read & write `.tm7` losslessly**, byte-for-byte compatible with MTMT.
 - **Convert** between `.tm7`, `tmforge-json`, draw.io, and Visio.

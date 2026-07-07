@@ -182,9 +182,9 @@ export function MergeResolveModal({ engine, onClose, onResolved }: MergeResolveM
         </p>
 
         <div className="merge-inputs">
-          <FilePick label="Base (common ancestor) — optional" onPick={setBase} />
-          <FilePick label="Ours (your version)" onPick={setOurs} />
-          <FilePick label="Theirs (incoming)" onPick={setTheirs} />
+          <FilePick label="Base (common ancestor) — optional" file={base} onPick={setBase} />
+          <FilePick label="Ours (your version)" file={ours} onPick={setOurs} />
+          <FilePick label="Theirs (incoming)" file={theirs} onPick={setTheirs} />
         </div>
 
         {!base ? (
@@ -200,7 +200,7 @@ export function MergeResolveModal({ engine, onClose, onResolved }: MergeResolveM
             onClick={() => void compute()}
             disabled={!ours || !theirs || busy}
           >
-            {busy ? 'Merging…' : loaded ? 'Re-merge' : 'Merge'}
+            {busy ? 'Merging' : loaded ? 'Re-merge' : 'Merge'}
           </button>
         </div>
 
@@ -289,12 +289,22 @@ export function MergeResolveModal({ engine, onClose, onResolved }: MergeResolveM
   );
 }
 
-/** A labelled file input for one side of the merge. */
-function FilePick({ label, onPick }: { label: string; onPick: (file: File | null) => void }) {
+/** A labelled file input for one side of the merge, styled to match the app's buttons. */
+function FilePick({ label, file, onPick }: { label: string; file: File | null; onPick: (file: File | null) => void }) {
   return (
-    <label className="file-pick">
+    <div className="file-pick">
       <span className="file-pick-label">{label}</span>
-      <input type="file" accept=".tm7,.json,.drawio,.vsdx" onChange={(e) => onPick(e.target.files?.[0] ?? null)} />
-    </label>
+      <label className={`file-pick-control${file ? ' has-file' : ''}`}>
+        <input
+          type="file"
+          className="file-pick-input"
+          accept=".tm7,.json,.drawio,.vsdx"
+          aria-label={label}
+          onChange={(e) => onPick(e.target.files?.[0] ?? null)}
+        />
+        <span className="file-pick-btn">{file ? 'Change file' : 'Choose file'}</span>
+        <span className="file-pick-name">{file ? file.name : 'No file selected'}</span>
+      </label>
+    </div>
   );
 }

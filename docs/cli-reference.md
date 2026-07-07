@@ -315,7 +315,7 @@ tmforge connect --source <guid> --target <guid> [--name <name>] [--property KEY=
 | `--target <guid>` | Target element GUID (required). |
 | `--name <name>` | Flow label. |
 | `--page <name\|index>` | Page to connect within (default: the first page). Both endpoints must be on it. |
-| `--property KEY=VALUE` | Repeatable. Sets flow custom properties (`Protocol`, `Port`, `DataType`, `Channel`, …). |
+| `--property KEY=VALUE` | Repeatable. Sets flow custom properties (`Protocol`, `Port`, `DataType`, `Channel`, ...). |
 
 Mark a non-network flow with `--property Channel=In-Process` (also `Local-file`, `Unix-socket`, or
 `Loopback`) to skip the protocol, port, and cleartext-crossing checks. Run
