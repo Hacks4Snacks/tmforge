@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/Hacks4Snacks/tmforge/compare/v0.3.1...v0.3.2) (2026-07-07)
+
+
+### Bug Fixes
+
+* ensure assets are published with immutable release ([#13](https://github.com/Hacks4Snacks/tmforge/issues/13)) ([a62ab2e](https://github.com/Hacks4Snacks/tmforge/commit/a62ab2ea4845915e04b07f76b99270498a8b51cf))
+
 ## [0.3.1](https://github.com/Hacks4Snacks/tmforge/compare/v0.3.0...v0.3.1) (2026-07-07)
 
 
