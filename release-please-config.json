@@ -6,6 +6,7 @@
   "packages": {
     ".": {
       "package-name": "threatmodelforge",
+      "draft": true,
       "extra-files": [
         {
           "type": "generic",

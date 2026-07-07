@@ -15,16 +15,19 @@ concurrency:
 
 jobs:
   release-please:
-    name: Maintain release PR & tag
+    name: Maintain release PR & draft release
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@v4
+        id: rp
         with:
           # release-please opens/updates a "release PR" that bumps the version
           # (Directory.Build.props VersionPrefix) and CHANGELOG.md from Conventional
-          # Commits. Merging it creates the `v<version>` tag + GitHub Release, which in
-          # turn triggers the tag-based workflows (release.yml -> six-RID binaries +
-          # Release assets, docker-publish.yml -> GHCR images).
+          # Commits. Merging it creates a DRAFT GitHub Release (config "draft": true) so
+          # its assets stay mutable — GitHub freezes a release as immutable only when it
+          # is published. A draft does NOT create the git tag, so the "Create release tag"
+          # step below creates it, which triggers the tag-based workflows (release.yml ->
+          # six-RID binaries, upload to the draft, then publish; docker-publish.yml -> GHCR).
           #
           # A PAT or GitHub App token is REQUIRED for that hand-off: tags pushed by the
           # default GITHUB_TOKEN do NOT trigger other workflows. Add a repo secret named
@@ -34,3 +37,23 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # release-please leaves the release as a draft (mutable) and so does not create the
+      # git tag. Create it here with the PAT so the tag-triggered workflows run; release.yml
+      # then uploads the binaries to the draft and flips it to published (immutable).
+      - name: Create release tag
+        if: ${{ steps.rp.outputs.release_created == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.rp.outputs.tag_name }}
+          SHA: ${{ steps.rp.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists; leaving it as-is."
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$TAG" \
+              -f "sha=$SHA"
+            echo "Created tag $TAG at $SHA."
+          fi
