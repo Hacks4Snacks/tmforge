@@ -35,6 +35,9 @@ namespace ThreatModelForge.Cli
                 case "show":
                     return ShowCommand.Run(rest);
 
+                case "diff":
+                    return DiffCommand.Run(rest);
+
                 case "stencils":
                     return StencilsCommand.Run(rest);
 
@@ -101,6 +104,7 @@ namespace ThreatModelForge.Cli
             Console.Error.WriteLine("  open      Summarize a threat model (counts of elements, flows, and threats).");
             Console.Error.WriteLine("  list      List components, flows, boundaries, threats, or diagrams.");
             Console.Error.WriteLine("  show      Show an element/flow's name, type, and custom properties.");
+            Console.Error.WriteLine("  diff      Show a structural diff between two models (added/removed/modified).");
             Console.Error.WriteLine("  stencils  List the built-in authoring stencils (ids for 'add --stencil').");
             Console.Error.WriteLine("  properties  List the typed property schema (custom properties the linter reads).");
             Console.Error.WriteLine("  render    Render the diagram in the terminal (Unicode/ANSI; --plain for ASCII).");
