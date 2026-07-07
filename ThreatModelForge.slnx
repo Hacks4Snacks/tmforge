@@ -9,6 +9,7 @@
     <Project Path="src/ThreatModelForge.Editing/ThreatModelForge.Editing.csproj" />
     <Project Path="src/ThreatModelForge.Formats/ThreatModelForge.Formats.csproj" />
     <Project Path="src/ThreatModelForge.Reporting/ThreatModelForge.Reporting.csproj" />
+    <Project Path="src/ThreatModelForge.Wasm/ThreatModelForge.Wasm.csproj" />
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/ThreatModelForge.Analysis.Rules.Tests/ThreatModelForge.Analysis.Rules.Tests.csproj" />

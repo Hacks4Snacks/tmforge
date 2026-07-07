@@ -13,5 +13,6 @@
     <ProjectFile Include="ThreatModelForge.Editing\ThreatModelForge.Editing.csproj" />
     <ProjectFile Include="ThreatModelForge.Api\ThreatModelForge.Api.csproj" />
     <ProjectFile Include="ThreatModelForge.Cli\ThreatModelForge.Cli.csproj" />
+    <ProjectFile Include="ThreatModelForge.Wasm\ThreatModelForge.Wasm.csproj" Condition="'$(BuildWasm)' == 'true'" />
   </ItemGroup>
 </Project>

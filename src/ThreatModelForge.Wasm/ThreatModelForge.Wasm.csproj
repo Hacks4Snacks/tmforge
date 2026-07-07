@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ThreatModelForge.Wasm</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <!-- App entry point: XML doc output isn't meaningful, so disable it and suppress SA0001
+         (mirrors ThreatModelForge.Api). StyleCop still enforces every other rule on the source. -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);SA0001</NoWarn>
+    <!-- Stable bootstrap filenames (no fingerprint) so main.js's literal `./_framework/dotnet.js`
+         import resolves on a dumb static host — the ENH-0002 GitHub Pages target. -->
+    <WasmFingerprintAssets>false</WasmFingerprintAssets>
+    <!-- Prove fidelity first: no trimming/AOT yet (trimmer roots come in a later phase).
+         Single-threaded runtime (no COOP/COEP header requirement on static hosts). -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <RunAOTCompilation>false</RunAOTCompilation>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <StaticWebAssetFingerprintPattern Include="JS" Pattern="*.js" Expression="#[.{fingerprint}]!" />
+  </ItemGroup>
+
+  <!-- The real engine libraries, run in-browser. Analysis.Rules is loaded reflectively via
+       Assembly.Load("ThreatModelForge.Analysis.Rules"); the ProjectReference keeps it in the bundle. -->
+  <ItemGroup>
+    <ProjectReference Include="..\ThreatModelForge.Core\ThreatModelForge.Core.csproj" />
+    <ProjectReference Include="..\ThreatModelForge.Formats\ThreatModelForge.Formats.csproj" />
+    <ProjectReference Include="..\ThreatModelForge.Analysis\ThreatModelForge.Analysis.csproj" />
+    <ProjectReference Include="..\ThreatModelForge.Analysis.Rules\ThreatModelForge.Analysis.Rules.csproj" />
+  </ItemGroup>
+
+</Project>
