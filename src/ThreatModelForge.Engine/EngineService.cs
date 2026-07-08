@@ -11,7 +11,6 @@ namespace ThreatModelForge.Engine
     using ThreatModelForge.Analysis.Rules;
     using ThreatModelForge.Editing;
     using ThreatModelForge.Formats;
-    using ThreatModelForge.KnowledgeBase;
     using ThreatModelForge.Model;
     using ThreatModelForge.Reporting;
 
@@ -247,12 +246,7 @@ namespace ThreatModelForge.Engine
         public static byte[] ExportTm7(TmForgeModelDto dto)
         {
             ThreatModel model = BuildModelForExport(dto);
-            if (model.KnowledgeBase == null)
-            {
-                KnowledgeBaseData knowledgeBase = KnowledgeBaseCatalog.CreateDefault();
-                SchemaBackedProperties.Apply(model, knowledgeBase);
-                model.KnowledgeBase = knowledgeBase;
-            }
+            Tm7ExportPreparer.Prepare(model);
 
             using (MemoryStream stream = new MemoryStream())
             {

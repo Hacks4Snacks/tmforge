@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ThreatModelForge.Core\ThreatModelForge.Core.csproj" />
+    <ProjectReference Include="..\ThreatModelForge.Editing\ThreatModelForge.Editing.csproj" />
   </ItemGroup>
 
   <ItemGroup>

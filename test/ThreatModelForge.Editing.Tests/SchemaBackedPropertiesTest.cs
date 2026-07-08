@@ -126,19 +126,19 @@ namespace ThreatModelForge.Editing.Tests
         }
 
         /// <summary>
-        /// Verifies that an unrecognized enumerated value falls back to the unset selection.
+        /// Verifies that a value outside the schema's options is preserved as a custom attribute rather
+        /// than typed to an unset selection (which would drop the value).
         /// </summary>
         [TestMethod]
-        public void ApplyFallsBackToUnsetForUnknownValue()
+        public void ApplyPreservesUnknownValueAsCustom()
         {
             (ThreatModel model, Connector flow) = ModelWithFlow();
             DiagramElementHelper.SetCustomProperty(flow, "Protocol", "Carrier Pigeon");
 
             SchemaBackedProperties.Apply(model, BuildKnowledgeBase("GE.DF"));
 
-            ListDisplayAttribute typed = flow.Properties.OfType<ListDisplayAttribute>()
-                .Single(p => p.DisplayName == "Protocol");
-            Assert.AreEqual(0, typed.SelectedIndex);
+            Assert.IsFalse(flow.Properties.OfType<ListDisplayAttribute>().Any());
+            Assert.AreEqual("Carrier Pigeon", DiagramElementHelper.GetCustomProperties(flow)["Protocol"]);
         }
 
         private static KnowledgeBaseData BuildKnowledgeBase(params string[] genericTypeIds)

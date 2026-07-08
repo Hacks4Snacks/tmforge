@@ -91,7 +91,10 @@ namespace ThreatModelForge.Editing
 
         private static string Classify(Entity entity)
         {
-            string? typeId = string.IsNullOrEmpty(entity.TypeId) ? entity.GenericTypeId : entity.TypeId;
+            // Classify by the generic (primitive) type: an element placed from a stencil carries its
+            // specific subtype in TypeId but its DFD primitive in GenericTypeId, so the generic type is
+            // the reliable basis for the kind.
+            string? typeId = string.IsNullOrEmpty(entity.GenericTypeId) ? entity.TypeId : entity.GenericTypeId;
             switch (typeId)
             {
                 case "GE.P":

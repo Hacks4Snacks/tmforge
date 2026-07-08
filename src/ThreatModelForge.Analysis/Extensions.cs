@@ -24,6 +24,10 @@ namespace ThreatModelForge.Analysis
 
         private const string StorageComponentGenericTypeId = "GE.DS";
 
+        // The Microsoft Threat Modeling Tool uses a leading "Select" entry as the unset sentinel for
+        // its list (drop-down) attributes; a selection pointing at it means the property has no value.
+        private const string UnsetListOption = "Select";
+
         /// <summary>
         /// Gets the name of the entity.
         /// </summary>
@@ -416,6 +420,30 @@ namespace ThreatModelForge.Analysis
                 if (propValue.StartsWith(propKey, StringComparison.InvariantCultureIgnoreCase))
                 {
                     values.Add(propValue.Substring(propKey.Length));
+                }
+            }
+
+            // Also read the property when it is stored as a typed list (drop-down) attribute — the form
+            // the Microsoft Threat Modeling Tool uses for schema-backed properties — so a model that
+            // carries the property as a typed selection (exported or tool-authored) is analyzed the same
+            // as one that carries it as a custom "name:value" attribute. A selection left on the unset
+            // sentinel is treated as absent.
+            foreach (var property in entity.Properties.OfType<ListDisplayAttribute>())
+            {
+                if (!string.Equals(property.DisplayName, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (property.Value is string[] options &&
+                    property.SelectedIndex >= 0 &&
+                    property.SelectedIndex < options.Length)
+                {
+                    string selected = options[property.SelectedIndex] ?? string.Empty;
+                    if (selected.Length > 0 && !string.Equals(selected, UnsetListOption, StringComparison.OrdinalIgnoreCase))
+                    {
+                        values.Add(selected);
+                    }
                 }
             }
 

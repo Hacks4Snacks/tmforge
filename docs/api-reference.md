@@ -79,6 +79,10 @@ uses. This is how Studio's **Analyze** button overlays findings on the canvas.
 #   POST /v1/model/export/tm7
 ```
 
+Both `.tm7` paths embed the Threat Model Forge knowledge base and write typed properties, so the
+exported file opens in the Microsoft Threat Modeling Tool. See
+[Formats](formats.md#tm7-and-the-microsoft-threat-modeling-tool).
+
 ### Report
 
 `POST /v1/model/report?format=html` (or `format=svg`) renders a report from a model, the hosted

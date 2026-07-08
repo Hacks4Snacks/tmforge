@@ -4,15 +4,17 @@ namespace ThreatModelForge.Analysis
     using System.Collections.Generic;
     using System.IO;
     using System.Reflection;
+    using ThreatModelForge.Editing;
     using ThreatModelForge.KnowledgeBase;
 
     /// <summary>
     /// Builds Threat Model Forge's own, clean-room knowledge base: the default embedded when a model
-    /// is exported to <c>.tm7</c> without one. It declares the standard generic element types (each
-    /// drawn from its <see cref="ElementVisualRepresentation"/> and given a small, original stencil
-    /// icon), the six STRIDE categories, and one threat type per threat-bearing analysis rule so the
-    /// register that Threat Model Forge writes has matching type metadata in the Microsoft Threat
-    /// Modeling Tool.
+    /// is exported to <c>.tm7</c> without one. It declares the generic element types (each drawn from
+    /// its <see cref="ElementVisualRepresentation"/> and given a small, original stencil icon), a
+    /// standard element type for every authoring stencil (so the Microsoft Threat Modeling Tool's
+    /// palette mirrors Threat Model Forge's), the six STRIDE categories, and one threat type per
+    /// threat-bearing analysis rule so the register that Threat Model Forge writes has matching type
+    /// metadata in the tool.
     /// </summary>
     public static class KnowledgeBaseCatalog
     {
@@ -20,6 +22,18 @@ namespace ThreatModelForge.Analysis
         public const string DefaultName = "Threat Model Forge Core";
 
         private static readonly Guid DefaultId = new Guid("7e3f1d52-0000-4000-8000-746d666f7267");
+
+        // Maps a stencil's base primitive to the generic element type it derives from, plus the visual
+        // representation, image placement, and icon that its standard element type inherits.
+        private static readonly IReadOnlyDictionary<string, GenericMapping> GenericBases =
+            new Dictionary<string, GenericMapping>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["process"] = new GenericMapping("GE.P", ElementVisualRepresentation.Ellipse, "Centered on stencil", "process"),
+                ["datastore"] = new GenericMapping("GE.DS", ElementVisualRepresentation.ParallelLines, "Lower right of stencil", "datastore"),
+                ["external"] = new GenericMapping("GE.EI", ElementVisualRepresentation.Rectangle, "Lower right of stencil", "external"),
+                ["dataflow"] = new GenericMapping("GE.DF", ElementVisualRepresentation.Line, "Before label", "dataflow"),
+                ["boundary"] = new GenericMapping("GE.TB.B", ElementVisualRepresentation.BorderBoundary, "Before label", "trustborder"),
+            };
 
         /// <summary>
         /// Builds the default knowledge base using the built-in analysis rule set for its threat types.
@@ -58,10 +72,29 @@ namespace ThreatModelForge.Analysis
             };
 
             AddGenericElements(knowledgeBase.GenericElements);
+            AddStandardElements(knowledgeBase.StandardElements);
             AddThreatCategories(knowledgeBase.ThreatCategories);
             AddThreatTypes(knowledgeBase.ThreatTypes, ruleSet);
 
             return knowledgeBase;
+        }
+
+        /// <summary>
+        /// Determines whether a knowledge base is Threat Model Forge's own default (as opposed to a
+        /// user-supplied or third-party one), by matching its manifest identifier. Used to decide when
+        /// an export may safely rebuild and re-type the knowledge base versus leaving a foreign one
+        /// untouched.
+        /// </summary>
+        /// <param name="knowledgeBase">The knowledge base to test.</param>
+        /// <returns><see langword="true"/> when the knowledge base is the built-in default.</returns>
+        public static bool IsDefault(KnowledgeBaseData knowledgeBase)
+        {
+            if (knowledgeBase == null)
+            {
+                throw new ArgumentNullException(nameof(knowledgeBase));
+            }
+
+            return knowledgeBase.Manifest != null && knowledgeBase.Manifest.Id == DefaultId;
         }
 
         private static void AddGenericElements(List<ElementType> elements)
@@ -73,6 +106,32 @@ namespace ThreatModelForge.Analysis
             elements.Add(GenericElement("GE.TB.L", "Generic Trust Line Boundary", "A representation of a trust boundary drawn as a line.", ElementVisualRepresentation.LineBoundary, "Before label", "trustline"));
             elements.Add(GenericElement("GE.TB.B", "Generic Trust Border Boundary", "A representation of a trust boundary drawn as a border.", ElementVisualRepresentation.BorderBoundary, "Before label", "trustborder"));
             elements.Add(GenericElement("GE.A", "Generic Annotation", "A representation of a free-text annotation.", ElementVisualRepresentation.Annotation, "Before label", "annotation"));
+        }
+
+        private static void AddStandardElements(List<ElementType> elements)
+        {
+            foreach (StencilDto stencil in StencilCatalog.All)
+            {
+                // The primitive stencils already exist as generic element types; only richer stencils
+                // (Azure SQL, AKS, a human actor, and so on) become standard element subtypes.
+                if (string.Equals(stencil.Id, stencil.Base, StringComparison.OrdinalIgnoreCase) ||
+                    !GenericBases.TryGetValue(stencil.Base, out GenericMapping mapping))
+                {
+                    continue;
+                }
+
+                elements.Add(new ElementType
+                {
+                    Id = stencil.Id,
+                    Name = stencil.Label,
+                    Description = string.IsNullOrEmpty(stencil.Blurb) ? stencil.Label : stencil.Blurb,
+                    ParentId = mapping.GenericId,
+                    Representation = mapping.Representation,
+                    ImageLocation = mapping.ImageLocation,
+                    ImageSource = LoadIcon(mapping.Icon),
+                    Hidden = false,
+                });
+            }
         }
 
         private static ElementType GenericElement(string id, string name, string description, ElementVisualRepresentation representation, string imageLocation, string icon)
@@ -185,6 +244,25 @@ namespace ThreatModelForge.Analysis
         {
             Assembly rules = Assembly.Load("ThreatModelForge.Analysis.Rules");
             return RuleSet.LoadDefault(new[] { rules });
+        }
+
+        private readonly struct GenericMapping
+        {
+            public GenericMapping(string genericId, ElementVisualRepresentation representation, string imageLocation, string icon)
+            {
+                this.GenericId = genericId;
+                this.Representation = representation;
+                this.ImageLocation = imageLocation;
+                this.Icon = icon;
+            }
+
+            public string GenericId { get; }
+
+            public ElementVisualRepresentation Representation { get; }
+
+            public string ImageLocation { get; }
+
+            public string Icon { get; }
         }
     }
 }

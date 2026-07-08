@@ -324,6 +324,57 @@ namespace ThreatModelForge.Analysis.Tests
         }
 
         /// <summary>
+        /// Verifies that a property stored as a custom "name:value" attribute is read.
+        /// </summary>
+        [TestMethod]
+        public void TryGetCustomPropertyValueReadsCustomAttribute()
+        {
+            Connector edge = new Connector { Guid = Guid.NewGuid() };
+            edge.Properties.Add(new CustomStringDisplayAttribute { Value = "Protocol:HTTPS" });
+
+            Assert.IsTrue(edge.TryGetCustomPropertyValue("Protocol", out string? value));
+            Assert.AreEqual("HTTPS", value);
+        }
+
+        /// <summary>
+        /// Verifies that a property stored as a typed list (drop-down) attribute is read.
+        /// </summary>
+        [TestMethod]
+        public void TryGetCustomPropertyValueReadsTypedListAttribute()
+        {
+            Connector edge = new Connector { Guid = Guid.NewGuid() };
+            edge.Properties.Add(new ListDisplayAttribute
+            {
+                Name = "Protocol",
+                DisplayName = "Protocol",
+                Value = new[] { "Select", "HTTPS", "HTTP" },
+                SelectedIndex = 1,
+            });
+
+            Assert.IsTrue(edge.TryGetCustomPropertyValue("Protocol", out string? value));
+            Assert.AreEqual("HTTPS", value);
+        }
+
+        /// <summary>
+        /// Verifies that a typed list property left on the unset sentinel is treated as absent.
+        /// </summary>
+        [TestMethod]
+        public void TryGetCustomPropertyValueOmitsUnsetTypedList()
+        {
+            Connector edge = new Connector { Guid = Guid.NewGuid() };
+            edge.Properties.Add(new ListDisplayAttribute
+            {
+                Name = "Protocol",
+                DisplayName = "Protocol",
+                Value = new[] { "Select", "HTTPS", "HTTP" },
+                SelectedIndex = 0,
+            });
+
+            Assert.IsFalse(edge.TryGetCustomPropertyValue("Protocol", out string? value));
+            Assert.IsNull(value);
+        }
+
+        /// <summary>
         /// Unit test for the <see cref="Extensions.IsGenericComponent(Entity)"/> method.
         /// </summary>
         [TestMethod]

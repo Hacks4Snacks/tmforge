@@ -28,6 +28,30 @@ Threat Model Forge reuses the exact serializer type graph MTMT produces, `.tm7` 
 two tools **byte-for-byte identically**, including the rich threat data model. This is the canonical
 format; when you mutate a `.tm7` with the CLI, it's written back through this byte-stable writer.
 
+### `tm7` and the Microsoft Threat Modeling Tool
+
+For a file to open in MTMT it must carry a **knowledge base** (the tool dereferences it without a null
+check). So when you export a model that doesn't already have one, Threat Model Forge embeds its own
+clean-room default — **“Threat Model Forge Core”**: the generic DFD element types, the six STRIDE
+categories, a threat type per built-in rule, and a **standard element type for every authoring
+stencil** so the tool's palette mirrors Threat Model Forge's. This happens on **every** `.tm7` write
+(the CLI authoring verbs, `convert --to tm7`, and Studio/API export), so a `.tm7` is MTMT-ready at
+every step.
+
+- **Typed properties.** Schema properties (`Protocol`, `Encrypted`, `DataType`, …) are written as
+  first-class **typed tool properties** — the drop-downs MTMT shows in its properties pane — rather
+  than free-form custom attributes. Free-text properties (like `Port`) and any value outside a
+  property's options are kept as custom attributes, so nothing is dropped.
+- **Stencils as element types.** An element placed from a stencil (`azure-sql`, `entra-id`, …) is
+  exported as the matching standard element type, so it appears in MTMT as that stencil rather than a
+  bare generic.
+- **Existing knowledge bases are preserved.** A model that already carries a knowledge base — a file
+  authored in MTMT, or one you supply with `tmforge convert --knowledge-base <file.tb7>` — is written
+  back untouched.
+
+Analysis reads typed and custom properties identically, so an exported or tool-authored `.tm7` is
+validated the same as one authored with custom attributes.
+
 ### `tmforge-json` (canonical wire model)
 
 The shape Studio and the API speak: elements, flows, trust boundaries, names, and geometry, plus an

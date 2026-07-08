@@ -307,6 +307,9 @@ tmforge new payments.tm7 --name "Payments"
 tmforge new payments.tmforge.json --format tmforge-json
 ```
 
+A `.tm7` written here — and by every authoring verb, `apply`, and `convert --to tm7` — embeds the
+knowledge base, so it opens in the Microsoft Threat Modeling Tool without a separate export step.
+
 ### `add`
 
 Add an element to a page (the first diagram by default; target another with `--page`). Use a **positional kind** for a generic element, **or**
@@ -322,7 +325,7 @@ tmforge add --stencil <id> [options] <file>
 | `--name <name>` | Element name (defaults to the stencil label when using `--stencil`). |
 | `--alias <name>` | Stable authoring handle. Resolvable by `connect`/`set`/`remove`/`rename`/`show`, and gives the element a **deterministic** id (the same alias yields the same id across rebuilds) so reports and docs can cite it. |
 | `--boundary <ref>` | Place the element inside this trust boundary (by alias, name, or GUID) and record membership, so `export` and boundary-aware rules see it. |
-| `--stencil <id>` | Concrete stencil from the catalog; stamps `StencilType=<id>` plus preset defaults. |
+| `--stencil <id>` | Concrete stencil from the catalog; stamps `StencilType=<id>` plus preset defaults. On `.tm7` export the stencil becomes a first-class element type in the Microsoft Threat Modeling Tool's palette. |
 | `--left <n>` / `--top <n>` | Explicit coordinates (otherwise auto-laid-out). |
 | `--width <n>` / `--height <n>` | Size (boundaries default to 260×180 so they enclose in `render`). |
 | `--page <name\|index>` | Target page: a 1-based index or a page name (default: the first page; one is created if the model has none). |
@@ -571,21 +574,27 @@ tmforge report payments.tm7 --format svg --out payments.svg
 Convert between formats. The target is chosen by `--to` or inferred from the `--out` extension.
 
 ```text
-tmforge convert [--to <format>] [--out <path>] [--json] <input>
+tmforge convert [--to <format>] [--out <path>] [--knowledge-base <file.tb7>] [--json] <input>
 ```
 
 | Format id | Extension | Notes |
 | --- | --- | --- |
-| `tm7` | `.tm7` | Lossless, byte-stable. |
+| `tm7` | `.tm7` | Lossless, byte-stable; embeds a knowledge base so it opens in MTMT. |
 | `tmforge-json` | `.tmforge.json` | Canonical wire model. |
 | `drawio` | `.drawio` | draw.io / diagrams.net (structural). |
 | `vsdx` | `.vsdx` | Microsoft Visio (structural). |
 
 See [Formats & interoperability](formats.md) for fidelity details.
 
+A `.tm7` target embeds the Threat Model Forge knowledge base by default so the file opens in the
+[Microsoft Threat Modeling Tool](formats.md#tm7-and-the-microsoft-threat-modeling-tool); pass
+`--knowledge-base <file.tb7>` to embed a specific one instead. A knowledge base already present in the
+source model (for example, a file authored in the tool) is preserved.
+
 ```bash
 tmforge convert payments.tm7 --to drawio --out payments.drawio
 tmforge convert payments.drawio --to tm7 --out payments.tm7
+tmforge convert payments.tmforge.json --to tm7 --out payments.tm7 --knowledge-base Custom.tb7
 ```
 
 ---

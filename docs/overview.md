@@ -116,16 +116,6 @@ what you set in Studio, the CLI, or MTMT stays consistent.
 - **Formats**: `.tm7` (lossless), `tmforge-json` (canonical wire model), `.drawio`
   (draw.io / diagrams.net), and `.vsdx` (Microsoft Visio). See [Formats](formats.md).
 
-## What's in v0.1 (and what isn't)
-
-**In scope:** `.tm7` read / write / validate / report, browser and CLI authoring, multi-format
-import/export, git-native diff/merge, and CI validation.
-
-**Deferred:** in-product **STRIDE threat generation** and knowledge-base compilation are not in
-v0.1. You author and validate models; automated threat suggestion is planned as a later, optional
-generation pack. (The `.tm7` threat *data model* is fully preserved: threats authored in MTMT
-round-trip and are listed by `tmforge list threats`.)
-
 ## Next steps
 
 - [Quick start](quickstart.md): build your first model end to end.

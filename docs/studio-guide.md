@@ -127,7 +127,8 @@ and every element both versions changed differently is listed as a conflict for 
 modal shows a notice to that effect.
 
 Pick **Ours** or **Theirs** for each conflict (the default keeps yours), then **Load into editor** to
-drop the resolved model onto the canvas, or **Download .tm7** to save it. Structural conflicts (an
+drop the resolved model onto the canvas, or **Download .tm7** to save it (the downloaded `.tm7` embeds
+the knowledge base, so it opens in the Microsoft Threat Modeling Tool). Structural conflicts (an
 element deleted on one side and edited on the other, or a data flow left dangling) keep your version
 and are flagged for you to fix after loading.
 

@@ -7,6 +7,7 @@ namespace ThreatModelForge.Cli
     using System.Linq;
     using System.Security.Cryptography;
     using System.Text;
+    using ThreatModelForge.Analysis;
     using ThreatModelForge.Editing;
     using ThreatModelForge.Formats;
     using ThreatModelForge.Model;
@@ -501,6 +502,11 @@ namespace ThreatModelForge.Cli
         /// <param name="format">The format provider to write with.</param>
         public static void Save(ThreatModel model, string path, IThreatModelFormat format)
         {
+            if (format is Tm7Format)
+            {
+                Tm7ExportPreparer.Prepare(model);
+            }
+
             string fullPath = Path.GetFullPath(path);
             string directory = Path.GetDirectoryName(fullPath) ?? ".";
             string temp = Path.Combine(directory, "." + Path.GetFileName(fullPath) + "." + Guid.NewGuid().ToString("N") + ".tmp");

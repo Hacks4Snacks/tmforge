@@ -14,7 +14,8 @@ namespace ThreatModelForge.Editing
     /// list attribute on the matching generic element type in the knowledge base, and rewrites the
     /// corresponding <see cref="CustomStringDisplayAttribute"/> values on elements into typed
     /// <see cref="ListDisplayAttribute"/> selections. Free-text properties (which the tool's knowledge
-    /// base cannot express as a list) are left as custom attributes so their values are preserved.
+    /// base cannot express as a list), and any value that is not one of a property's known options, are
+    /// left as custom attributes so their values are preserved.
     /// </summary>
     public static class SchemaBackedProperties
     {
@@ -133,6 +134,12 @@ namespace ThreatModelForge.Editing
                 List<string> options = new List<string> { UnsetOption };
                 options.AddRange(descriptor.Values);
                 int index = options.FindIndex(o => string.Equals(o, value, StringComparison.OrdinalIgnoreCase));
+                if (index <= 0)
+                {
+                    // The value is not one of the schema's options (or is the unset sentinel); leave it
+                    // as a custom attribute so it is preserved rather than silently dropped.
+                    continue;
+                }
 
                 element.Properties.Remove(custom);
                 element.Properties.Add(new ListDisplayAttribute
@@ -140,7 +147,7 @@ namespace ThreatModelForge.Editing
                     Name = descriptor.Name,
                     DisplayName = descriptor.Name,
                     Value = options.ToArray(),
-                    SelectedIndex = index < 0 ? 0 : index,
+                    SelectedIndex = index,
                 });
             }
         }

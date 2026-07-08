@@ -3,7 +3,6 @@ namespace ThreatModelForge.Cli
     using System;
     using System.IO;
     using ThreatModelForge.Analysis;
-    using ThreatModelForge.Editing;
     using ThreatModelForge.Formats;
     using ThreatModelForge.KnowledgeBase;
     using ThreatModelForge.Model;
@@ -97,11 +96,9 @@ namespace ThreatModelForge.Cli
 
                 model.KnowledgeBase = KnowledgeBaseData.Load(knowledgeBasePath!);
             }
-            else if (target is Tm7Format && model.KnowledgeBase == null)
+            else if (target is Tm7Format)
             {
-                KnowledgeBaseData knowledgeBase = KnowledgeBaseCatalog.CreateDefault();
-                SchemaBackedProperties.Apply(model, knowledgeBase);
-                model.KnowledgeBase = knowledgeBase;
+                Tm7ExportPreparer.Prepare(model);
             }
 
             string outputPath = !string.IsNullOrEmpty(output)
