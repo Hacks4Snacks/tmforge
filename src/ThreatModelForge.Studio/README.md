@@ -37,8 +37,9 @@ npm run gen:api      # openapi-typescript ../ThreatModelForge.Api/openapi/v1.jso
   the Trust Boundary is a resizable region; pan / zoom / minimap / fit.
 - **The engine seam**: `Validate` calls the real `/v1` engine when it's online (falling back
   to an offline stub), returns findings, and overlays them on the offending nodes/edges. The
-  **inspector** (right panel) edits a flow's protocol / data classification to clear them, and
-  **undo/redo** (Cmd+Z / Shift+Cmd+Z) covers every edit.
+  **inspector** (right panel) is schema-driven, it exposes every typed property the engine
+  declares for the selected element or flow (not just a flow's protocol / data classification), so
+  any finding can be cleared and **undo/redo** (Cmd+Z / Shift+Cmd+Z) covers every edit.
 - **Canonical model**: `Export tmforge-json` / `Import JSON` round‑trips the diagram
   through the `tmforge-json` shape the real editor + API would speak.
 

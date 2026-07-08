@@ -1,0 +1,8 @@
+{
+  // Type-checks the app together with the test files (which the production tsconfig excludes).
+  // Used by `npm test` before running Vitest. The jsdom/jest-dom matcher types are picked up from
+  // the setup file's `@testing-library/jest-dom/vitest` import.
+  "extends": "./tsconfig.json",
+  "include": ["src"],
+  "exclude": []
+}

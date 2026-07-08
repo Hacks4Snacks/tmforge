@@ -81,8 +81,8 @@ The Studio picks its engine transport at startup and degrades cleanly:
 | Order | Transport | When |
 | --- | --- | --- |
 | 1 | `/v1` HTTP engine | a `/v1/health` probe answers (hosted image, or a dev API) |
-| 2 | **WASM engine** | no `/v1`, but the WASM bundle loads — full engine, in-browser |
-| 3 | Offline | WASM cannot load (disabled/blocked) — authoring only; engine ops report an honest error |
+| 2 | **WASM engine** | no `/v1`, but the WASM bundle loads: full engine, in-browser |
+| 3 | Offline | WASM cannot load (disabled/blocked): authoring only; engine ops report an honest error |
 
 ### Build it
 
@@ -108,7 +108,7 @@ python3 -m http.server -d dist 8080     # -> http://localhost:8080/
 - `VITE_DEMO=true` wires the WASM transport into the demo build.
 - `VITE_BASE` sets the base path when the site is served from a sub-path (e.g. `/tmforge/` on project
   Pages); omit it for a root deploy.
-- The bundle is the .NET WASM runtime + trimmed engine assemblies + ICU — roughly **3.3 MB brotli**,
+- The bundle is the .NET WASM runtime + trimmed engine assemblies + ICU, roughly **3.3 MB brotli**,
   loaded lazily and cached, and only fetched when no `/v1` answers.
 
 ### GitHub Pages

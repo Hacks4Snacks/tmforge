@@ -2,8 +2,6 @@ import { useState } from 'react';
 import type { DfdEdge, DfdNode } from './types';
 import type { PropertyDescriptorInfo, StencilInfo } from './engineClient';
 
-const PROTOCOLS = ['HTTPS', 'HTTP', 'TCP', 'UDP', 'gRPC', 'AMQP', 'MQTT'];
-const DATA_TAGS = ['EUII', 'EUPI', 'System Metadata', 'Customer Content', 'Account Data', 'OII', 'Access Control Data'];
 const KIND_LABEL: Record<string, string> = {
   process: 'Process',
   datastore: 'Data store',
@@ -31,10 +29,106 @@ interface InspectorProps {
   onDelete: () => void;
 }
 
-export function Inspector(props: InspectorProps) {
-  const { node, edge } = props;
+/**
+ * The schema-driven property editor shared by elements and data flows. It renders a typed control
+ * for every property the engine's schema declares for the selected primitive — so every property an
+ * analysis rule can read is reachable — followed by any custom (non-schema) properties and a
+ * free-form add row. Enum and boolean properties render as dropdowns of canonical values; string
+ * properties render as text inputs. Selecting "(none)" or clearing a value removes the property.
+ */
+function PropertyFields(props: {
+  /** The DFD primitive whose schema to render: 'process' | 'datastore' | 'external' | 'flow'. */
+  appliesTo: string;
+  /** The custom properties currently set on the element or flow. */
+  properties: Record<string, string>;
+  /** The full typed property schema; filtered here by the primitive it applies to. */
+  schema: PropertyDescriptorInfo[];
+  /** Adds or updates a property. */
+  onSet: (key: string, value: string) => void;
+  /** Removes a property. */
+  onRemove: (key: string) => void;
+  /** Called when a free-text edit begins, so one undo step covers the whole edit. */
+  onBeginEdit: () => void;
+}) {
+  const { appliesTo, properties, schema, onSet, onRemove, onBeginEdit } = props;
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
+
+  const schemaFor = schema.filter((descriptor) => descriptor.appliesTo === appliesTo);
+  const schemaNames = new Set(schemaFor.map((descriptor) => descriptor.name));
+  const custom = Object.entries(properties).filter(([key]) => !schemaNames.has(key));
+
+  const typedControl = (descriptor: PropertyDescriptorInfo) => {
+    const value = properties[descriptor.name] ?? '';
+    const commit = (next: string) => (next ? onSet(descriptor.name, next) : onRemove(descriptor.name));
+    if (descriptor.kind === 'enum' || descriptor.kind === 'bool') {
+      return (
+        <select value={value} onChange={(event) => commit(event.target.value)}>
+          <option value="">(none)</option>
+          {descriptor.values.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      );
+    }
+    return <input value={value} onFocus={onBeginEdit} onChange={(event) => commit(event.target.value)} />;
+  };
+
+  return (
+    <div className="inspector-props">
+      <span className="inspector-props-title">Properties</span>
+      {schemaFor.length === 0 && (
+        <p className="inspector-hint">
+          Typed properties load from the analysis engine. Add properties by name below (for example, Protocol or
+          DataType).
+        </p>
+      )}
+      {schemaFor.map((descriptor) => (
+        <label className="inspector-field" key={descriptor.name}>
+          <span>{descriptor.name}</span>
+          {typedControl(descriptor)}
+        </label>
+      ))}
+      {custom.length > 0 && (
+        <>
+          <span className="inspector-props-title">Custom properties</span>
+          {custom.map(([key, value]) => (
+            <div className="inspector-prop-row" key={key}>
+              <span className="inspector-prop-key" title={key}>
+                {key}
+              </span>
+              <input value={value} onFocus={onBeginEdit} onChange={(event) => onSet(key, event.target.value)} />
+              <button className="inspector-prop-del" title={`Remove ${key}`} onClick={() => onRemove(key)}>
+                ×
+              </button>
+            </div>
+          ))}
+        </>
+      )}
+      <div className="inspector-prop-add">
+        <input placeholder="key" value={newKey} onChange={(event) => setNewKey(event.target.value)} />
+        <input placeholder="value" value={newValue} onChange={(event) => setNewValue(event.target.value)} />
+        <button
+          className="btn"
+          disabled={!newKey.trim()}
+          onClick={() => {
+            const key = newKey.trim();
+            onSet(key, newValue);
+            setNewKey('');
+            setNewValue('');
+          }}
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function Inspector(props: InspectorProps) {
+  const { node, edge } = props;
 
   if (!node && !edge) {
     return (
@@ -46,7 +140,6 @@ export function Inspector(props: InspectorProps) {
   }
 
   if (edge) {
-    const flowProps = edge.data?.properties ?? {};
     const label = typeof edge.label === 'string' ? edge.label : '';
     return (
       <aside className="inspector">
@@ -59,31 +152,19 @@ export function Inspector(props: InspectorProps) {
             onChange={(event) => props.onRenameEdge(edge.id, event.target.value)}
           />
         </label>
-        <label className="inspector-field">
-          <span>Protocol</span>
-          <select value={flowProps.Protocol ?? ''} onChange={(event) => props.onSetEdgeProperty(edge.id, 'Protocol', event.target.value)}>
-            <option value="">(none)</option>
-            {PROTOCOLS.map((protocol) => (
-              <option key={protocol} value={protocol}>
-                {protocol}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="inspector-field">
-          <span>Data classification</span>
-          <select value={flowProps.DataType ?? ''} onChange={(event) => props.onSetEdgeProperty(edge.id, 'DataType', event.target.value)}>
-            <option value="">(none)</option>
-            {DATA_TAGS.map((tag) => (
-              <option key={tag} value={tag}>
-                {tag}
-              </option>
-            ))}
-          </select>
-        </label>
+        <PropertyFields
+          key={edge.id}
+          appliesTo="flow"
+          properties={edge.data?.properties ?? {}}
+          schema={props.propertySchema}
+          onSet={(key, value) => props.onSetEdgeProperty(edge.id, key, value)}
+          onRemove={(key) => props.onSetEdgeProperty(edge.id, key, '')}
+          onBeginEdit={props.onBeginNameEdit}
+        />
         <p className="inspector-hint">
-          Set <b>Protocol</b> (for example HTTPS) and a <b>Data classification</b>, and mention the protocol in the
-          label, then re-validate to clear the TM1008 / TM1010 / TM1013 / TM1009 findings.
+          Set the properties a rule reads — for example <b>Protocol</b> and <b>Port</b>, a <b>DataType</b>, or an{' '}
+          <b>Algorithm</b> — and mention the protocol in the label, then re-validate to clear the flow findings
+          (for example TM1008 / TM1009 / TM1010 / TM1013 / TM1016 / TM1025).
         </p>
         <button className="btn btn-danger" onClick={props.onDelete}>
           Delete flow
@@ -97,33 +178,7 @@ export function Inspector(props: InspectorProps) {
   }
 
   const stencil = node.data.stencilType ? props.stencils.find((s) => s.id === node.data.stencilType) : undefined;
-  const nodeProps = Object.entries(node.data.properties ?? {});
   const baseKind = node.type ?? 'process';
-  const schemaFor = props.propertySchema.filter((descriptor) => descriptor.appliesTo === baseKind);
-  const byName = new Map(schemaFor.map((descriptor) => [descriptor.name, descriptor]));
-  const knownUnset = schemaFor.filter((descriptor) => !(descriptor.name in (node.data.properties ?? {})));
-  const valueControl = (key: string, value: string) => {
-    const descriptor = byName.get(key);
-    if (descriptor && (descriptor.kind === 'enum' || descriptor.kind === 'bool')) {
-      return (
-        <select value={value} onChange={(event) => props.onSetNodeProperty(node.id, key, event.target.value)}>
-          <option value="">(none)</option>
-          {descriptor.values.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      );
-    }
-    return (
-      <input
-        value={value}
-        onFocus={props.onBeginNameEdit}
-        onChange={(event) => props.onSetNodeProperty(node.id, key, event.target.value)}
-      />
-    );
-  };
   return (
     <aside className="inspector">
       <h2 className="inspector-title">{stencil?.label ?? KIND_LABEL[node.type ?? 'process'] ?? 'Element'}</h2>
@@ -140,50 +195,15 @@ export function Inspector(props: InspectorProps) {
           onChange={(event) => props.onRenameNode(node.id, event.target.value)}
         />
       </label>
-      <div className="inspector-props">
-        <span className="inspector-props-title">Properties</span>
-        {nodeProps.length === 0 ? (
-          <p className="inspector-hint">No custom properties yet. Add one below (for example, Encryption or DataType).</p>
-        ) : (
-          nodeProps.map(([key, value]) => (
-            <div className="inspector-prop-row" key={key}>
-              <span className="inspector-prop-key" title={key}>
-                {key}
-              </span>
-              {valueControl(key, value)}
-              <button
-                className="inspector-prop-del"
-                title={`Remove ${key}`}
-                onClick={() => props.onRemoveNodeProperty(node.id, key)}
-              >
-                ×
-              </button>
-            </div>
-          ))
-        )}
-        <div className="inspector-prop-add">
-          <input placeholder="key" list="tmf-known-props" value={newKey} onChange={(event) => setNewKey(event.target.value)} />
-          <datalist id="tmf-known-props">
-            {knownUnset.map((descriptor) => (
-              <option key={descriptor.name} value={descriptor.name} />
-            ))}
-          </datalist>
-          <input placeholder="value" value={newValue} onChange={(event) => setNewValue(event.target.value)} />
-          <button
-            className="btn"
-            disabled={!newKey.trim()}
-            onClick={() => {
-              const key = newKey.trim();
-              const descriptor = byName.get(key);
-              props.onSetNodeProperty(node.id, key, newValue || descriptor?.default || '');
-              setNewKey('');
-              setNewValue('');
-            }}
-          >
-            Add
-          </button>
-        </div>
-      </div>
+      <PropertyFields
+        key={node.id}
+        appliesTo={baseKind}
+        properties={node.data.properties ?? {}}
+        schema={props.propertySchema}
+        onSet={(key, value) => props.onSetNodeProperty(node.id, key, value)}
+        onRemove={(key) => props.onRemoveNodeProperty(node.id, key)}
+        onBeginEdit={props.onBeginNameEdit}
+      />
       <button className="btn btn-danger" onClick={props.onDelete}>
         Delete element
       </button>

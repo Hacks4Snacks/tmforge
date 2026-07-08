@@ -30,6 +30,31 @@ jobs:
       - name: Test
         run: dotnet test dirs.proj -c Release --no-build
 
+  studio:
+    name: Studio build & test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/ThreatModelForge.Studio
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/ThreatModelForge.Studio/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Test (type-check + Vitest)
+        run: npm test
+
+      - name: Build (production bundle)
+        run: npm run build
+
   wasm:
     name: WASM engine build
     runs-on: ubuntu-latest
