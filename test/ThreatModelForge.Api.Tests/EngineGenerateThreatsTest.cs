@@ -1,9 +1,12 @@
 namespace ThreatModelForge.Api.Tests
 {
     using System.Collections.Generic;
+    using System.IO;
     using System.Linq;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
     using ThreatModelForge.Engine;
+    using ThreatModelForge.KnowledgeBase;
+    using ThreatModelForge.Model;
 
     /// <summary>
     /// Unit tests for <see cref="EngineService.GenerateThreats"/>, confirming the shared engine seam
@@ -59,6 +62,41 @@ namespace ThreatModelForge.Api.Tests
             Assert.AreEqual("Accepted", accepted.State);
             Assert.AreEqual("Client authenticates upstream.", accepted.Justification);
             Assert.IsTrue(triaged.Where(t => t.Id != spoof.Id).All(t => t.State == "Open"));
+        }
+
+        /// <summary>
+        /// Exporting a model that carries an acceptance overlay to <c>.tm7</c> seeds the register with
+        /// the accepted threat, so a risk accepted in Studio round-trips natively in the exported file
+        /// (the CLI then reads the same register). This closes the cross-surface acceptance gap.
+        /// </summary>
+        [TestMethod]
+        public void ExportTm7_CarriesAcceptedTriage()
+        {
+            IReadOnlyList<ThreatDto> open = EngineService.GenerateThreats(BuildModel(null));
+            ThreatDto spoof = open.First(t => t.RuleId == "TM1023");
+            ThreatStateDto[] triage = new[]
+            {
+                new ThreatStateDto { Id = spoof.Id, State = "Accepted", Justification = "Client authenticates upstream." },
+            };
+
+            byte[] tm7 = EngineService.ExportTm7(BuildModel(null, triage));
+
+            ThreatModel model;
+            using (MemoryStream stream = new MemoryStream(tm7))
+            {
+                model = ThreatModel.Load(stream);
+            }
+
+            Assert.IsTrue(model.AllThreatsDictionary.TryGetValue(spoof.Id, out Threat? threat));
+            Assert.AreEqual(ThreatState.NotApplicable, threat!.State);
+            Assert.AreEqual("Client authenticates upstream.", threat.StateInformation);
+
+            // The export materializes the full, titled register (not just the accepted stub): the
+            // accepted threat keeps its generated title and type, and the register holds every
+            // generated threat so a tool such as MTMT sees a complete analysis.
+            Assert.IsFalse(string.IsNullOrEmpty(threat.Title));
+            Assert.AreEqual("TM1023", threat.TypeId);
+            Assert.AreEqual(open.Count, model.AllThreatsDictionary.Count);
         }
 
         private static TmForgeModelDto BuildModel(TmForgeAnalysisDto? analysis, IReadOnlyList<ThreatStateDto>? threats = null)

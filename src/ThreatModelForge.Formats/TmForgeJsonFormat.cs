@@ -9,6 +9,7 @@ namespace ThreatModelForge.Formats
     using System.Text.Json;
     using System.Text.Json.Serialization;
     using ThreatModelForge.Editing;
+    using ThreatModelForge.KnowledgeBase;
     using ThreatModelForge.Model;
     using ThreatModelForge.Model.Abstracts;
 
@@ -31,7 +32,7 @@ namespace ThreatModelForge.Formats
             canRead: true,
             canWrite: true,
             roundTrips: false,
-            fidelityNote: "The canvas wire model: elements, flows, trust boundaries, names, and geometry. Knowledge-base attributes and generated threats are not represented.");
+            fidelityNote: "The canvas wire model: elements, flows, trust boundaries, names, and geometry. Knowledge-base attributes and the generated-threat register are not represented, except risk-acceptance triage, which round-trips.");
 
         private static readonly JsonSerializerOptions SerializerOptions = new JsonSerializerOptions
         {
@@ -184,6 +185,7 @@ namespace ThreatModelForge.Formats
                 PopulateSurface(editor, surface, document.Elements, document.Flows);
             }
 
+            SeedRegister(model, document.Threats);
             return model;
         }
 
@@ -239,6 +241,7 @@ namespace ThreatModelForge.Formats
                 Flows = diagrams.Count > 0 ? diagrams[0].Flows : Array.Empty<TmForgeJsonFlow>(),
                 Diagrams = diagrams.Count > 1 ? diagrams.ToArray() : null,
                 Analysis = analysis,
+                Threats = CollectTriage(model),
             };
 
             string json = JsonSerializer.Serialize(document, SerializerOptions);
@@ -250,6 +253,115 @@ namespace ThreatModelForge.Formats
             {
                 writer.Write(json);
             }
+        }
+
+        /// <summary>
+        /// Seeds the model's threat register from the triage overlay carried on the document, so risk
+        /// acceptance recorded in Studio (or a prior CLI session) survives the round-trip. Only the
+        /// durable, human-set triage is stored on <c>tmforge-json</c>; the rest of the register is a
+        /// projection of the analysis findings and is regenerated on demand (<c>tmforge threats</c>),
+        /// which preserves these accepted entries by their register key.
+        /// </summary>
+        /// <param name="model">The model whose register is seeded.</param>
+        /// <param name="triage">The triage overlay from the document, if any.</param>
+        private static void SeedRegister(ThreatModel model, IReadOnlyList<TmForgeJsonThreatState>? triage)
+        {
+            if (triage == null)
+            {
+                return;
+            }
+
+            Guid surfaceGuid = FirstSurfaceGuid(model);
+            int nextId = 1;
+            foreach (TmForgeJsonThreatState entry in triage)
+            {
+                if (string.IsNullOrEmpty(entry.Id) ||
+                    !string.Equals(entry.State, "Accepted", StringComparison.OrdinalIgnoreCase) ||
+                    model.AllThreatsDictionary.ContainsKey(entry.Id))
+                {
+                    continue;
+                }
+
+                (Guid targetGuid, string? ruleId) = ParseThreatId(entry.Id);
+                model.AllThreatsDictionary[entry.Id] = new Threat
+                {
+                    Id = nextId,
+                    TypeId = ruleId,
+                    SourceGuid = targetGuid,
+                    DrawingSurfaceGuid = surfaceGuid,
+                    State = ThreatState.NotApplicable,
+                    InteractionKey = entry.Id,
+                    StateInformation = entry.Justification ?? string.Empty,
+                    ModifiedAt = DateTime.UtcNow,
+                };
+                nextId++;
+            }
+        }
+
+        /// <summary>
+        /// Projects the model's accepted register threats back onto the document overlay so risk
+        /// acceptance round-trips. Only accepted risks (<see cref="ThreatState.NotApplicable"/>) are
+        /// represented; the rest of the register is regenerable and is not stored.
+        /// </summary>
+        /// <param name="model">The model whose register is read.</param>
+        /// <returns>The triage overlay, or <see langword="null"/> when nothing is accepted.</returns>
+        private static IReadOnlyList<TmForgeJsonThreatState>? CollectTriage(ThreatModel model)
+        {
+            List<TmForgeJsonThreatState> triage = new List<TmForgeJsonThreatState>();
+            foreach (KeyValuePair<string, Threat> pair in model.AllThreatsDictionary)
+            {
+                Threat threat = pair.Value;
+                if (threat.State != ThreatState.NotApplicable)
+                {
+                    continue;
+                }
+
+                string id = string.IsNullOrEmpty(threat.InteractionKey) ? pair.Key : threat.InteractionKey!;
+                triage.Add(new TmForgeJsonThreatState
+                {
+                    Id = id,
+                    State = "Accepted",
+                    Justification = string.IsNullOrEmpty(threat.StateInformation) ? null : threat.StateInformation,
+                });
+            }
+
+            if (triage.Count == 0)
+            {
+                return null;
+            }
+
+            triage.Sort((left, right) => string.CompareOrdinal(left.Id, right.Id));
+            return triage;
+        }
+
+        /// <summary>
+        /// Splits a register id (<c>{targetGuid:N}:{ruleId}</c>) into its target element GUID and rule
+        /// id. Returns an empty GUID and <see langword="null"/> rule id when the id is not in that form.
+        /// </summary>
+        /// <param name="id">The register id.</param>
+        /// <returns>The parsed target GUID and rule id.</returns>
+        private static (Guid TargetGuid, string? RuleId) ParseThreatId(string id)
+        {
+            int colon = id.IndexOf(':');
+            if (colon <= 0)
+            {
+                return (Guid.Empty, null);
+            }
+
+            string guidPart = id.Substring(0, colon);
+            string ruleId = id.Substring(colon + 1);
+            Guid.TryParseExact(guidPart, "N", out Guid targetGuid);
+            return (targetGuid, string.IsNullOrEmpty(ruleId) ? null : ruleId);
+        }
+
+        private static Guid FirstSurfaceGuid(ThreatModel model)
+        {
+            foreach (DrawingSurfaceModel surface in model.DrawingSurfaceList)
+            {
+                return surface.Guid;
+            }
+
+            return Guid.Empty;
         }
 
         private static void PopulateSurface(

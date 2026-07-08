@@ -1837,7 +1837,7 @@ a.threat-ref:hover {
   background: var(--process);
 }
 
-.conflict-kind.kind-store {
+.conflict-kind.kind-datastore {
   background: var(--datastore);
 }
 

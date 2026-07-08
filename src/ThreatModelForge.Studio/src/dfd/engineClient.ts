@@ -1,5 +1,6 @@
 import createClient, { type Client } from 'openapi-fetch';
 import { FALLBACK_PACKS, FALLBACK_STENCILS } from './stencils';
+import { normalizeKind } from './types';
 import type { DfdKind, TmForgeModel } from './types';
 import type { components, paths } from './engine/schema';
 
@@ -49,7 +50,7 @@ export interface Threat {
 export interface MergeConflict {
   /** The stable id of the element the conflict concerns. */
   elementId: string;
-  /** The element kind ('process' | 'store' | 'external' | 'boundary' | 'flow'). */
+  /** The element kind, normalized to the Studio vocabulary ('process' | 'datastore' | 'external' | 'boundary' | 'flow'). */
   elementKind: string;
   /** The element's display name. */
   name: string;
@@ -343,7 +344,7 @@ function toMergeResult(dto: components['schemas']['MergeResultDto']): MergeResul
     merged: toModel(dto.merged ?? ({} as components['schemas']['TmForgeModelDto'])),
     conflicts: (dto.conflicts ?? []).map((c) => ({
       elementId: c.elementId ?? '',
-      elementKind: c.elementKind ?? '',
+      elementKind: normalizeKind(c.elementKind ?? ''),
       name: c.name ?? '',
       diagramName: c.diagramName ?? '',
       kind: c.kind ?? '',

@@ -3,6 +3,19 @@ import type { Node, Edge } from '@xyflow/react';
 /** The DFD element kinds this spike supports. Maps to `node.type` in React Flow. */
 export type DfdKind = 'process' | 'datastore' | 'external' | 'boundary';
 
+/**
+ * Normalizes the engine's structural-classification vocabulary to the Studio kind vocabulary. The
+ * engine's classifier (`ModelSnapshot.Classify`, the basis for the diff and three-way merge) labels
+ * a data store `store`, whereas the canvas, the `tmforge-json` element `kind`, and {@link DfdKind}
+ * call it `datastore`. This bridges that one naming seam so a conflict chip (and anything else that
+ * surfaces an engine-classified kind) shows and styles a single, consistent vocabulary rather than
+ * relying on a per-value CSS alias. Kinds without a mismatch pass through unchanged, including the
+ * edge kind `flow`, which has no {@link DfdKind} of its own.
+ */
+export function normalizeKind(engineKind: string): string {
+  return engineKind === 'store' ? 'datastore' : engineKind;
+}
+
 /** Node payload. Intersecting with Record keeps it assignable to React Flow's data constraint. */
 export type DfdNodeData = Record<string, unknown> & {
   label: string;

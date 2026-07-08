@@ -245,7 +245,7 @@ namespace ThreatModelForge.Engine
         /// <returns>The <c>.tm7</c> document bytes.</returns>
         public static byte[] ExportTm7(TmForgeModelDto dto)
         {
-            ThreatModel model = BuildModel(dto, out _);
+            ThreatModel model = BuildModelForExport(dto);
             using (MemoryStream stream = new MemoryStream())
             {
                 model.Save(stream);
@@ -290,7 +290,11 @@ namespace ThreatModelForge.Engine
                 throw new ArgumentException("Value cannot be null or empty.", nameof(formatId));
             }
 
-            ThreatModel model = BuildModel(dto, out _);
+            // .tm7 is the lossless, register-bearing format, so materialize the full threat register
+            // (with acceptance) for it; the other formats drop the register, so keep the cheaper build.
+            ThreatModel model = string.Equals(formatId, Tm7Format.FormatId, StringComparison.OrdinalIgnoreCase)
+                ? BuildModelForExport(dto)
+                : BuildModel(dto, out _);
             ThreatModelFormatRegistry registry = ThreatModelFormatRegistry.CreateDefault();
             IThreatModelFormat format = registry.FindById(formatId)
                 ?? throw new NotSupportedException($"No threat model format with id '{formatId}'.");
@@ -416,6 +420,48 @@ namespace ThreatModelForge.Engine
 
         private static string NormalizeState(string? state)
             => string.Equals(state, "Accepted", StringComparison.OrdinalIgnoreCase) ? "Accepted" : "Open";
+
+        /// <summary>
+        /// Builds the model for a register-bearing export (for example, <c>.tm7</c>), materializing the
+        /// full, titled threat register the CLI's <c>tmforge threats --write</c> produces and overlaying
+        /// the model's acceptance triage. The canonical read seeds only a sparse (accepted-only) register
+        /// from the wire overlay because the register is otherwise regenerable; for a lossless export we
+        /// regenerate it in full so the file carries a complete, titled register — accepted risks keep
+        /// their state and justification — for tools that consume it, such as the Microsoft Threat
+        /// Modeling Tool.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <returns>The model with its threat register materialized and triaged.</returns>
+        private static ThreatModel BuildModelForExport(TmForgeModelDto dto)
+        {
+            ThreatModel model = BuildModel(dto, out _);
+
+            // Rebuild the register from the rules (titled and categorized) rather than the sparse,
+            // accepted-only seed the wire read produced, then re-apply acceptance so accepted risks keep
+            // their state and justification on top of the freshly generated threats.
+            model.AllThreatsDictionary.Clear();
+            using (RuleSet ruleSet = LoadRuleSet())
+            {
+                if (dto.Analysis != null)
+                {
+                    ruleSet.Disable(dto.Analysis.DisabledPacks, dto.Analysis.DisabledRuleIds);
+                }
+
+                GenerationResult generation = ThreatGenerator.Generate(model, ruleSet);
+                ThreatGenerator.Apply(model, generation);
+            }
+
+            foreach (ThreatStateDto state in dto.Threats ?? Array.Empty<ThreatStateDto>())
+            {
+                if (!string.IsNullOrEmpty(state.Id) &&
+                    string.Equals(state.State, "Accepted", StringComparison.OrdinalIgnoreCase))
+                {
+                    ThreatGenerator.Accept(model, state.Id, state.Justification ?? string.Empty);
+                }
+            }
+
+            return model;
+        }
 
         private static ThreatModel BuildModel(TmForgeModelDto dto, out Dictionary<string, List<string>> nameToIds)
         {

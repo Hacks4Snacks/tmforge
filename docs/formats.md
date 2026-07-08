@@ -31,9 +31,10 @@ format; when you mutate a `.tm7` with the CLI, it's written back through this by
 ### `tmforge-json` (canonical wire model)
 
 The shape Studio and the API speak: elements, flows, trust boundaries, names, and geometry, plus an
-optional validation selection (disabled packs/rules). Multi-page models carry a `diagrams` array (one
-entry per page, with its name); single-page models keep the flat `elements`/`flows` shape, so older
-readers keep working. Knowledge-base attributes and generated threats are not represented, so it's
+optional analysis selection (disabled packs/rules) and a risk-acceptance triage overlay. Multi-page
+models carry a `diagrams` array (one entry per page, with its name); single-page models keep the flat
+`elements`/`flows` shape, so older readers keep working. Knowledge-base attributes and the full
+generated-threat register are not represented — only risk-acceptance triage round-trips — so it's
 structural rather than lossless. Use it to bridge Studio and the CLI.
 
 ### `drawio` (draw.io / diagrams.net)

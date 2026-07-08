@@ -5,8 +5,9 @@ namespace ThreatModelForge.Formats
 
     /// <summary>
     /// The <c>tmforge-json</c> document: the canvas's canonical in-memory model and the wire shape
-    /// exchanged with clients. It carries diagram structure only (elements, flows, trust
-    /// boundaries, names, and geometry), not knowledge-base attributes or generated threats.
+    /// exchanged with clients. It carries diagram structure (elements, flows, trust boundaries,
+    /// names, and geometry) plus the per-model analysis selection and the risk-acceptance triage
+    /// overlay; it does not carry knowledge-base attributes or the full (regenerable) threat register.
     /// </summary>
     public sealed class TmForgeJsonModel
     {
@@ -31,5 +32,13 @@ namespace ThreatModelForge.Formats
 
         /// <summary>Gets the per-model analysis selection (which rule packs or rules to skip).</summary>
         public TmForgeJsonAnalysis? Analysis { get; init; }
+
+        /// <summary>
+        /// Gets the threat triage overlay: the persisted lifecycle state (accepted risks and their
+        /// justifications) of generated threats, keyed by threat id. Absent or empty means every
+        /// threat is open. This is the only part of the (otherwise regenerable) threat register that
+        /// <c>tmforge-json</c> carries, so risk acceptance survives a Studio export or CLI round-trip.
+        /// </summary>
+        public IReadOnlyList<TmForgeJsonThreatState>? Threats { get; init; }
     }
 }
