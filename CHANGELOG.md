@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.3.2...v0.4.0) (2026-07-08)
+
+
+### Features
+
+* agent-friendly threat-model authoring end to end ([#19](https://github.com/Hacks4Snacks/tmforge/issues/19)) ([17e00a3](https://github.com/Hacks4Snacks/tmforge/commit/17e00a3600b27c24ec22727fd7886174bc4be618))
+* consumer-pluggable custom analysis rules via a declarative JSON DSL ([#23](https://github.com/Hacks4Snacks/tmforge/issues/23)) ([7e0b3b1](https://github.com/Hacks4Snacks/tmforge/commit/7e0b3b1909ff78eaf2636050c86811b7d88a8049))
+* Extend testing for studio ([#20](https://github.com/Hacks4Snacks/tmforge/issues/20)) ([b439a90](https://github.com/Hacks4Snacks/tmforge/commit/b439a90ddbcbe579bf115e8fc55e40e171d8335a))
+* Semantic diff and three-way merge for .tm7 deconfliction ([#17](https://github.com/Hacks4Snacks/tmforge/issues/17)) ([cf608a0](https://github.com/Hacks4Snacks/tmforge/commit/cf608a0cb808b7402b8cecc1073fe5562649c423))
+* studio report + canvas ergonomics and a first-party analyze action ([#22](https://github.com/Hacks4Snacks/tmforge/issues/22)) ([e200d49](https://github.com/Hacks4Snacks/tmforge/commit/e200d496b8ab66f706d573b4abbcf1f60372519b))
+* Threat Generation Support ([#21](https://github.com/Hacks4Snacks/tmforge/issues/21)) ([b21d855](https://github.com/Hacks4Snacks/tmforge/commit/b21d855e13ea0c83485b503bf331fb3a694436ca))
+
 ## [0.3.2](https://github.com/Hacks4Snacks/tmforge/compare/v0.3.1...v0.3.2) (2026-07-07)
 
 
