@@ -1,51 +1,56 @@
 # Threat Model Forge (`tmforge`)
 
-**Author, validate, and report on threat models anywhere: in your browser, your terminal, and
-your CI pipeline.**
+**The open, cross-platform successor to the Microsoft Threat Modeling Tool — threat modeling as
+code, in your browser, your terminal, and your CI pipeline.**
 
 ![.NET 10](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white)
 ![platforms: Linux · macOS · Windows](https://img.shields.io/badge/platforms-Linux%20%C2%B7%20macOS%20%C2%B7%20Windows-2b90d9)
 ![arch: x64 · arm64](https://img.shields.io/badge/arch-x64%20%C2%B7%20arm64-2b90d9)
 [![license: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE.md)
 
-Threat Model Forge is a cross-platform, automatable successor to the Windows-only Microsoft Threat
-Modeling Tool (MTMT). It reads and writes `.tm7` files **byte-for-byte losslessly**, adds a browser
-diagram editor and a headless CLI, and validates models against **built-in security and hygiene
-checks** you can gate a build on. No Windows, no GUI required.
+The Microsoft Threat Modeling Tool (MTMT) is Windows-only, GUI-only, and can't run in a pipeline.
+Threat Model Forge keeps its file format — reading and writing `.tm7` files **byte-for-byte
+losslessly** — and removes everything else: author models in a browser Studio or a headless CLI,
+diff and merge them like source code, validate them against **built-in security and hygiene
+rules**, and gate a build on the result. No Windows, no GUI required.
+
+**Try it now, no install:** the full editor and validation engine run client-side (WebAssembly) at
+**[hacks4snacks.github.io/tmforge](https://hacks4snacks.github.io/tmforge/)** — your model never
+leaves the page.
 
 > **Status: v0.1, early development.** Authoring (browser **and** CLI), lossless `.tm7`
 > read/write, multi-format interop, validation, and reporting all work today.
 
-## Highlights
+## Why tmforge
 
+- **Your existing models just work.** Lossless, byte-for-byte `.tm7` compatibility means models
+  move between tmforge and MTMT with zero drift — migration is opening the file.
+- **Threat modeling as code.** Models live in git like everything else: semantic `diff`, a
+  three-way `merge` driver, declarative `apply`/`export` manifests, and `--json` output with a
+  stable, versioned envelope on every command for scripts, pipelines, and AI agents.
+- **CI-grade validation.** Rule packs for core hygiene, STRIDE completeness, input validation,
+  data protection, transport security, and identity & access — with SARIF + HTML reports and a
+  distinct exit code for "found issues" you can gate a build on.
 - **Three ways to drive one engine.** A React browser **Studio**, a scriptable **CLI**, and a
   versioned **HTTP API**, all over the same canonical `.tm7`-shaped model.
-- **Lossless `.tm7`.** Byte-for-byte compatible with MTMT, so models move between the tools with
-  zero drift.
-- **CI-grade validation.** A growing set of rule packs (core hygiene, STRIDE completeness, input
-  validation, data protection, transport security, identity & access) with SARIF + HTML reports
-  and a distinct exit code for "found issues."
 - **Multi-format.** Import/export **draw.io** and **Visio** (`.vsdx`) alongside `.tm7` and a
   canonical JSON wire format.
 - **Zero-runtime install.** Self-contained, single-file binaries for six platforms, or one
   container for the API + Studio.
-- **Agent and pipeline-friendly.** Every command speaks `--json` with a stable, versioned
-  envelope.
 
-## Try it now
+## Try it
 
-**No install required.** Author, validate, and report entirely in your browser at
-**[hacks4snacks.github.io/tmforge](https://hacks4snacks.github.io/tmforge/)**. The .NET engine is
-compiled to WebAssembly and runs client-side, so your model never leaves the page.
+**In the browser (no install):** open
+**[hacks4snacks.github.io/tmforge](https://hacks4snacks.github.io/tmforge/)** and start drawing.
 
-Prefer to host it yourself? Run the published engine API + Studio image (or
+**Self-hosted:** run the published engine API + Studio image (or
 [build it yourself](#containers)):
 
 ```bash
 docker run --rm -p 8080:8080 ghcr.io/hacks4snacks/tmforge     # then open http://localhost:8080/
 ```
 
-Prefer the terminal? With `tmforge` on your `PATH` (see [Install](#install)):
+**In the terminal:** with `tmforge` on your `PATH` (see [Install](#install)):
 
 ```bash
 tmforge new payments.tm7 --name "Payments"
@@ -56,7 +61,8 @@ tmforge lint payments.tm7                    # validate: exits 2 on findings, CI
 tmforge report payments.tm7 --out payments.html
 ```
 
-New here? Start with the [Quick start](docs/quickstart.md).
+New here? Start with the [Quick start](docs/quickstart.md). Coming from MTMT? Your `.tm7` files
+open as-is — see [Formats & interoperability](docs/formats.md).
 
 ## What it does
 
@@ -66,9 +72,13 @@ New here? Start with the [Quick start](docs/quickstart.md).
 - **Author headlessly** from the CLI (`new`, `add`, `connect`, `set`, ...) or the API, so agents
   and pipelines build models with no GUI.
 - **Read & write `.tm7` losslessly**, byte-for-byte compatible with MTMT.
+- **Version like code**: semantic `diff`, three-way `merge`, and `git-setup` to wire both into
+  your repo, plus declarative `apply`/`export` manifests for reproducible models.
 - **Convert** between `.tm7`, `tmforge-json`, draw.io, and Visio.
-- **Report** to self-contained HTML (with inline SVG diagrams).
-- **Validate in CI** with the `tmforge` CLI (`tmforge lint`, `tmforge report`).
+- **Report** to self-contained HTML (with inline SVG diagrams) — or `render` the diagram right
+  in your terminal.
+- **Validate in CI** with the `tmforge` CLI (`tmforge lint`), gating builds on SARIF-reported
+  findings.
 
 ## Documentation
 

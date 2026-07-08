@@ -25,7 +25,7 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            CliArgs parsed = CliArgs.Parse(args, new[] { "out" });
+            CliArgs parsed = CliArgs.Parse(args, new[] { "out", "format" });
             if (parsed.Help)
             {
                 PrintUsage();
@@ -41,6 +41,12 @@ namespace ThreatModelForge.Cli
 
             string? input = parsed.Positionals.Count > 0 ? parsed.Positionals[0] : null;
             string? output = parsed.Get("out");
+            string formatId = (parsed.Get("format") ?? "html").ToLowerInvariant();
+            if (formatId != "html" && formatId != "svg")
+            {
+                Console.Error.WriteLine("Unknown --format: " + formatId + " (expected html or svg).");
+                return 1;
+            }
 
             if (string.IsNullOrEmpty(input))
             {
@@ -56,13 +62,15 @@ namespace ThreatModelForge.Cli
 
             ThreatModel model = ThreatModelFormatRegistry.CreateDefault().Load(input!);
 
-            string html = new HtmlReportWriter().Write(model);
+            string content = formatId == "svg"
+                ? new DiagramSvgRenderer().RenderModel(model).ToString()
+                : new HtmlReportWriter().Write(model);
 
             if (parsed.Json)
             {
                 if (!string.IsNullOrEmpty(output))
                 {
-                    File.WriteAllText(output!, html);
+                    File.WriteAllText(output!, content);
                 }
 
                 CliJson.WriteEnvelope(
@@ -70,19 +78,19 @@ namespace ThreatModelForge.Cli
                     new
                     {
                         output = string.IsNullOrEmpty(output) ? null : output,
-                        format = "html",
-                        bytes = Encoding.UTF8.GetByteCount(html),
+                        format = formatId,
+                        bytes = Encoding.UTF8.GetByteCount(content),
                     });
                 return 0;
             }
 
             if (string.IsNullOrEmpty(output))
             {
-                Console.Out.Write(html);
+                Console.Out.Write(content);
             }
             else
             {
-                File.WriteAllText(output!, html);
+                File.WriteAllText(output!, content);
                 Console.Error.WriteLine("Report written to " + output);
             }
 
@@ -93,8 +101,9 @@ namespace ThreatModelForge.Cli
         {
             Console.Error.WriteLine("Threat Model Forge report generator.");
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  tmforge report [--out <path.html>] [--json] <model.tm7>");
+            Console.Error.WriteLine("  tmforge report [--format <html|svg>] [--out <path>] [--json] <model.tm7>");
             Console.Error.WriteLine("If --out is omitted, the report is written to standard output.");
+            Console.Error.WriteLine("--format html (default) writes a self-contained HTML report; --format svg writes the diagram as a standalone SVG.");
         }
     }
 }

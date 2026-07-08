@@ -55,12 +55,6 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            if (!Guid.TryParse(idText, out Guid id))
-            {
-                Console.Error.WriteLine("Invalid --id GUID: " + idText);
-                return 1;
-            }
-
             if (!File.Exists(input))
             {
                 Console.Error.WriteLine("File not found: " + input);
@@ -71,6 +65,12 @@ namespace ThreatModelForge.Cli
             if (format == null || !format.Capabilities.CanWrite)
             {
                 Console.Error.WriteLine("The model's format does not support writing.");
+                return 1;
+            }
+
+            if (!AuthoringSupport.TryResolveElementId(model, null, idText!, out Guid id, out string? resolveError))
+            {
+                Console.Error.WriteLine(resolveError);
                 return 1;
             }
 
@@ -117,8 +117,9 @@ namespace ThreatModelForge.Cli
         {
             Console.Error.WriteLine("Rename an element.");
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  tmforge rename --id <guid> --name <name> [--page <name|index>] [--json] <file>");
+            Console.Error.WriteLine("  tmforge rename --id <ref> --name <name> [--page <name|index>] [--json] <file>");
             Console.Error.WriteLine();
+            Console.Error.WriteLine("--id accepts a GUID, an element --alias, or a unique element name.");
             Console.Error.WriteLine("The element is found on any page by default; --page scopes the search to one page.");
         }
     }

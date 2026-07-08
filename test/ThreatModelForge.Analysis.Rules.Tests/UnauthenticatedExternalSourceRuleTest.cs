@@ -94,6 +94,47 @@ namespace ThreatModelForge.Analysis.Rules.Tests
         }
 
         /// <summary>
+        /// An external entity that declares an authentication scheme (for example a token or an SSH
+        /// public key) is not flagged, even when <c>AuthenticatesItself</c> is unset.
+        /// </summary>
+        [TestMethod]
+        public void EvaluateIgnoresExternalWithAuthenticationSchemeTest()
+        {
+            StencilRectangle external = CreateExternal("ARM", authenticationScheme: "Token");
+            StencilEllipse process = CreateProcess("Resource Provider");
+            Connector inbound = CreateFlow(external, process);
+            ThreatModel model = BuildModel(external, process, inbound);
+            MockMessageWriter writer = new MockMessageWriter();
+
+            using (UnauthenticatedExternalSourceRule target = new UnauthenticatedExternalSourceRule())
+            {
+                target.Evaluate(new RuleEvaluationContext(model, writer));
+            }
+
+            Assert.AreEqual(0, writer.Messages.Count);
+        }
+
+        /// <summary>
+        /// An external entity whose authentication scheme is explicitly <c>None</c> is still flagged.
+        /// </summary>
+        [TestMethod]
+        public void EvaluateFlagsExternalWithNoneAuthenticationSchemeTest()
+        {
+            StencilRectangle external = CreateExternal("Anonymous", authenticationScheme: "None");
+            StencilEllipse process = CreateProcess("Order Service");
+            Connector inbound = CreateFlow(external, process);
+            ThreatModel model = BuildModel(external, process, inbound);
+            MockMessageWriter writer = new MockMessageWriter();
+
+            using (UnauthenticatedExternalSourceRule target = new UnauthenticatedExternalSourceRule())
+            {
+                target.Evaluate(new RuleEvaluationContext(model, writer));
+            }
+
+            Assert.AreEqual(1, writer.Messages.Count);
+        }
+
+        /// <summary>
         /// An external entity that only receives flows (a sink) is not flagged.
         /// </summary>
         [TestMethod]
@@ -131,7 +172,7 @@ namespace ThreatModelForge.Analysis.Rules.Tests
             Assert.AreEqual(0, writer.Messages.Count);
         }
 
-        private static StencilRectangle CreateExternal(string name, string? authenticatesItself = null)
+        private static StencilRectangle CreateExternal(string name, string? authenticatesItself = null, string? authenticationScheme = null)
         {
             StencilRectangle external = new StencilRectangle
             {
@@ -142,6 +183,11 @@ namespace ThreatModelForge.Analysis.Rules.Tests
             if (authenticatesItself != null)
             {
                 external.Properties.Add(new CustomStringDisplayAttribute { Value = $"AuthenticatesItself:{authenticatesItself}" });
+            }
+
+            if (authenticationScheme != null)
+            {
+                external.Properties.Add(new CustomStringDisplayAttribute { Value = $"AuthenticationScheme:{authenticationScheme}" });
             }
 
             return external;

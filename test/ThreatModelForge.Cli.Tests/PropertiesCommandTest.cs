@@ -121,6 +121,50 @@ namespace ThreatModelForge.Cli.Tests
             Assert.IsTrue(checkedAlgorithm, "datastore must include the Algorithm property");
         }
 
+        /// <summary>
+        /// Verifies that <c>--explain</c> maps a specific property value to the rule and severity it
+        /// triggers, so an author can predict lint behavior at set-time.
+        /// </summary>
+        [TestMethod]
+        public void ExplainMapsValueToRule()
+        {
+            (int exit, string stdout) = Capture(() => PropertiesCommand.Run(new[] { "--base", "external", "--explain" }));
+
+            Assert.AreEqual(0, exit);
+            StringAssert.Contains(stdout, "VALUE");
+            StringAssert.Contains(stdout, "AuthenticationScheme");
+            StringAssert.Contains(stdout, "TM1023");
+        }
+
+        /// <summary>
+        /// Verifies that <c>--explain --json</c> emits explicit value-to-rule rows, including the new
+        /// external <c>AuthenticationScheme</c> binding.
+        /// </summary>
+        [TestMethod]
+        public void ExplainJsonEmitsValueRuleRows()
+        {
+            (int exit, string stdout) = Capture(() => PropertiesCommand.Run(new[] { "--base", "external", "--explain", "--json" }));
+
+            Assert.AreEqual(0, exit);
+            using JsonDocument document = JsonDocument.Parse(stdout);
+            JsonElement explain = document.RootElement.GetProperty("data").GetProperty("explain");
+
+            bool foundSchemeBinding = false;
+            foreach (JsonElement row in explain.EnumerateArray())
+            {
+                if (row.GetProperty("property").GetString() == "AuthenticationScheme" &&
+                    row.GetProperty("value").GetString() == "None")
+                {
+                    Assert.AreEqual("external", row.GetProperty("appliesTo").GetString());
+                    Assert.AreEqual("TM1023", row.GetProperty("rule").GetString());
+                    Assert.AreEqual("Warning", row.GetProperty("severity").GetString());
+                    foundSchemeBinding = true;
+                }
+            }
+
+            Assert.IsTrue(foundSchemeBinding, "explain must map external AuthenticationScheme=None to TM1023");
+        }
+
         private static (int Exit, string Stdout) Capture(Func<int> run)
         {
             StringWriter outWriter = new StringWriter();

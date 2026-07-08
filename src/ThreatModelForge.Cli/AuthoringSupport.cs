@@ -4,6 +4,9 @@ namespace ThreatModelForge.Cli
     using System.Collections.Generic;
     using System.Globalization;
     using System.IO;
+    using System.Linq;
+    using System.Security.Cryptography;
+    using System.Text;
     using ThreatModelForge.Editing;
     using ThreatModelForge.Formats;
     using ThreatModelForge.Model;
@@ -16,6 +19,19 @@ namespace ThreatModelForge.Cli
     /// </summary>
     internal static class AuthoringSupport
     {
+        /// <summary>
+        /// The custom-property key that stores an element's authoring alias (set by <c>add --alias</c>).
+        /// The alias is a stable, human-chosen handle that <c>connect</c>/<c>set</c>/<c>remove</c>/
+        /// <c>rename</c>/<c>show</c> can resolve instead of a GUID, and that survives round-trips.
+        /// </summary>
+        public const string AliasPropertyName = "Alias";
+
+        /// <summary>
+        /// The custom-property key that records the alias of the trust boundary an element belongs to,
+        /// so logical membership declared in a manifest survives round-trips and can be exported back.
+        /// </summary>
+        public const string BoundaryPropertyName = "Boundary";
+
         /// <summary>
         /// Returns the model's first diagram, creating an empty "Diagram 1" when it has none.
         /// </summary>
@@ -125,6 +141,174 @@ namespace ThreatModelForge.Cli
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Resolves an element reference to a GUID. The token may be a GUID, an element's authoring
+        /// alias (the <see cref="AliasPropertyName"/> custom property), or an element's unique display
+        /// name. Alias matches take priority over name matches; a name that matches more than one
+        /// element is rejected as ambiguous.
+        /// </summary>
+        /// <param name="model">The model to search.</param>
+        /// <param name="scope">A single surface to restrict the search to, or <see langword="null"/> to search every page.</param>
+        /// <param name="token">The GUID, alias, or name to resolve.</param>
+        /// <param name="id">On success, the resolved element GUID.</param>
+        /// <param name="error">On failure, a message describing why the reference could not be resolved.</param>
+        /// <returns><see langword="true"/> when the reference resolved to a single element.</returns>
+        public static bool TryResolveElementId(
+            ThreatModel model,
+            DrawingSurfaceModel? scope,
+            string token,
+            out Guid id,
+            out string? error)
+        {
+            id = Guid.Empty;
+            error = null;
+            if (string.IsNullOrEmpty(token))
+            {
+                error = "An element reference (GUID, alias, or name) is required.";
+                return false;
+            }
+
+            if (Guid.TryParse(token, out Guid parsed))
+            {
+                id = parsed;
+                return true;
+            }
+
+            IEnumerable<DrawingSurfaceModel> surfaces = scope != null
+                ? new[] { scope }
+                : (IEnumerable<DrawingSurfaceModel>)model.DrawingSurfaceList;
+            List<Guid> aliasMatches = new List<Guid>();
+            List<Guid> nameMatches = new List<Guid>();
+            foreach (DrawingSurfaceModel surface in surfaces)
+            {
+                foreach (Entity entity in surface.Borders.Values.OfType<Entity>().Concat(surface.Lines.Values.OfType<Entity>()))
+                {
+                    IReadOnlyDictionary<string, string> properties = DiagramElementHelper.GetCustomProperties(entity);
+                    if (properties.TryGetValue(AliasPropertyName, out string? alias) &&
+                        string.Equals(alias, token, StringComparison.OrdinalIgnoreCase))
+                    {
+                        aliasMatches.Add(entity.Guid);
+                    }
+                    else if (string.Equals(DiagramElementHelper.GetName(entity), token, StringComparison.Ordinal))
+                    {
+                        nameMatches.Add(entity.Guid);
+                    }
+                }
+            }
+
+            if (aliasMatches.Count == 1)
+            {
+                id = aliasMatches[0];
+                return true;
+            }
+
+            if (aliasMatches.Count > 1)
+            {
+                error = "Alias '" + token + "' matches " + aliasMatches.Count.ToString(CultureInfo.InvariantCulture) +
+                    " elements; use a GUID to disambiguate.";
+                return false;
+            }
+
+            if (nameMatches.Count == 1)
+            {
+                id = nameMatches[0];
+                return true;
+            }
+
+            if (nameMatches.Count > 1)
+            {
+                error = "Name '" + token + "' matches " + nameMatches.Count.ToString(CultureInfo.InvariantCulture) +
+                    " elements; use an --alias or a GUID.";
+                return false;
+            }
+
+            error = "No element with GUID, alias, or name '" + token + "' (run 'tmforge list components <file>').";
+            return false;
+        }
+
+        /// <summary>
+        /// Derives a stable, deterministic element GUID from an authoring alias, so a model rebuilt
+        /// from the same alias produces the same id and reports and companion docs can cite it durably.
+        /// </summary>
+        /// <param name="alias">The authoring alias.</param>
+        /// <returns>A deterministic GUID for the alias.</returns>
+        public static Guid DeterministicId(string alias)
+        {
+            byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes("tmforge-alias:" + alias));
+            byte[] guidBytes = new byte[16];
+            Array.Copy(hash, guidBytes, 16);
+
+            // Stamp the RFC 4122 version (5, name-based) and variant bits so the id is well-formed.
+            guidBytes[7] = (byte)((guidBytes[7] & 0x0F) | 0x50);
+            guidBytes[8] = (byte)((guidBytes[8] & 0x3F) | 0x80);
+            return new Guid(guidBytes);
+        }
+
+        /// <summary>
+        /// Re-keys a component to a new GUID within its diagram, updating both the dictionary key and
+        /// the entity. Used to give an aliased element its deterministic id after it is created.
+        /// </summary>
+        /// <param name="diagram">The diagram containing the component.</param>
+        /// <param name="current">The component's current GUID.</param>
+        /// <param name="desired">The desired GUID.</param>
+        public static void RekeyComponent(DrawingSurfaceModel diagram, Guid current, Guid desired)
+        {
+            if (current == desired)
+            {
+                return;
+            }
+
+            if (diagram.Borders.TryGetValue(current, out object? border))
+            {
+                diagram.Borders.Remove(current);
+                if (border is Entity entity)
+                {
+                    entity.Guid = desired;
+                }
+
+                diagram.Borders[desired] = border!;
+            }
+        }
+
+        /// <summary>
+        /// Computes a non-overlapping position for the <paramref name="memberIndex"/>-th element placed
+        /// inside a trust boundary, laying members out in a three-column grid inset from the boundary's
+        /// top-left corner.
+        /// </summary>
+        /// <param name="boundary">The trust boundary the element belongs to.</param>
+        /// <param name="memberIndex">The zero-based index of the element among the boundary's members.</param>
+        /// <returns>The left and top coordinates for the element.</returns>
+        public static (int Left, int Top) PositionInsideBoundary(DrawingElement boundary, int memberIndex)
+        {
+            int column = memberIndex % 3;
+            int row = memberIndex / 3;
+            return (boundary.Left + 24 + (column * 120), boundary.Top + 48 + (row * 84));
+        }
+
+        /// <summary>
+        /// Counts the elements on a diagram that already declare membership of the given boundary (by
+        /// the <see cref="BoundaryPropertyName"/> custom property), so a new member can be placed after
+        /// them.
+        /// </summary>
+        /// <param name="diagram">The diagram to inspect.</param>
+        /// <param name="boundaryKey">The boundary membership key (its alias or name).</param>
+        /// <returns>The number of existing members.</returns>
+        public static int CountBoundaryMembers(DrawingSurfaceModel diagram, string boundaryKey)
+        {
+            int count = 0;
+            foreach (Entity entity in diagram.Borders.Values.OfType<Entity>())
+            {
+                IReadOnlyDictionary<string, string> properties = DiagramElementHelper.GetCustomProperties(entity);
+                if (properties.TryGetValue(BoundaryPropertyName, out string? value) &&
+                    string.Equals(value, boundaryKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    count++;
+                }
+            }
+
+            return count;
         }
 
         /// <summary>

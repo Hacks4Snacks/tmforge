@@ -42,6 +42,7 @@ namespace ThreatModelForge.Cli
 
                     policy.AddRule(rule.ID, severity);
                     policy.AddFlagged(binding.FlaggedValues);
+                    policy.AddBinding(rule.ID, severity, binding.FlaggedValues);
                 }
             }
 
