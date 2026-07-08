@@ -20,6 +20,7 @@ namespace ThreatModelForge.Api.Tests
             "data-protection",
             "transport-security",
             "identity-access",
+            "availability",
         };
 
         private static readonly HashSet<string> ValidSeverities = new HashSet<string>(StringComparer.Ordinal)
@@ -123,7 +124,7 @@ namespace ThreatModelForge.Api.Tests
         {
             List<string> ids = EngineService.GetRulePacks().Select(pack => pack.Id).ToList();
             CollectionAssert.AreEqual(
-                new[] { "core-hygiene", "stride-completeness", "input-validation", "data-protection", "transport-security", "identity-access" },
+                new[] { "core-hygiene", "stride-completeness", "input-validation", "data-protection", "transport-security", "identity-access", "availability" },
                 ids,
                 "Rule packs must be returned in presentation order.");
         }

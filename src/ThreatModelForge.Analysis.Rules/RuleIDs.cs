@@ -144,5 +144,20 @@ namespace ThreatModelForge.Analysis.Rules
         /// Rule that flags a flow that caches a credential read from a credential store.
         /// </summary>
         public const int CachedCredentialReadRule = 1027;
+
+        /// <summary>
+        /// Rule that flags a data store holding important data (credentials or audit logs) with no backup.
+        /// </summary>
+        public const int DataStoreMissingBackupRule = 1028;
+
+        /// <summary>
+        /// Rule that flags a process receiving cross-boundary input with no reachable audit-log store.
+        /// </summary>
+        public const int UnauditedBoundaryProcessRule = 1029;
+
+        /// <summary>
+        /// Rule that flags a flow carrying sensitive data whose destination is an external interactor.
+        /// </summary>
+        public const int SensitiveDataToExternalRule = 1030;
     }
 }
