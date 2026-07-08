@@ -74,9 +74,14 @@ the CLI or API into `tmforge-json`) shows each source diagram on its own page.
 
 ### The inspector
 
-The right-hand panel edits the selected element or flow. For a data flow it exposes the properties
-the validation rules care about (for example **protocol** and **data classification**), so you can
-clear findings without leaving the canvas.
+The right-hand panel edits the selected element or flow. It is **schema-driven**: it lists a typed
+control for every property the engine declares for that primitive, so every property an analysis
+rule can read is reachable, and you can clear any finding without leaving the canvas. A data flow,
+for example, exposes **Protocol**, **Port**, **Channel**, **DataType**, **Algorithm**, **Identity**,
+and more; a process exposes **AuthenticationScheme**, **Isolation**, **SanitizesInput**, and so on.
+Enum and boolean properties render as dropdowns of canonical values (so the value always matches what
+the rules expect); free-form properties render as text fields. You can also add arbitrary custom
+properties below the typed ones.
 
 ## Validating against the engine
 
@@ -107,18 +112,18 @@ then `tmforge lint` / `tmforge report` / `tmforge convert` in a pipeline, or vic
 ## Merging edits from two branches
 
 When two people edit the same model on different branches, click **Merge** in the toolbar to
-reconcile them visually — the canvas equivalent of the [`tmforge merge`](cli-reference.md#merge) git
+reconcile them visually, the canvas equivalent of the [`tmforge merge`](cli-reference.md#merge) git
 driver. The modal takes:
 
-- **Ours** — your version.
-- **Theirs** — the incoming version.
-- **Base** *(optional)* — the common ancestor both edits started from, when you have it.
+- **Ours**: your version.
+- **Theirs**: the incoming version.
+- **Base** *(optional)*: the common ancestor both edits started from, when you have it.
 
 **With a base**, Studio runs the same identity-keyed three-way merge as the CLI: non-overlapping
 changes (a rename on one side, a new data store on the other) combine automatically, and only genuine
-**conflicts** — where both sides changed the same property — are listed. **Without a base** (often the
+**conflicts** (where both sides changed the same property) are listed. **Without a base** (often the
 original isn't at hand), it falls back to a two-way merge: elements unique to either side are unioned,
-and every element both versions changed differently is listed as a conflict for you to resolve — the
+and every element both versions changed differently is listed as a conflict for you to resolve; the
 modal shows a notice to that effect.
 
 Pick **Ours** or **Theirs** for each conflict (the default keeps yours), then **Load into editor** to

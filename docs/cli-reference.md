@@ -179,7 +179,7 @@ tmforge render payments.tm7 --plain --width 120
 
 ### `diff`
 
-Structurally compare two models, matched by each element's **stable id** — so re-layout or
+Structurally compare two models, matched by each element's **stable id**, so re-layout or
 re-serialization produces no diff, and a rename shows as a single modification rather than a
 delete-plus-add. Reports added, removed, and modified elements, with per-property changes for
 modifications. Geometry (position and size) is ignored.
@@ -216,7 +216,7 @@ git config diff.tmforge.textconv "tmforge diff --textconv"
 Afterwards, `git diff` on a `.tm7` shows lines such as `process "API Gateway"  <id>` and
 `Protocol=HTTPS`, so a reviewer sees exactly what changed.
 
-> The committed `.gitattributes` is **optional** — you don't need this repository's source. Run
+> The committed `.gitattributes` is **optional**; you don't need this repository's source. Run
 > [`tmforge git-setup`](#git-setup) to apply the config and a local (or global) mapping for you.
 
 ### `merge`
@@ -224,7 +224,7 @@ Afterwards, `git diff` on a `.tm7` shows lines such as `process "API Gateway"  <
 Three-way merge two edited models against their common ancestor, matched by element id.
 Non-overlapping edits from both sides combine automatically; genuine conflicts (both sides changed
 the same attribute, or one side deleted what the other modified) keep the `ours` value, are reported,
-and are written to `<pathname>.conflicts.json`. The merged model is always valid — it never contains
+and are written to `<pathname>.conflicts.json`. The merged model is always valid; it never contains
 textual conflict markers. The exit code is `0` on a clean merge and `1` when conflicts remain.
 
 ```text
@@ -258,7 +258,7 @@ the file keeps `ours` and the conflicts are listed on the console and in the sid
 
 ### `git-setup`
 
-Wire git to use tmforge for `.tm7` diffs and merges — **without** a committed `.gitattributes` and
+Wire git to use tmforge for `.tm7` diffs and merges, **without** a committed `.gitattributes` and
 **without** access to any repository's source. It registers the diff textconv and merge driver in
 git config and maps `*.tm7` to them via `.git/info/attributes` (this repo) or your global attributes
 file (`--global`).
@@ -273,7 +273,7 @@ tmforge git-setup --global   # configure every repository for this user
 tmforge git-setup --print    # print the exact commands instead of applying them
 ```
 
-`tmforge diff` and `tmforge merge` also work **standalone** with no git configuration at all — the
+`tmforge diff` and `tmforge merge` also work **standalone** with no git configuration at all; the
 setup above only enables the automatic `git diff` / `git merge` behavior. (Fully zero-config
 auto-invocation isn't possible: git requires drivers to be configured explicitly, by design.)
 
@@ -425,7 +425,7 @@ tmforge page reorder --page <name|index> --to <index> [--json] <file>
 | `reorder` | Move the selected page to the 1-based position `--to`. |
 
 `--page` accepts a **1-based index** or a **page name** (case-insensitive; an ambiguous name is
-rejected — use the index).
+rejected; use the index).
 
 ```bash
 tmforge page ls payments.tm7
@@ -536,8 +536,8 @@ tmforge convert payments.drawio --to tm7 --out payments.tm7
 
 ## Declarative manifest
 
-A manifest is a small, review-friendly JSON document that describes a whole model — boundaries,
-elements, and flows — by **alias** instead of GUID, so it diffs cleanly in a pull request and is the
+A manifest is a small, review-friendly JSON document that describes a whole model (boundaries,
+elements, and flows) by **alias** instead of GUID, so it diffs cleanly in a pull request and is the
 source of truth for the `.tm7`. `apply` materializes it; `export` emits it from any model.
 
 ```json

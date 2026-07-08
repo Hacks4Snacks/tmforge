@@ -130,7 +130,7 @@ See [Formats & interoperability](formats.md) for fidelity details.
 ## Do the same in the browser
 
 Prefer a GUI? The quickest option is the hosted
-**[browser demo](https://hacks4snacks.github.io/tmforge/)** — nothing to install, the engine runs
+**[browser demo](https://hacks4snacks.github.io/tmforge/)**: nothing to install, the engine runs
 in your browser via WebAssembly. To run it yourself, start the engine API (which serves Studio)
 and author visually:
 
