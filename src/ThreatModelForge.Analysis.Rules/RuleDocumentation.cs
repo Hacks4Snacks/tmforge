@@ -25,12 +25,8 @@ namespace ThreatModelForge.Analysis.Rules
         /// <summary>
         /// The canonical, public documentation page for the built-in rule set.
         /// </summary>
-        /// <remarks>
-        /// <c>OWNER/REPO</c> is a placeholder until the public repository is published; replace it
-        /// here to activate real help links across every surface.
-        /// </remarks>
         public const string RulesReferenceUrl =
-            "https://github.com/OWNER/REPO/blob/main/docs/validation-rules.md";
+            "https://github.com/hacks4snacks/tmforge/blob/main/docs/validation-rules.md";
 
         /// <summary>
         /// Builds the documentation URL for a single rule.

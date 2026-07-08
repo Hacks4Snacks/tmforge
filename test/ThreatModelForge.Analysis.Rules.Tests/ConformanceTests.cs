@@ -50,6 +50,35 @@ namespace ThreatModelForge.Analysis.Rules.Tests
         }
 
         /// <summary>
+        /// Tests that each rule's threat identity is complete and self-contained: a rule that declares
+        /// a STRIDE category (a threat-bearing rule) also carries at least one external reference, and
+        /// references are never declared without a category. This is the anti-drift guard — because a
+        /// rule owns its own STRIDE/references, adding a rule cannot silently forget to make it a
+        /// threat, and there is no separate map to fall out of sync.
+        /// </summary>
+        [TestMethod]
+        public void ThreatMetadataIsConsistentTest()
+        {
+            StringBuilder errors = new ();
+            foreach (Rule rule in GetInstancesOfEachRule())
+            {
+                bool hasStride = rule.Stride.HasValue;
+                bool hasReferences = rule.ThreatReferences.Count > 0;
+                if (hasStride && !hasReferences)
+                {
+                    errors.AppendLine(CultureInfo.InvariantCulture, $"Rule {rule.GetType()} declares Stride {rule.Stride} but has no ThreatReferences.");
+                }
+
+                if (!hasStride && hasReferences)
+                {
+                    errors.AppendLine(CultureInfo.InvariantCulture, $"Rule {rule.GetType()} has ThreatReferences but no Stride category.");
+                }
+            }
+
+            Assert.IsTrue(errors.Length == 0, errors.ToString());
+        }
+
+        /// <summary>
         /// Tests each rule has its own unique Help URI.
         /// </summary>
         [TestMethod]

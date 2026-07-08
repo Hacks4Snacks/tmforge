@@ -200,7 +200,7 @@ jobs:
       - name: Download tmforge
         run: |
           curl -fsSL -o tmforge.tar.gz \
-            https://github.com/OWNER/REPO/releases/download/v0.1.0/tmforge-0.1.0-linux-x64.tar.gz
+            https://github.com/hacks4snacks/tmforge/releases/download/v0.1.0/tmforge-0.1.0-linux-x64.tar.gz
           tar -xzf tmforge.tar.gz
           echo "$PWD/tmforge-0.1.0-linux-x64" >> "$GITHUB_PATH"
       - name: Validate threat models

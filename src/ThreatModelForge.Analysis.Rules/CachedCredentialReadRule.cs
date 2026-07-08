@@ -34,6 +34,15 @@ namespace ThreatModelForge.Analysis.Rules
         };
 
         /// <inheritdoc/>
+        public override StrideCategory? Stride => StrideCategory.InformationDisclosure;
+
+        /// <inheritdoc/>
+        public override IReadOnlyList<ThreatReference> ThreatReferences => new[]
+        {
+            ThreatReference.Cwe(522),
+        };
+
+        /// <inheritdoc/>
         public override void Evaluate(RuleEvaluationContext context)
         {
             _ = context ?? throw new ArgumentNullException(nameof(context));

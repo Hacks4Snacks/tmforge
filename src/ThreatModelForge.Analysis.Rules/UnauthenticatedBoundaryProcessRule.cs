@@ -34,6 +34,16 @@ namespace ThreatModelForge.Analysis.Rules
         };
 
         /// <inheritdoc/>
+        public override StrideCategory? Stride => StrideCategory.Spoofing;
+
+        /// <inheritdoc/>
+        public override IReadOnlyList<ThreatReference> ThreatReferences => new[]
+        {
+            ThreatReference.Cwe(306),
+            ThreatReference.Capec(115),
+        };
+
+        /// <inheritdoc/>
         public override void Evaluate(RuleEvaluationContext context)
         {
             _ = context ?? throw new ArgumentNullException(nameof(context));

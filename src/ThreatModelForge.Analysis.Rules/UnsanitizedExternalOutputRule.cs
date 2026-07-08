@@ -33,6 +33,16 @@ namespace ThreatModelForge.Analysis.Rules
         };
 
         /// <inheritdoc/>
+        public override StrideCategory? Stride => StrideCategory.Tampering;
+
+        /// <inheritdoc/>
+        public override IReadOnlyList<ThreatReference> ThreatReferences => new[]
+        {
+            ThreatReference.Cwe(116),
+            ThreatReference.Capec(63),
+        };
+
+        /// <inheritdoc/>
         public override void Evaluate(RuleEvaluationContext context)
         {
             _ = context ?? throw new ArgumentNullException(nameof(context));

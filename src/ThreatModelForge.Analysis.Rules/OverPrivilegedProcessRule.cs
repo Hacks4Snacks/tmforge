@@ -32,6 +32,16 @@ namespace ThreatModelForge.Analysis.Rules
         };
 
         /// <inheritdoc/>
+        public override StrideCategory? Stride => StrideCategory.ElevationOfPrivilege;
+
+        /// <inheritdoc/>
+        public override IReadOnlyList<ThreatReference> ThreatReferences => new[]
+        {
+            ThreatReference.Cwe(250),
+            ThreatReference.Capec(233),
+        };
+
+        /// <inheritdoc/>
         public override void Evaluate(RuleEvaluationContext context)
         {
             _ = context ?? throw new ArgumentNullException(nameof(context));

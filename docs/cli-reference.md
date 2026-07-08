@@ -44,6 +44,8 @@ tmforge <command> [options] <file>
 | [`page`](#page) | Author | List, add, rename, reorder, or remove pages (diagrams). |
 | [`layout`](#layout) | Author | Auto-lay-out the diagram (layered; no hand-placed coordinates). |
 | [`lint`](#lint) | Validate | Evaluate the rule set against a model. |
+| [`threats`](#threats) | Analyze | Report threats — the persisted, triaged view of the validation findings (`--write` to persist). |
+| [`accept`](#accept) | Analyze | Accept a generated threat's risk (records a justification). |
 | [`report`](#report) | Report | Generate a self-contained HTML report. |
 | [`convert`](#convert) | Convert | Convert a model between file formats. |
 | [`apply`](#apply) | Author | Build a model from a declarative JSON manifest (all-or-nothing). |
@@ -491,6 +493,60 @@ tmforge lint payments.tm7 --suppressionFile suppressions.json --json
 > When a model is loaded from the native `tmforge-json` format, its embedded validation selection
 > (disabled packs/rules) is honored automatically. Other formats use the full rule set or an
 > explicit `--ruleset`.
+
+### `threats`
+
+Report the model's **STRIDE threats** — the persisted, triaged view of the validation findings.
+Detection is entirely the rule set: `threats` runs the same rules as [`lint`](#lint), keeps the
+findings from threat-bearing rules, and frames each as a STRIDE threat against its element or flow.
+The difference from `lint` is **lifecycle** — where a finding is transient and gated, a threat is
+persisted and triaged (`open -> mitigated -> accepted`). With `--write`, the threats are persisted into
+the model's register, keyed so a re-run updates in place and never overwrites prior triage.
+
+```text
+tmforge threats [--write] [--json] <model>
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--write` | Persist the threats into the model's register (preserves prior triage). |
+
+Each threat carries a STRIDE category, the rule's mitigation, and external references (CWE / CAPEC).
+There is no separate threat catalog: **extend coverage the way detection is extended — add a rule to a
+rule pack** (see [Validation rules](validation-rules.md)). Rules that represent structural or naming
+hygiene (rather than a security weakness) are not reported as threats.
+
+```bash
+tmforge threats payments.tm7                 # report (read-only), same findings as lint
+tmforge threats payments.tm7 --write         # persist into the register
+tmforge threats payments.tm7 --json
+```
+
+After `--write`, triage the register with [`list threats`](#list) and [`accept`](#accept).
+
+### `accept`
+
+Record **inline risk acceptance** for a generated threat. Acceptance is a threat *state*: the threat
+moves to `NotApplicable` with your justification, stays visible in the register and report, and no
+longer counts as open. Because it is scoped to a single threat (one pattern on one interaction), it
+can never silently swallow an unrelated finding — unlike a blanket suppression.
+
+```text
+tmforge accept --threat <id> --reason <text> [--json] <model>
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--threat <id>` | The threat to accept: its register key, interaction key, or numeric id (from `list threats`). |
+| `--reason <text>` | The justification, stored with the threat and shown in the register and report. |
+
+```bash
+tmforge threats payments.tm7 --write
+tmforge list threats payments.tm7
+tmforge accept --threat 3 --reason "Mitigated by the upstream WAF; residual risk accepted." payments.tm7
+```
+
+Acceptance round-trips through `.tm7` and is honored identically by the CLI, the `/v1` API, and Studio.
 
 ### `report`
 

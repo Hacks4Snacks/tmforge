@@ -31,6 +31,8 @@ namespace ThreatModelForge.Cli
             new CommandInfo("page", "List, add, rename, reorder, or remove pages (diagrams).", "ls: count, items[]; add: index, name, id; rename: id, name; rm: id, name, remaining; reorder: id, name, index", PageCommand.Run),
             new CommandInfo("layout", "Auto-lay-out the diagram (layered; no hand-placed coordinates).", "pages, components", LayoutCommand.Run),
             new CommandInfo("lint", "Validate a threat model against a rule set.", "a SARIF-style model report (runs[].results[]); see docs/cli-reference.md", LintCommand.Run),
+            new CommandInfo("threats", "Report threats: the persisted, triaged view of the validation findings (--write to persist).", "summary{count,written}, threats[]{id,ruleId,category,title,mitigation,severity,references[],scope,interaction}", ThreatsCommand.Run),
+            new CommandInfo("accept", "Accept a generated threat's risk (marks it not-applicable with a reason).", "threat, state, reason", AcceptCommand.Run),
             new CommandInfo("report", "Generate an HTML report from a threat model.", "output, format, bytes", ReportCommand.Run),
             new CommandInfo("convert", "Convert a threat model between file formats.", "input, output, format", ConvertCommand.Run),
             new CommandInfo("apply", "Build a model from a declarative JSON manifest (all-or-nothing).", "output, format, dryRun, boundaries, elements, flows", ApplyCommand.Run),

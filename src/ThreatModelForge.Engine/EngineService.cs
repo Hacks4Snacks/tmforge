@@ -3,6 +3,7 @@ namespace ThreatModelForge.Engine
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using System.Reflection;
     using System.Text;
     using System.Text.Json;
@@ -179,6 +180,61 @@ namespace ThreatModelForge.Engine
         }
 
         /// <summary>
+        /// Projects the model's validation findings into STRIDE threats. Detection is entirely the
+        /// rule set's — this runs the same rules <see cref="Validate"/> runs and frames the findings
+        /// from threat-bearing rules as persistable threats. CLI, <c>/v1</c>, and WASM call the same
+        /// projector, so results are identical by construction.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <returns>The generated threats.</returns>
+        public static IReadOnlyList<ThreatDto> GenerateThreats(TmForgeModelDto dto)
+        {
+            List<ThreatDto> result = new List<ThreatDto>();
+            try
+            {
+                ThreatModel model = BuildModel(dto, out _);
+                using (RuleSet ruleSet = LoadRuleSet())
+                {
+                    if (dto.Validation != null)
+                    {
+                        ruleSet.Disable(dto.Validation.DisabledPacks, dto.Validation.DisabledRuleIds);
+                    }
+
+                    GenerationResult generation = ThreatGenerator.Generate(model, ruleSet);
+                    foreach (GeneratedThreat threat in generation.Threats)
+                    {
+                        result.Add(new ThreatDto
+                        {
+                            Id = threat.Id,
+                            RuleId = threat.RuleId,
+                            Category = threat.Category.ToString(),
+                            Title = threat.Title,
+                            Mitigation = threat.Mitigation,
+                            Severity = threat.Severity,
+                            Priority = threat.Priority,
+                            References = threat.References.Select(r => r.Id).ToList(),
+                            ElementIds = BuildElementIds(threat),
+                            Interaction = threat.InteractionString,
+                        });
+                    }
+                }
+            }
+#pragma warning disable CA1031 // Do not catch general exception types
+            catch (Exception ex)
+#pragma warning restore CA1031 // Do not catch general exception types
+            {
+                result.Add(new ThreatDto
+                {
+                    Id = "engine-error",
+                    Severity = "error",
+                    Title = $"Threat generation failed: {ex.Message}",
+                });
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// Serializes the supplied model to lossless <c>.tm7</c> bytes via the real engine.
         /// </summary>
         /// <param name="dto">The canonical model.</param>
@@ -323,6 +379,18 @@ namespace ThreatModelForge.Engine
             }
 
             return new MergeResultDto { Merged = ToDto(result.Merged), Conflicts = conflicts };
+        }
+
+        private static IReadOnlyList<string> BuildElementIds(GeneratedThreat threat)
+        {
+            List<string> ids = new List<string> { threat.SourceGuid.ToString() };
+            if (threat.IsFlowScoped)
+            {
+                ids.Add(threat.TargetGuid.ToString());
+                ids.Add(threat.FlowGuid.ToString());
+            }
+
+            return ids;
         }
 
         private static ThreatModel BuildModel(TmForgeModelDto dto, out Dictionary<string, List<string>> nameToIds)
