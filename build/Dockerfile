@@ -28,14 +28,14 @@ RUN printf '#!/bin/sh\nexec dotnet /opt/tmforge/tmforge.dll "$@"\n' > /usr/local
  && chmod +x /usr/local/bin/tmforge
 
 # Build-time smoke test: author a throwaway model and drive it through the CLI to prove the image
-# runs. `report` must succeed (exit 0); `lint` must run the analysis — exit 0 (clean) or 2
+# runs. `report` must succeed (exit 0); `analyze` must run the analysis — exit 0 (clean) or 2
 # (findings), but not 1 (could not run).
 RUN set -eu; \
     tmforge new /tmp/smoke.tm7 --name smoke; \
     tmforge report /tmp/smoke.tm7 --out /tmp/smoke.html; \
-    code=0; tmforge lint /tmp/smoke.tm7 || code=$?; [ "$code" -eq 0 ] || [ "$code" -eq 2 ]; \
+    code=0; tmforge analyze /tmp/smoke.tm7 || code=$?; [ "$code" -eq 0 ] || [ "$code" -eq 2 ]; \
     rm -f /tmp/smoke.tm7 /tmp/smoke.html
 
-# Default to the umbrella command's help; override with e.g. `docker run <image> tmforge lint ...`.
+# Default to the umbrella command's help; override with e.g. `docker run <image> tmforge analyze`.
 ENTRYPOINT ["tmforge"]
 CMD ["--help"]
