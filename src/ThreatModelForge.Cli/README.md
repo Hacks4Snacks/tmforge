@@ -1,6 +1,6 @@
 # ThreatModelForge.Cli (`tmforge`)
 
-The `tmforge` command-line tool: inspect, author, validate, report on, and convert
+The `tmforge` command-line tool: inspect, author, analyze, report on, and convert
 `.tm7`-compatible threat models from a shell or CI pipeline. It is the headless, scriptable
 face of the same engine the Studio UI uses, so agents and pipelines can drive threat models
 without a GUI.
@@ -37,29 +37,29 @@ Every command accepts `--json` for machine-readable output, and options take eit
 | `tmforge remove --id <guid> [--json] <file>` | Remove an element (and its connected flows). |
 | `tmforge rename --id <guid> --name <name> [--json] <file>` | Rename an element. |
 
-### Validate, report & convert
+### Analyze, report & convert
 
 | Command | Purpose |
 | --- | --- |
-| `tmforge lint [--ruleset <path>] [--suppressionFile <path>] [--reportFolder <dir>] [--define name=value ...] [--json] <model>` | Evaluate a rule set against the model. `--reportFolder` also emits SARIF + HTML findings reports. |
+| `tmforge analyze [--ruleset <path>] [--suppressionFile <path>] [--reportFolder <dir>] [--define name=value ...] [--json] <model>` | Evaluate the analysis rules against the model. `--reportFolder` also emits SARIF + HTML findings reports. |
 | `tmforge report [--out <path.html>] [--json] <model.tm7>` | Generate a self-contained HTML report of the model. |
 | `tmforge convert [--to <format>] [--out <path>] [--json] <input>` | Convert between formats (`tm7`, `tmforge-json`, `drawio`, `vsdx`). |
 
-`lint` exit codes: `0` = clean, `1` = error (bad arguments or load failure), `2` = findings
+`analyze` exit codes: `0` = clean, `1` = error (bad arguments or load failure), `2` = findings
 reported. This lets CI fail a build on findings while distinguishing them from tool errors.
 
 ## Run
 
 ```bash
 # From source
-dotnet run --project src/ThreatModelForge.Cli -- lint model.tm7 --json
+dotnet run --project src/ThreatModelForge.Cli -- analyze model.tm7 --json
 
 # From the published container image (pulls on first run)
-docker run --rm -v "$PWD:/work" ghcr.io/hacks4snacks/tmforge-cli tmforge lint model.tm7
+docker run --rm -v "$PWD:/work" ghcr.io/hacks4snacks/tmforge-cli tmforge analyze model.tm7
 
 # ...or build the image from source (see build/Dockerfile)
 docker build -f build/Dockerfile -t tmforge-cli .
-docker run --rm -v "$PWD:/work" tmforge-cli tmforge lint model.tm7
+docker run --rm -v "$PWD:/work" tmforge-cli tmforge analyze model.tm7
 ```
 
 ## Examples

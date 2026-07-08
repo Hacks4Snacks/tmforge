@@ -43,8 +43,8 @@ tmforge <command> [options] <file>
 | [`set`](#set) | Author | Set an element/flow's name or properties. |
 | [`page`](#page) | Author | List, add, rename, reorder, or remove pages (diagrams). |
 | [`layout`](#layout) | Author | Auto-lay-out the diagram (layered; no hand-placed coordinates). |
-| [`lint`](#lint) | Validate | Evaluate the rule set against a model. |
-| [`threats`](#threats) | Analyze | Report threats — the persisted, triaged view of the validation findings (`--write` to persist). |
+| [`analyze`](#analyze) | Analyze | Evaluate the analysis rules against a model. |
+| [`threats`](#threats) | Analyze | Report threats — the persisted, triaged view of the analysis findings (`--write` to persist). |
 | [`accept`](#accept) | Analyze | Accept a generated threat's risk (records a justification). |
 | [`report`](#report) | Report | Generate a self-contained HTML report. |
 | [`convert`](#convert) | Convert | Convert a model between file formats. |
@@ -122,7 +122,7 @@ tmforge stencils --pack azure --json
 List the built-in **typed property schema**: the custom properties the linter reads and Studio
 edits, with each property's value kind, allowed values, and default. This is the same schema the API
 serves at `GET /v1/property-schema`; use it to discover closed enums (for example `Channel`,
-`Encrypted`, `AccessControl`, or the approved cipher list) without running `lint` first.
+`Encrypted`, `AccessControl`, or the approved cipher list) without running `analyze` first.
 
 ```text
 tmforge properties [--base <process|datastore|external|flow>] [--explain] [--json]
@@ -135,7 +135,7 @@ tmforge properties --base datastore --json | jq '.data.properties'
 ```
 
 Add `--explain` to map each property **value** to the rule id and severity it triggers, so you can
-predict lint behavior before running [`lint`](#lint). A value shown as `(unset/condition)` means the
+predict analysis behavior before running [`analyze`](#analyze). A value shown as `(unset/condition)` means the
 rule fires when the property is absent or by a computed condition.
 
 ```bash
@@ -454,15 +454,15 @@ tmforge layout payments.tm7 --node-spacing 60 --layer-spacing 120
 
 ---
 
-## Validation, reporting & conversion
+## Analysis, reporting & conversion
 
-### `lint`
+### `analyze`
 
-Evaluate a rule set against the model. See [Validation rules & CI](validation-rules.md) for the
+Evaluate the analysis rules against the model. See [Analysis rules & CI](analysis-rules.md) for the
 full rule catalog, packs, and suppressions.
 
 ```text
-tmforge lint [--ruleset <path>] [--suppressionFile <path>] [--reportFolder <dir>] [--define name=value ...] [--max-severity <level>] [--json] <model>
+tmforge analyze [--ruleset <path>] [--suppressionFile <path>] [--reportFolder <dir>] [--define name=value ...] [--max-severity <level>] [--json] <model>
 ```
 
 | Option | Meaning |
@@ -485,21 +485,21 @@ The distinct `2` lets CI fail on findings while separating them from a broken in
 gate with `--max-severity warning` (or `info`) to also fail the build on those severities.
 
 ```bash
-tmforge lint payments.tm7
-tmforge lint payments.tm7 --reportFolder ./findings
-tmforge lint payments.tm7 --suppressionFile suppressions.json --json
+tmforge analyze payments.tm7
+tmforge analyze payments.tm7 --reportFolder ./findings
+tmforge analyze payments.tm7 --suppressionFile suppressions.json --json
 ```
 
-> When a model is loaded from the native `tmforge-json` format, its embedded validation selection
+> When a model is loaded from the native `tmforge-json` format, its embedded analysis selection
 > (disabled packs/rules) is honored automatically. Other formats use the full rule set or an
 > explicit `--ruleset`.
 
 ### `threats`
 
-Report the model's **STRIDE threats** — the persisted, triaged view of the validation findings.
-Detection is entirely the rule set: `threats` runs the same rules as [`lint`](#lint), keeps the
+Report the model's **STRIDE threats** — the persisted, triaged view of the analysis findings.
+Detection is entirely the rule set: `threats` runs the same rules as [`analyze`](#analyze), keeps the
 findings from threat-bearing rules, and frames each as a STRIDE threat against its element or flow.
-The difference from `lint` is **lifecycle** — where a finding is transient and gated, a threat is
+The difference from `analyze` is **lifecycle** — where a finding is transient and gated, a threat is
 persisted and triaged (`open -> mitigated -> accepted`). With `--write`, the threats are persisted into
 the model's register, keyed so a re-run updates in place and never overwrites prior triage.
 
@@ -513,7 +513,7 @@ tmforge threats [--write] [--json] <model>
 
 Each threat carries a STRIDE category, the rule's mitigation, and external references (CWE / CAPEC).
 There is no separate threat catalog: **extend coverage the way detection is extended — add a rule to a
-rule pack** (see [Validation rules](validation-rules.md)). Rules that represent structural or naming
+rule pack** (see [Analysis rules](analysis-rules.md)). Rules that represent structural or naming
 hygiene (rather than a security weakness) are not reported as threats.
 
 ```bash
@@ -686,5 +686,5 @@ returns `data.id` / `data.source` / `data.target`.
 ## See also
 
 - [Quick start](quickstart.md): the commands in a worked example.
-- [Validation rules & CI](validation-rules.md): the rule catalog and gating.
+- [Analysis rules & CI](analysis-rules.md): the rule catalog and gating.
 - [Formats & interoperability](formats.md): conversion fidelity.

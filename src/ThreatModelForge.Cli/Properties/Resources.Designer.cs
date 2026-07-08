@@ -61,7 +61,7 @@ namespace ThreatModelForge.Cli.Properties {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to Threat Model Forge linter.
+        ///   Looks up a localized string similar to Threat Model Forge analyzer.
         /// </summary>
         internal static string ToolFullName {
             get {
@@ -97,9 +97,9 @@ namespace ThreatModelForge.Cli.Properties {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to Threat Model Forge linter.
+        ///   Looks up a localized string similar to Threat Model Forge analyzer.
         ///Usage:
-        ///tmforge lint [options] &lt;path&gt;
+        ///tmforge analyze [options] &lt;path&gt;
         ///Options:
         ///  -?, -h, --help            Show usage.
         ///  --json                    Emit machine-readable JSON to standard output.

@@ -11,7 +11,7 @@ code, in your browser, your terminal, and your CI pipeline.**
 The Microsoft Threat Modeling Tool (MTMT) is Windows-only, GUI-only, and can't run in a pipeline.
 Threat Model Forge keeps its file format, reading and writing `.tm7` files **byte-for-byte
 losslessly**, and removes everything else: author models in a browser Studio or a headless CLI,
-diff and merge them like source code, validate them against **built-in security and hygiene
+diff and merge them like source code, analyze them against **built-in security and hygiene
 rules**, and gate a build on the result. No Windows, no GUI required.
 
 **Try it now, no install:** the full editor and validation engine run client-side (WebAssembly) at
@@ -57,7 +57,7 @@ tmforge new payments.tm7 --name "Payments"
 tmforge add process payments.tm7 --name "Checkout API"
 tmforge add store payments.tm7 --name "Orders DB"
 tmforge add boundary payments.tm7 --name "Azure VNet"
-tmforge lint payments.tm7                    # validate: exits 2 on findings, CI-ready
+tmforge analyze payments.tm7                    # analyze: exits 2 on findings, CI-ready
 tmforge report payments.tm7 --out payments.html
 ```
 
@@ -77,7 +77,7 @@ open as-is; see [Formats & interoperability](docs/formats.md).
 - **Convert** between `.tm7`, `tmforge-json`, draw.io, and Visio.
 - **Report** to self-contained HTML (with inline SVG diagrams), or `render` the diagram right
   in your terminal.
-- **Validate in CI** with the `tmforge` CLI (`tmforge lint`), gating builds on SARIF-reported
+- **Analyze in CI** with the `tmforge` CLI (`tmforge analyze`), gating builds on SARIF-reported
   findings.
 
 ## Documentation
@@ -145,7 +145,7 @@ Pull the published multi-arch images from GitHub Container Registry:
 docker run --rm -p 8080:8080 ghcr.io/hacks4snacks/tmforge               # -> http://localhost:8080/
 
 # CLI tool
-docker run --rm -v "$PWD:/work" ghcr.io/hacks4snacks/tmforge-cli tmforge lint model.tm7
+docker run --rm -v "$PWD:/work" ghcr.io/hacks4snacks/tmforge-cli tmforge analyze model.tm7
 ```
 
 Published tags include `latest`, the release version (e.g. `0.1.0`), `0.1`, and `edge` (latest

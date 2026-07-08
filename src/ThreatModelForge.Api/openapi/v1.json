@@ -163,12 +163,12 @@
         }
       }
     },
-    "/v1/model/validate": {
+    "/v1/model/analyze": {
       "post": {
         "tags": [
           "Model"
         ],
-        "operationId": "ValidateModel",
+        "operationId": "AnalyzeModel",
         "requestBody": {
           "content": {
             "application/json": {
@@ -817,6 +817,29 @@
           }
         }
       },
+      "TmForgeAnalysisDto": {
+        "type": "object",
+        "properties": {
+          "disabledPacks": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "disabledRuleIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "TmForgeDiagramDto": {
         "type": "object",
         "properties": {
@@ -971,13 +994,13 @@
               "$ref": "#/components/schemas/TmForgeDiagramDto"
             }
           },
-          "validation": {
+          "analysis": {
             "oneOf": [
               {
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/TmForgeValidationDto"
+                "$ref": "#/components/schemas/TmForgeAnalysisDto"
               }
             ]
           },
@@ -988,29 +1011,6 @@
             ],
             "items": {
               "$ref": "#/components/schemas/ThreatStateDto"
-            }
-          }
-        }
-      },
-      "TmForgeValidationDto": {
-        "type": "object",
-        "properties": {
-          "disabledPacks": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "disabledRuleIds": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "string"
             }
           }
         }

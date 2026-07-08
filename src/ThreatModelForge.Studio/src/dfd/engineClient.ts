@@ -106,7 +106,7 @@ export interface PackInfo {
   count: number;
 }
 
-/** An analysis rule offered by the engine (surfaced in the validation settings UI). */
+/** An analysis rule offered by the engine (surfaced in the Analysis Rules settings UI). */
 export interface RuleInfo {
   id: string;
   /** The rule pack this rule belongs to (for example, 'security-properties'). */
@@ -150,15 +150,15 @@ export interface PropertyDescriptorInfo {
  *   - `OfflineEngineClient` - honest fallback when neither is reachable: client-side authoring only.
  *
  * `read`/`write` just (de)serialize the canonical `tmforge-json` client-side — no engine needed —
- * so all clients share them. Everything else (`validate`, `getFormats`, `detect`, `readFile`,
+ * so all clients share them. Everything else (`analyze`, `getFormats`, `detect`, `readFile`,
  * `convert`, `report`, `exportTm7`) is a coarse-grained engine call.
  */
 export interface IEngineClient {
   readonly label: string;
   write(model: TmForgeModel): Promise<string>;
   read(text: string): Promise<TmForgeModel>;
-  validate(model: TmForgeModel): Promise<Finding[]>;
-  /** Projects the model's threat-bearing findings into the STRIDE threat register (the same detection as validate). */
+  analyze(model: TmForgeModel): Promise<Finding[]>;
+  /** Projects the model's threat-bearing findings into the STRIDE threat register (the same detection as analyze). */
   generateThreats(model: TmForgeModel): Promise<Threat[]>;
   exportTm7(model: TmForgeModel): Promise<Blob>;
   /** Lists the engine's registered file formats and their capabilities. */
@@ -167,9 +167,9 @@ export interface IEngineClient {
   getStencils(): Promise<StencilInfo[]>;
   /** Lists the stencil packs offered to the palette (for show/hide toggles). */
   getStencilPacks(): Promise<PackInfo[]>;
-  /** Lists the analysis rules offered by the engine (for the validation settings UI). */
+  /** Lists the analysis rules offered by the engine (for the Analysis Rules settings UI). */
   getRules(): Promise<RuleInfo[]>;
-  /** Lists the rule packs offered by the engine (for per-model validation toggles). */
+  /** Lists the rule packs offered by the engine (for per-model analysis-rule toggles). */
   getRulePacks(): Promise<RulePackInfo[]>;
   /** Lists the typed element-property schema (drives typed Inspector controls + canonical values). */
   getPropertySchema(): Promise<PropertyDescriptorInfo[]>;
@@ -328,10 +328,10 @@ function toModel(dto: components['schemas']['TmForgeModelDto']): TmForgeModel {
       name: f.name ?? '',
       properties: f.properties ?? {},
     })),
-    validation: dto.validation
+    analysis: dto.analysis
       ? {
-          disabledPacks: dto.validation.disabledPacks ?? undefined,
-          disabledRuleIds: dto.validation.disabledRuleIds ?? undefined,
+          disabledPacks: dto.analysis.disabledPacks ?? undefined,
+          disabledRuleIds: dto.analysis.disabledRuleIds ?? undefined,
         }
       : undefined,
   };
@@ -384,7 +384,7 @@ class OfflineEngineClient implements IEngineClient {
     return readJson(text);
   }
 
-  public validate(): Promise<Finding[]> {
+  public analyze(): Promise<Finding[]> {
     // No fake analysis: when neither the /v1 engine nor the in-browser WASM engine is reachable,
     // fail honestly rather than returning heuristics that disagree with the real rule set.
     return Promise.reject(
@@ -396,7 +396,7 @@ class OfflineEngineClient implements IEngineClient {
   }
 
   public generateThreats(): Promise<Threat[]> {
-    // Same honesty as validate: without the engine there is no rule set to project threats from.
+    // Same honesty as analyze: without the engine there is no rule set to project threats from.
     return Promise.reject(
       new Error(
         'The analysis engine has not loaded. WebAssembly may be disabled or blocked (for example by a ' +
@@ -499,10 +499,10 @@ class HttpEngineClient implements IEngineClient {
     return readJson(text);
   }
 
-  public async validate(model: TmForgeModel): Promise<Finding[]> {
-    const { data, response } = await this.client.POST('/v1/model/validate', { body: model });
+  public async analyze(model: TmForgeModel): Promise<Finding[]> {
+    const { data, response } = await this.client.POST('/v1/model/analyze', { body: model });
     if (!response.ok) {
-      throw new Error(`Engine validate failed (${response.status}).`);
+      throw new Error(`Engine analyze failed (${response.status}).`);
     }
     // The generated FindingDto has every field optional/nullable; normalize onto the UI's Finding.
     return (data ?? []).map((f) => ({
@@ -649,7 +649,7 @@ interface WasmEngineExports {
   Rules(): string;
   RulePacks(): string;
   PropertySchema(): string;
-  Validate(tmforgeJson: string): string;
+  Analyze(tmforgeJson: string): string;
   Threats(tmforgeJson: string): string;
   Detect(contentBase64: string): string;
   ReadFile(contentBase64: string, formatId: string): string;
@@ -681,8 +681,8 @@ class WasmEngineClient implements IEngineClient {
     return readJson(text);
   }
 
-  public async validate(model: TmForgeModel): Promise<Finding[]> {
-    const findings = JSON.parse(this.wasm.Validate(JSON.stringify(model))) as Array<components['schemas']['FindingDto']>;
+  public async analyze(model: TmForgeModel): Promise<Finding[]> {
+    const findings = JSON.parse(this.wasm.Analyze(JSON.stringify(model))) as Array<components['schemas']['FindingDto']>;
     return findings.map((f) => ({
       id: f.id ?? '',
       severity: (f.severity ?? 'info') as Severity,

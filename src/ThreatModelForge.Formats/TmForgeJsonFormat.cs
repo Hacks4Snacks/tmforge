@@ -61,14 +61,14 @@ namespace ThreatModelForge.Formats
         public FormatCapabilities Capabilities => JsonCapabilities;
 
         /// <summary>
-        /// Reads only the per-model validation selection from a <c>tmforge-json</c> stream, without
-        /// building the full model. Used to honor a model's rule selection when linting.
+        /// Reads only the per-model analysis selection from a <c>tmforge-json</c> stream, without
+        /// building the full model. Used to honor a model's rule selection when analyzing.
         /// </summary>
         /// <param name="stream">The source stream positioned at the start of the document.</param>
         /// <param name="disabledPacks">On return, the rule pack ids to skip (empty when none).</param>
         /// <param name="disabledRuleIds">On return, the rule ids to skip (empty when none).</param>
         /// <returns><c>true</c> if the document declared any pack or rule to skip; otherwise <c>false</c>.</returns>
-        public static bool TryReadValidation(
+        public static bool TryReadAnalysis(
             Stream stream,
             out IReadOnlyList<string> disabledPacks,
             out IReadOnlyList<string> disabledRuleIds)
@@ -93,13 +93,13 @@ namespace ThreatModelForge.Formats
             }
 
             TmForgeJsonModel? document = JsonSerializer.Deserialize<TmForgeJsonModel>(text, SerializerOptions);
-            if (document?.Validation == null)
+            if (document?.Analysis == null)
             {
                 return false;
             }
 
-            disabledPacks = document.Validation.DisabledPacks ?? Array.Empty<string>();
-            disabledRuleIds = document.Validation.DisabledRuleIds ?? Array.Empty<string>();
+            disabledPacks = document.Analysis.DisabledPacks ?? Array.Empty<string>();
+            disabledRuleIds = document.Analysis.DisabledRuleIds ?? Array.Empty<string>();
             return disabledPacks.Count > 0 || disabledRuleIds.Count > 0;
         }
 
@@ -194,12 +194,12 @@ namespace ThreatModelForge.Formats
         }
 
         /// <summary>
-        /// Writes the model to <c>tmforge-json</c>, embedding the given per-model validation selection.
+        /// Writes the model to <c>tmforge-json</c>, embedding the given per-model analysis selection.
         /// </summary>
         /// <param name="model">The model to write.</param>
         /// <param name="stream">The destination stream.</param>
-        /// <param name="validation">The validation selection to embed, or <see langword="null"/> to omit it.</param>
-        public void Write(ThreatModel model, Stream stream, TmForgeJsonValidation? validation)
+        /// <param name="analysis">The analysis selection to embed, or <see langword="null"/> to omit it.</param>
+        public void Write(ThreatModel model, Stream stream, TmForgeJsonAnalysis? analysis)
         {
             if (model == null)
             {
@@ -238,7 +238,7 @@ namespace ThreatModelForge.Formats
                 Elements = diagrams.Count > 0 ? diagrams[0].Elements : Array.Empty<TmForgeJsonElement>(),
                 Flows = diagrams.Count > 0 ? diagrams[0].Flows : Array.Empty<TmForgeJsonFlow>(),
                 Diagrams = diagrams.Count > 1 ? diagrams.ToArray() : null,
-                Validation = validation,
+                Analysis = analysis,
             };
 
             string json = JsonSerializer.Serialize(document, SerializerOptions);

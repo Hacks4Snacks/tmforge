@@ -12,9 +12,9 @@
     using ThreatModelForge.Model;
 
     /// <summary>
-    /// Implements the <c>tmforge lint</c> command.
+    /// Implements the <c>tmforge analyze</c> command.
     /// </summary>
-    internal static class LintCommand
+    internal static class AnalyzeCommand
     {
         private const int SuccessExitCode = 0;
 
@@ -23,7 +23,7 @@
         private const int FindingsExitCode = 2;
 
         /// <summary>
-        /// Runs the lint command.
+        /// Runs the analyze command.
         /// </summary>
         /// <param name="args">The command arguments (after the verb).</param>
         /// <returns>Program exit code.</returns>
@@ -36,7 +36,7 @@
                     throw new ArgumentNullException(nameof(args));
                 }
 
-                if (!LintArguments.TryParse(args, out LintArguments? arguments))
+                if (!AnalyzeArguments.TryParse(args, out AnalyzeArguments? arguments))
                 {
                     PrintUsage();
                     return ErrorExitCode;
@@ -80,7 +80,7 @@
 
                     if (arguments.Json)
                     {
-                        CliJson.WriteEnvelope("lint", context.GenerateReport(ruleSet));
+                        CliJson.WriteEnvelope("analyze", context.GenerateReport(ruleSet));
                     }
 
                     if (writer.MeetsThreshold(arguments.MaxSeverity))
@@ -107,7 +107,7 @@
 
         private static void ApplyModelRuleSelection(RuleSet ruleSet, string path)
         {
-            // The validation selection travels only in the native tmforge-json format; other formats
+            // The analysis selection travels only in the native tmforge-json format; other formats
             // (for example .tm7) fall back to the full rule set or an explicit --ruleset override.
             using (FileStream stream = new FileStream(path, FileMode.Open, FileAccess.Read))
             {
@@ -116,7 +116,7 @@
                     return;
                 }
 
-                if (TmForgeJsonFormat.TryReadValidation(
+                if (TmForgeJsonFormat.TryReadAnalysis(
                     stream,
                     out IReadOnlyList<string> disabledPacks,
                     out IReadOnlyList<string> disabledRuleIds))

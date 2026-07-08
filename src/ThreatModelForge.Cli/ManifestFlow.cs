@@ -14,7 +14,7 @@ namespace ThreatModelForge.Cli
         /// <summary>Gets or sets the flow's display name.</summary>
         public string? Name { get; set; }
 
-        /// <summary>Gets or sets the typed custom properties the linter reads.</summary>
+        /// <summary>Gets or sets the typed custom properties the analyzer reads.</summary>
         public Dictionary<string, string>? Props { get; set; }
     }
 }

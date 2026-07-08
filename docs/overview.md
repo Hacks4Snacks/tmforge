@@ -104,7 +104,7 @@ what you set in Studio, the CLI, or MTMT stays consistent.
   connectivity, naming, trust-boundary modeling, and declared security properties.
 - **CI integration**: SARIF + HTML findings reports, suppression files, rule-set overrides, and
   a distinct exit code for "found issues" vs. "tool error." See
-  [Validation rules & CI](validation-rules.md).
+  [Analysis rules & CI](analysis-rules.md).
 
 ### Reporting
 

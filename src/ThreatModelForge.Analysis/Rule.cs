@@ -87,7 +87,7 @@ namespace ThreatModelForge.Analysis
         /// Gets the typed custom properties this rule reads, together with the values it flags as
         /// risky. A rule that reads a property overrides this so an authoring surface can join the
         /// property schema with the rule set and show which rule (and severity) consumes each
-        /// property without a separate lint pass. Empty by default.
+        /// property without a separate analysis pass. Empty by default.
         /// </summary>
         public virtual IReadOnlyList<PropertyBinding> PropertyBindings => Array.Empty<PropertyBinding>();
 

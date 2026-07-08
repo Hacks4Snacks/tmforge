@@ -10,7 +10,7 @@ namespace ThreatModelForge.Cli
     /// Implements <c>tmforge properties</c>: lists the built-in typed property schema (the same
     /// schema Studio renders and the API serves at <c>GET /v1/property-schema</c>) so an agent can
     /// discover every custom property, its value kind, allowed values, and default without running
-    /// <c>lint</c> first or reading the rule catalog. Optionally filtered to one DFD base by
+    /// <c>analyze</c> first or reading the rule catalog. Optionally filtered to one DFD base by
     /// <c>--base</c>.
     /// </summary>
     internal static class PropertiesCommand
@@ -189,12 +189,12 @@ namespace ThreatModelForge.Cli
 
         private static void PrintUsage()
         {
-            Console.Error.WriteLine("List the built-in typed property schema (custom properties the linter reads and Studio edits).");
+            Console.Error.WriteLine("List the built-in typed property schema (custom properties the analyzer reads and Studio edits).");
             Console.Error.WriteLine("Usage:");
             Console.Error.WriteLine("  tmforge properties [--base <process|datastore|external|flow>] [--explain] [--json]");
             Console.Error.WriteLine();
             Console.Error.WriteLine("--explain maps each property VALUE to the rule ID and severity it triggers, so you can");
-            Console.Error.WriteLine("predict lint behavior before running 'tmforge lint'.");
+            Console.Error.WriteLine("predict analyze behavior before running 'tmforge analyze'.");
         }
     }
 }

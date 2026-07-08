@@ -12,7 +12,7 @@ namespace ThreatModelForge.Analysis
     /// <summary>
     /// Projects the validation findings of a model into its persistent threat register. Detection is
     /// <em>entirely</em> the rule set's job — this class does not re-implement any condition. It runs
-    /// the same rules that <c>lint</c> runs, keeps only the findings from threat-bearing rules (those
+    /// the same rules that <c>analyze</c> runs, keeps only the findings from threat-bearing rules (those
     /// whose rule declares a STRIDE category), frames each as a STRIDE threat against its element or
     /// flow, and upserts it into the model with an idempotent, triage-preserving write. The difference
     /// between a finding and a threat is lifecycle: a finding is transient and gated; a threat is

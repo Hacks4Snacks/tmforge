@@ -29,7 +29,7 @@ namespace ThreatModelForge.Formats
         /// </summary>
         public IReadOnlyList<TmForgeJsonDiagram>? Diagrams { get; init; }
 
-        /// <summary>Gets the per-model validation selection (which rule packs or rules to skip).</summary>
-        public TmForgeJsonValidation? Validation { get; init; }
+        /// <summary>Gets the per-model analysis selection (which rule packs or rules to skip).</summary>
+        public TmForgeJsonAnalysis? Analysis { get; init; }
     }
 }

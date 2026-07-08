@@ -203,14 +203,14 @@ namespace ThreatModelForge.Formats.Tests
         }
 
         /// <summary>
-        /// The per-model validation selection round-trips through the validation-aware Write overload
-        /// and <see cref="TmForgeJsonFormat.TryReadValidation"/>.
+        /// The per-model analysis selection round-trips through the analysis-aware Write overload
+        /// and <see cref="TmForgeJsonFormat.TryReadAnalysis"/>.
         /// </summary>
         [TestMethod]
-        public void ValidationRoundTrips()
+        public void AnalysisRoundTrips()
         {
             ThreatModel model = new ThreatModel();
-            TmForgeJsonValidation validation = new TmForgeJsonValidation
+            TmForgeJsonAnalysis analysis = new TmForgeJsonAnalysis
             {
                 DisabledPacks = new[] { "stride-completeness" },
                 DisabledRuleIds = new[] { "TM1002" },
@@ -219,13 +219,13 @@ namespace ThreatModelForge.Formats.Tests
             byte[] bytes;
             using (MemoryStream output = new MemoryStream())
             {
-                new TmForgeJsonFormat().Write(model, output, validation);
+                new TmForgeJsonFormat().Write(model, output, analysis);
                 bytes = output.ToArray();
             }
 
             using (MemoryStream input = new MemoryStream(bytes))
             {
-                bool hasSelection = TmForgeJsonFormat.TryReadValidation(
+                bool hasSelection = TmForgeJsonFormat.TryReadAnalysis(
                     input,
                     out IReadOnlyList<string> packs,
                     out IReadOnlyList<string> ruleIds);
@@ -239,10 +239,10 @@ namespace ThreatModelForge.Formats.Tests
         }
 
         /// <summary>
-        /// A document written without a validation selection reports none on read.
+        /// A document written without an analysis selection reports none on read.
         /// </summary>
         [TestMethod]
-        public void ValidationAbsentWhenNotWritten()
+        public void AnalysisAbsentWhenNotWritten()
         {
             ThreatModel model = new ThreatModel();
 
@@ -255,7 +255,7 @@ namespace ThreatModelForge.Formats.Tests
 
             using (MemoryStream input = new MemoryStream(bytes))
             {
-                bool hasSelection = TmForgeJsonFormat.TryReadValidation(
+                bool hasSelection = TmForgeJsonFormat.TryReadAnalysis(
                     input,
                     out IReadOnlyList<string> packs,
                     out IReadOnlyList<string> ruleIds);

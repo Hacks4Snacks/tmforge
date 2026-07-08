@@ -118,7 +118,7 @@
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
   <data name="ToolFullName" xml:space="preserve">
-    <value>Threat Model Forge linter</value>
+    <value>Threat Model Forge analyzer</value>
   </data>
   <data name="ToolInformationUri" xml:space="preserve">
     <value>https://example.com/tmforge</value>
@@ -130,9 +130,9 @@
     <value>Threat Model Forge</value>
   </data>
   <data name="Usage" xml:space="preserve">
-    <value>Threat Model Forge linter.
+    <value>Threat Model Forge analyzer.
 Usage:
-tmforge lint [options] &lt;path&gt;
+tmforge analyze [options] &lt;path&gt;
 Options:
   -?, -h, --help            Show usage.
   --json                    Emit machine-readable JSON to standard output.

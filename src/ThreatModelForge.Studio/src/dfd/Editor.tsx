@@ -26,7 +26,7 @@ import { TrustBoundaryNode } from './nodes/TrustBoundaryNode';
 import { Palette } from './Palette';
 import { Toolbar } from './Toolbar';
 import { Inspector } from './Inspector';
-import { ValidationSettings } from './ValidationSettings';
+import { AnalysisSettings } from './AnalysisSettings';
 import { FALLBACK_PACKS, FALLBACK_STENCILS } from './stencils';
 import { createHttpEngine, loadWasmEngine, offlineEngine, probeEngine, type Finding, type FormatInfo, type IEngineClient, type PackInfo, type PropertyDescriptorInfo, type RuleInfo, type RulePackInfo, type StencilInfo, type Threat } from './engineClient';
 import { ThreatsPanel } from './ThreatsPanel';
@@ -37,7 +37,7 @@ import { PageTabs } from './PageTabs';
 import { MergeResolveModal } from './MergeResolveModal';
 import { DfdActionsContext, type DfdActions } from './editorContext';
 import { Toaster, toast } from './toast';
-import type { DfdEdge, DfdKind, DfdNode, ThreatTriage, TmForgeModel, TmForgeValidation } from './types';
+import type { DfdEdge, DfdKind, DfdNode, ThreatTriage, TmForgeModel, TmForgeAnalysis } from './types';
 
 const nodeTypes: NodeTypes = {
   process: ShapeNode,
@@ -89,7 +89,7 @@ function initialTheme(): Theme {
 interface StoredWorkspace {
   pages: PageGraph[];
   activePageId: string;
-  validation?: TmForgeValidation;
+  analysis?: TmForgeAnalysis;
   threats?: ThreatTriage[];
 }
 
@@ -102,7 +102,7 @@ function loadStoredWorkspace(): StoredWorkspace | null {
       if (parsed?.model?.schema === 'tmforge-json') {
         const pages = pagesFromModel(parsed.model);
         const activePageId = pages.some((p) => p.id === parsed.activePageId) ? parsed.activePageId! : pages[0].id;
-        return { pages, activePageId, validation: parsed.model.validation, threats: parsed.model.threats };
+        return { pages, activePageId, analysis: parsed.model.analysis, threats: parsed.model.threats };
       }
     }
   } catch {
@@ -114,7 +114,7 @@ function loadStoredWorkspace(): StoredWorkspace | null {
       const model = JSON.parse(raw) as TmForgeModel;
       if (model?.schema === 'tmforge-json') {
         const pages = pagesFromModel(model);
-        return { pages, activePageId: pages[0].id, validation: model.validation, threats: model.threats };
+        return { pages, activePageId: pages[0].id, analysis: model.analysis, threats: model.threats };
       }
     }
   } catch {
@@ -172,10 +172,10 @@ function persistStringList(key: string, value: string[]): void {
 const INITIAL_WORKSPACE = loadStoredWorkspace() ?? emptyWorkspace();
 const INITIAL_ACTIVE =
   INITIAL_WORKSPACE.pages.find((p) => p.id === INITIAL_WORKSPACE.activePageId) ?? INITIAL_WORKSPACE.pages[0];
-const INITIAL_DISABLED_PACKS = INITIAL_WORKSPACE.validation?.disabledPacks ?? [];
-const INITIAL_DISABLED_RULE_IDS = INITIAL_WORKSPACE.validation?.disabledRuleIds ?? [];
+const INITIAL_DISABLED_PACKS = INITIAL_WORKSPACE.analysis?.disabledPacks ?? [];
+const INITIAL_DISABLED_RULE_IDS = INITIAL_WORKSPACE.analysis?.disabledRuleIds ?? [];
 const INITIAL_SAVED_JSON = JSON.stringify(
-  modelFromPages(INITIAL_WORKSPACE.pages, buildValidation(INITIAL_DISABLED_PACKS, INITIAL_DISABLED_RULE_IDS)),
+  modelFromPages(INITIAL_WORKSPACE.pages, buildAnalysis(INITIAL_DISABLED_PACKS, INITIAL_DISABLED_RULE_IDS)),
 );
 
 /** Minimal shape of the File System Access API used to open and overwrite files (Chromium). */
@@ -204,16 +204,16 @@ function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** Builds the validation block from the current selection, or undefined when nothing is disabled. */
-function buildValidation(disabledPacks: string[], disabledRuleIds: string[]): TmForgeValidation | undefined {
-  const validation: TmForgeValidation = {};
+/** Builds the analysis-rule selection from the current toggles, or undefined when nothing is disabled. */
+function buildAnalysis(disabledPacks: string[], disabledRuleIds: string[]): TmForgeAnalysis | undefined {
+  const analysis: TmForgeAnalysis = {};
   if (disabledPacks.length > 0) {
-    validation.disabledPacks = disabledPacks;
+    analysis.disabledPacks = disabledPacks;
   }
   if (disabledRuleIds.length > 0) {
-    validation.disabledRuleIds = disabledRuleIds;
+    analysis.disabledRuleIds = disabledRuleIds;
   }
-  return validation.disabledPacks || validation.disabledRuleIds ? validation : undefined;
+  return analysis.disabledPacks || analysis.disabledRuleIds ? analysis : undefined;
 }
 
 /** Returns copies of the graph with the `flagged` class applied to elements a finding referenced. */
@@ -252,7 +252,7 @@ export function Editor() {
   const [disabledRuleIds, setDisabledRuleIds] = useState<string[]>(() => INITIAL_DISABLED_RULE_IDS);
   const [showRules, setShowRules] = useState(false);
   const [showMerge, setShowMerge] = useState(false);
-  const validationActiveRef = useRef(false);
+  const analysisActiveRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const fileHandleRef = useRef<WritableFileHandle | null>(null);
   const fileFormatRef = useRef<string>('tmforge-json');
@@ -373,7 +373,7 @@ export function Editor() {
 
   const stencilById = useMemo(() => new Map(stencils.map((s) => [s.id, s])), [stencils]);
 
-  // Load the analysis rule catalog + rule packs (for the validation settings panel) from the engine.
+  // Load the analysis rule catalog + rule packs (for the Analysis Rules settings panel) from the engine.
   useEffect(() => {
     let active = true;
     void engine
@@ -424,7 +424,7 @@ export function Editor() {
   // the last explicit Save. A debounced localStorage write of the whole workspace (pages + active
   // tab) runs on every change as a crash-recovery net, so a reload never loses work.
   const currentModel = useMemo(() => {
-    const model = modelFromPages(allPages, buildValidation(disabledRulePacks, disabledRuleIds));
+    const model = modelFromPages(allPages, buildAnalysis(disabledRulePacks, disabledRuleIds));
     return threatTriage.length > 0 ? { ...model, threats: threatTriage } : model;
   }, [allPages, disabledRulePacks, disabledRuleIds, threatTriage]);
   const currentJson = useMemo(() => JSON.stringify(currentModel), [currentModel]);
@@ -459,7 +459,7 @@ export function Editor() {
       }
       setPages(committed);
       setActivePageId(targetId);
-      const applied = validationActiveRef.current
+      const applied = analysisActiveRef.current
         ? applyFlags(target.nodes, target.edges, flaggedIdsRef.current)
         : { nodes: target.nodes, edges: target.edges };
       setNodes(applied.nodes);
@@ -505,7 +505,7 @@ export function Editor() {
       if (id === activePageId) {
         const next = remaining[Math.min(index, remaining.length - 1)];
         setActivePageId(next.id);
-        const applied = validationActiveRef.current
+        const applied = analysisActiveRef.current
           ? applyFlags(next.nodes, next.edges, flaggedIdsRef.current)
           : { nodes: next.nodes, edges: next.edges };
         setNodes(applied.nodes);
@@ -702,7 +702,7 @@ export function Editor() {
   }, []);
 
   // Enable/disable a whole rule pack for this model. The selection travels with the model (saved in
-  // the file and sent on validate), so it is model state, not a persisted UI preference.
+  // the file and sent on analyze), so it is model state, not a persisted UI preference.
   const toggleRulePack = useCallback((packId: string) => {
     setDisabledRulePacks((prev) =>
       prev.includes(packId) ? prev.filter((x) => x !== packId) : [...prev, packId],
@@ -872,7 +872,7 @@ export function Editor() {
     setFindings([]);
     setThreats([]);
     flaggedIdsRef.current = new Set();
-    validationActiveRef.current = false;
+    analysisActiveRef.current = false;
   }, [setNodes, setEdges]);
 
   // Analyze the model: generate the STRIDE threat register and, in parallel, the model-hygiene
@@ -885,7 +885,7 @@ export function Editor() {
     try {
       [generated, allFindings] = await Promise.all([
         engine.generateThreats(currentModel),
-        engine.validate(currentModel),
+        engine.analyze(currentModel),
       ]);
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Analysis failed.', 'error');
@@ -896,7 +896,7 @@ export function Editor() {
     // are already shown as threats.
     const threatRuleIds = new Set(generated.map((t) => t.ruleId));
     setFindings(allFindings.filter((f) => !f.ruleId || !threatRuleIds.has(f.ruleId)));
-    validationActiveRef.current = true;
+    analysisActiveRef.current = true;
     const flagged = new Set([...generated.flatMap((t) => t.elementIds), ...allFindings.flatMap((f) => f.elementIds)]);
     flaggedIdsRef.current = flagged;
     const applied = applyFlags(nodes, edges, flagged);
@@ -909,7 +909,7 @@ export function Editor() {
   const runAnalyzeRef = useRef(runAnalyze);
   runAnalyzeRef.current = runAnalyze;
   useEffect(() => {
-    if (validationActiveRef.current) {
+    if (analysisActiveRef.current) {
       void runAnalyzeRef.current();
     }
   }, [disabledRulePacks, disabledRuleIds]);
@@ -969,8 +969,8 @@ export function Editor() {
   const loadModel = useCallback(
     (model: TmForgeModel) => {
       const nextPages = pagesFromModel(model);
-      const nextPacks = model.validation?.disabledPacks ?? [];
-      const nextRuleIds = model.validation?.disabledRuleIds ?? [];
+      const nextPacks = model.analysis?.disabledPacks ?? [];
+      const nextRuleIds = model.analysis?.disabledRuleIds ?? [];
       const first = nextPages[0];
       setPages(nextPages);
       setActivePageId(first.id);
@@ -982,11 +982,11 @@ export function Editor() {
       setThreats([]);
       setThreatTriage(model.threats ?? []);
       flaggedIdsRef.current = new Set();
-      validationActiveRef.current = false;
+      analysisActiveRef.current = false;
       setSelection({ node: null, edge: null });
       reset();
       // A freshly loaded model is the new saved baseline, so it does not read as dirty.
-      setSavedJson(JSON.stringify(modelFromPages(nextPages, buildValidation(nextPacks, nextRuleIds))));
+      setSavedJson(JSON.stringify(modelFromPages(nextPages, buildAnalysis(nextPacks, nextRuleIds))));
       window.setTimeout(() => fitView({ padding: 0.25, maxZoom: 1.15, duration: 300 }), 0);
     },
     [setNodes, setEdges, fitView, reset],
@@ -994,7 +994,7 @@ export function Editor() {
 
   const readModelFromBytes = useCallback(
     async (bytes: Uint8Array, formatId: string): Promise<TmForgeModel> => {
-      // The native tmforge-json is parsed client-side so the per-model validation selection is
+      // The native tmforge-json is parsed client-side so the per-model analysis selection is
       // preserved; other formats round-trip through the engine (which projects onto tmforge-json).
       if (formatId === 'tmforge-json') {
         return engine.read(new TextDecoder().decode(bytes));
@@ -1057,7 +1057,7 @@ export function Editor() {
     setThreats([]);
     setThreatTriage([]);
     flaggedIdsRef.current = new Set();
-    validationActiveRef.current = false;
+    analysisActiveRef.current = false;
     setSelection({ node: null, edge: null });
     reset();
   }, [setNodes, setEdges, reset]);
@@ -1153,13 +1153,13 @@ export function Editor() {
                     <span className={`val-caret${showRules ? ' open' : ''}`} aria-hidden>
                       ▸
                     </span>
-                    Validation
+                    Analysis Rules
                     {disabledRulePacks.length + disabledRuleIds.length > 0 ? (
                       <span className="val-off-count">{disabledRulePacks.length + disabledRuleIds.length} off</span>
                     ) : null}
                   </button>
                   {showRules && (
-                    <ValidationSettings
+                    <AnalysisSettings
                       rules={rules}
                       packs={rulePacks}
                       disabledPacks={disabledRulePacks}

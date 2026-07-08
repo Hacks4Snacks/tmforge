@@ -10,7 +10,7 @@ namespace ThreatModelForge.Cli
 
     /// <summary>
     /// Implements <c>tmforge set</c>: sets the name and/or custom properties of an existing element
-    /// or flow (identified by GUID), so an agent can resolve linter findings (for example
+    /// or flow (identified by GUID), so an agent can resolve analysis findings (for example
     /// <c>Protocol</c>, <c>Port</c>, <c>DataType</c>, <c>AuthenticationScheme</c>) without
     /// hand-editing the <c>.tm7</c>.
     /// </summary>
@@ -157,7 +157,7 @@ namespace ThreatModelForge.Cli
             Console.Error.WriteLine();
             Console.Error.WriteLine("--id accepts a GUID, an element --alias, or a unique element name.");
             Console.Error.WriteLine();
-            Console.Error.WriteLine("Resolve linter findings, e.g. --property Protocol=HTTPS --property Port=443,");
+            Console.Error.WriteLine("Resolve analysis findings, e.g. --property Protocol=HTTPS --property Port=443,");
             Console.Error.WriteLine("--property DataType=\"Customer Content\", or --property AuthenticationScheme=OAuth.");
             Console.Error.WriteLine("Mark a non-network flow with --property Channel=In-Process|Local-file|Unix-socket|Loopback.");
             Console.Error.WriteLine("List every property and its allowed values with 'tmforge properties'.");

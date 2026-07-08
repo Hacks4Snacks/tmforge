@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { RuleInfo, RulePackInfo } from './engineClient';
 
-interface ValidationSettingsProps {
+interface AnalysisSettingsProps {
   /** The full rule catalog from the engine. */
   rules: RuleInfo[];
   /** The rule packs from the engine, in presentation order. */
@@ -22,24 +22,24 @@ function firstSentence(text: string): string {
 }
 
 /**
- * The per-model validation picker: choose which rule packs and individual rules the model is
- * validated against. The selection travels with the model, so the Studio and the CLI agree.
+ * The per-model analysis-rule picker: choose which rule packs and individual rules the model is
+ * analyzed against. The selection travels with the model, so the Studio and the CLI agree.
  */
-export function ValidationSettings({
+export function AnalysisSettings({
   rules,
   packs,
   disabledPacks,
   disabledRuleIds,
   onTogglePack,
   onToggleRule,
-}: ValidationSettingsProps) {
+}: AnalysisSettingsProps) {
   // Which rule's in-app help panel is expanded (only one at a time keeps the panel compact).
   const [openHelpId, setOpenHelpId] = useState<string | null>(null);
 
   if (packs.length === 0) {
     return (
       <p className="val-empty">
-        Connect the engine to choose which rule packs and rules to validate against.
+        Connect the engine to choose which rule packs and rules to analyze against.
       </p>
     );
   }

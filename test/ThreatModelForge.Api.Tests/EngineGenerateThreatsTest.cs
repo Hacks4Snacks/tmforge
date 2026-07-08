@@ -29,12 +29,12 @@ namespace ThreatModelForge.Api.Tests
         [TestMethod]
         public void GenerateThreats_HonorsDisabledPack()
         {
-            TmForgeValidationDto validation = new TmForgeValidationDto
+            TmForgeAnalysisDto analysis = new TmForgeAnalysisDto
             {
                 DisabledPacks = new[] { "identity-access" },
             };
 
-            IReadOnlyList<ThreatDto> threats = EngineService.GenerateThreats(BuildModel(validation));
+            IReadOnlyList<ThreatDto> threats = EngineService.GenerateThreats(BuildModel(analysis));
 
             Assert.IsFalse(threats.Any(t => t.RuleId == "TM1023"));
         }
@@ -61,7 +61,7 @@ namespace ThreatModelForge.Api.Tests
             Assert.IsTrue(triaged.Where(t => t.Id != spoof.Id).All(t => t.State == "Open"));
         }
 
-        private static TmForgeModelDto BuildModel(TmForgeValidationDto? validation, IReadOnlyList<ThreatStateDto>? threats = null)
+        private static TmForgeModelDto BuildModel(TmForgeAnalysisDto? analysis, IReadOnlyList<ThreatStateDto>? threats = null)
         {
             // Guid-shaped ids so the generated threat ids are stable across builds: the register is
             // keyed by the target element's guid, and tmforge-json preserves guid ids on read (real
@@ -76,7 +76,7 @@ namespace ThreatModelForge.Api.Tests
                 Version = "0.1",
                 Elements = new[] { external, process },
                 Flows = new[] { new TmForgeFlowDto { Id = "33333333-3333-4333-8333-333333333333", Source = externalId, Target = processId, Name = "request" } },
-                Validation = validation,
+                Analysis = analysis,
                 Threats = threats,
             };
         }

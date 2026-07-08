@@ -62,8 +62,8 @@ namespace ThreatModelForge.Api
             app.MapGet("/v1/property-schema", () => TypedResults.Ok(EngineService.GetPropertySchema()))
                 .WithName("GetPropertySchema")
                 .WithTags("Catalog");
-            app.MapPost("/v1/model/validate", (TmForgeModelDto model) => TypedResults.Ok(EngineService.Validate(model)))
-                .WithName("ValidateModel")
+            app.MapPost("/v1/model/analyze", (TmForgeModelDto model) => TypedResults.Ok(EngineService.Analyze(model)))
+                .WithName("AnalyzeModel")
                 .WithTags("Model");
             app.MapPost("/v1/model/threats", (TmForgeModelDto model) => TypedResults.Ok(EngineService.GenerateThreats(model)))
                 .WithName("GenerateThreats")

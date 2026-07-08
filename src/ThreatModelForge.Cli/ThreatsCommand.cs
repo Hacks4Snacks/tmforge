@@ -10,7 +10,7 @@ namespace ThreatModelForge.Cli
 
     /// <summary>
     /// Implements <c>tmforge threats</c>: the persistable, lifecycle-bearing view of the validation
-    /// findings. It runs the same rules as <c>lint</c>, frames each threat-bearing finding as a STRIDE
+    /// findings. It runs the same rules as <c>analyze</c>, frames each threat-bearing finding as a STRIDE
     /// threat against its element or flow, and — with <c>--write</c> — persists them into the model's
     /// register, preserving any prior triage. Detection is entirely the rules; extend coverage by
     /// adding a rule to a rule pack (there is no separate threat catalog).
@@ -131,7 +131,7 @@ namespace ThreatModelForge.Cli
             if (result.Count == 0)
             {
                 Console.WriteLine();
-                Console.WriteLine("No threats detected. Run 'tmforge lint' for the same findings without persisting them.");
+                Console.WriteLine("No threats detected. Run 'tmforge analyze' for the same findings without persisting them.");
                 return;
             }
 
@@ -183,7 +183,7 @@ namespace ThreatModelForge.Cli
             Console.Error.WriteLine();
             Console.Error.WriteLine("--write     persist the threats into the model's register (preserves prior triage).");
             Console.Error.WriteLine();
-            Console.Error.WriteLine("Detection is the rule set (see 'tmforge lint'); each threat carries a STRIDE category,");
+            Console.Error.WriteLine("Detection is the rule set (see 'tmforge analyze'); each threat carries a STRIDE category,");
             Console.Error.WriteLine("the rule's mitigation, and CWE/CAPEC references. After --write, triage with");
             Console.Error.WriteLine("'tmforge list threats' and 'tmforge accept'.");
         }

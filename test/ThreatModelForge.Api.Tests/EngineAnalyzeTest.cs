@@ -7,20 +7,20 @@ namespace ThreatModelForge.Api.Tests
     using ThreatModelForge.Engine;
 
     /// <summary>
-    /// Unit tests for <see cref="EngineService.Validate"/>, focused on the per-model validation
+    /// Unit tests for <see cref="EngineService.Analyze"/>, focused on the per-model analysis
     /// selection that travels with the model.
     /// </summary>
     [TestClass]
-    public class EngineValidateTest
+    public class EngineAnalyzeTest
     {
         /// <summary>
         /// A lone process with no trust boundary produces both a stride-completeness and a
         /// core-hygiene finding, giving a baseline to switch off.
         /// </summary>
         [TestMethod]
-        public void Validate_ProducesBaselineFindings()
+        public void Analyze_ProducesBaselineFindings()
         {
-            IReadOnlyList<FindingDto> findings = EngineService.Validate(BuildModel(null));
+            IReadOnlyList<FindingDto> findings = EngineService.Analyze(BuildModel(null));
 
             Assert.IsTrue(HasRule(findings, "TM1003"), "Expected the missing-trust-boundary finding (stride-completeness).");
             Assert.IsTrue(HasRule(findings, "TM1000"), "Expected the unconnected-component finding (core-hygiene).");
@@ -30,14 +30,14 @@ namespace ThreatModelForge.Api.Tests
         /// Disabling a pack skips only that pack's rules; other packs still run.
         /// </summary>
         [TestMethod]
-        public void Validate_HonorsDisabledPack()
+        public void Analyze_HonorsDisabledPack()
         {
-            TmForgeValidationDto validation = new TmForgeValidationDto
+            TmForgeAnalysisDto analysis = new TmForgeAnalysisDto
             {
                 DisabledPacks = new[] { "stride-completeness" },
             };
 
-            IReadOnlyList<FindingDto> findings = EngineService.Validate(BuildModel(validation));
+            IReadOnlyList<FindingDto> findings = EngineService.Analyze(BuildModel(analysis));
 
             Assert.IsFalse(HasRule(findings, "TM1003"), "TM1003 (stride-completeness) should be skipped.");
             Assert.IsTrue(HasRule(findings, "TM1000"), "TM1000 (core-hygiene) should still run.");
@@ -47,14 +47,14 @@ namespace ThreatModelForge.Api.Tests
         /// Disabling by rule id skips only the named rule; other rules still run.
         /// </summary>
         [TestMethod]
-        public void Validate_HonorsDisabledRuleId()
+        public void Analyze_HonorsDisabledRuleId()
         {
-            TmForgeValidationDto validation = new TmForgeValidationDto
+            TmForgeAnalysisDto analysis = new TmForgeAnalysisDto
             {
                 DisabledRuleIds = new[] { "TM1000" },
             };
 
-            IReadOnlyList<FindingDto> findings = EngineService.Validate(BuildModel(validation));
+            IReadOnlyList<FindingDto> findings = EngineService.Analyze(BuildModel(analysis));
 
             Assert.IsFalse(HasRule(findings, "TM1000"), "TM1000 should be skipped by id.");
             Assert.IsTrue(HasRule(findings, "TM1003"), "TM1003 should still run.");
@@ -65,9 +65,9 @@ namespace ThreatModelForge.Api.Tests
         /// not only the first, confirming the engine reads the <c>diagrams</c> container.
         /// </summary>
         [TestMethod]
-        public void Validate_AnalyzesAllPages()
+        public void Analyze_AnalyzesAllPages()
         {
-            IReadOnlyList<FindingDto> findings = EngineService.Validate(BuildMultiPageModel());
+            IReadOnlyList<FindingDto> findings = EngineService.Analyze(BuildMultiPageModel());
 
             Assert.IsTrue(HasRule(findings, "TM1000"), "Expected unconnected-component findings.");
             HashSet<string> flagged = findings.SelectMany(finding => finding.ElementIds).ToHashSet(StringComparer.Ordinal);
@@ -80,7 +80,7 @@ namespace ThreatModelForge.Api.Tests
             return findings.Any(finding => string.Equals(finding.RuleId, ruleId, StringComparison.Ordinal));
         }
 
-        private static TmForgeModelDto BuildModel(TmForgeValidationDto? validation)
+        private static TmForgeModelDto BuildModel(TmForgeAnalysisDto? analysis)
         {
             return new TmForgeModelDto
             {
@@ -90,7 +90,7 @@ namespace ThreatModelForge.Api.Tests
                 {
                     new TmForgeElementDto { Id = "p1", Kind = "process", Name = "Web App", X = 100, Y = 100 },
                 },
-                Validation = validation,
+                Analysis = analysis,
             };
         }
 

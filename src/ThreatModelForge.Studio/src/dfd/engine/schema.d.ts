@@ -116,7 +116,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/model/validate": {
+    "/v1/model/analyze": {
         parameters: {
             query?: never;
             header?: never;
@@ -125,7 +125,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["ValidateModel"];
+        post: operations["AnalyzeModel"];
         delete?: never;
         options?: never;
         head?: never;
@@ -381,6 +381,10 @@ export interface components {
             state?: string;
             justification?: null | string;
         };
+        TmForgeAnalysisDto: {
+            disabledPacks?: null | string[];
+            disabledRuleIds?: null | string[];
+        };
         TmForgeDiagramDto: {
             id?: string;
             name?: string;
@@ -418,12 +422,8 @@ export interface components {
             elements?: null | components["schemas"]["TmForgeElementDto"][];
             flows?: null | components["schemas"]["TmForgeFlowDto"][];
             diagrams?: null | components["schemas"]["TmForgeDiagramDto"][];
-            validation?: null | components["schemas"]["TmForgeValidationDto"];
+            analysis?: null | components["schemas"]["TmForgeAnalysisDto"];
             threats?: null | components["schemas"]["ThreatStateDto"][];
-        };
-        TmForgeValidationDto: {
-            disabledPacks?: null | string[];
-            disabledRuleIds?: null | string[];
         };
     };
     responses: never;
@@ -574,7 +574,7 @@ export interface operations {
             };
         };
     };
-    ValidateModel: {
+    AnalyzeModel: {
         parameters: {
             query?: never;
             header?: never;

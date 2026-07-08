@@ -49,11 +49,11 @@ export interface TmForgeFlow {
 }
 
 /**
- * Per-model validation selection. It travels with the model (saved in the .tmforge.json file and
- * sent on validate) so the Studio and the CLI validate against the same set of rules. An absent or
+ * Per-model analysis selection. It travels with the model (saved in the .tmforge.json file and
+ * sent on analyze) so the Studio and the CLI analyze against the same set of rules. An absent or
  * empty selection runs every rule.
  */
-export interface TmForgeValidation {
+export interface TmForgeAnalysis {
   /** Rule pack ids to skip (for example, 'stride-completeness'). */
   disabledPacks?: string[];
   /** Individual rule ids to skip (for example, 'TM1002'). */
@@ -87,7 +87,7 @@ export interface TmForgeModel {
    */
   diagrams?: TmForgeDiagram[];
   /** Which rule packs or rules to skip when validating this model. */
-  validation?: TmForgeValidation;
+  analysis?: TmForgeAnalysis;
   /**
    * The threat triage overlay: the persisted lifecycle state (accepted risks + justifications) of
    * generated threats, keyed by threat id. Absent or empty means every generated threat is open.

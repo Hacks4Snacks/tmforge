@@ -85,13 +85,13 @@ properties below the typed ones.
 
 ## Validating against the engine
 
-Click **Validate** to send the whole model (every page) to the live `/v1` engine. Findings come back
+Click **Analyze** to send the whole model (every page) to the live `/v1` engine. Findings come back
 and are **overlaid on the offending nodes and edges**, so you can see exactly what to fix. In a
 multi-page model, tabs that carry findings are badged, and clicking a finding jumps to its page. Open
-the inspector, set the missing property (e.g. a flow's protocol), and re-validate.
+the inspector, set the missing property (e.g. a flow's protocol), and re-analyze.
 
 If the engine is offline, Studio falls back to an offline stub so the canvas keeps working; connect
-it to a running API to get the real rule set. See [Validation rules & CI](validation-rules.md) for
+it to a running API to get the real rule set. See [Analysis rules & CI](analysis-rules.md) for
 what the rules check.
 
 ## Importing and exporting
@@ -103,7 +103,7 @@ Studio round-trips through the canonical **`tmforge-json`** wire model:
 - **Import JSON**: load a `.tmforge.json` document back onto the canvas.
 
 This is the bridge between visual authoring and the [CLI](cli-reference.md): export from Studio,
-then `tmforge lint` / `tmforge report` / `tmforge convert` in a pipeline, or vice versa.
+then `tmforge analyze` / `tmforge report` / `tmforge convert` in a pipeline, or vice versa.
 
 > **Format parsing lives in the engine, not the browser.** The canvas never parses `.tm7`, `.vsdx`,
 > or `.drawio` itself. Use the API's `convert` / `read` endpoints or the CLI for those. Studio

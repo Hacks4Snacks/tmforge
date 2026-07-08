@@ -1,5 +1,5 @@
 import { MarkerType } from '@xyflow/react';
-import type { DfdEdge, DfdKind, DfdNode, TmForgeElement, TmForgeFlow, TmForgeModel, TmForgeValidation } from './types';
+import type { DfdEdge, DfdKind, DfdNode, TmForgeElement, TmForgeFlow, TmForgeModel, TmForgeAnalysis } from './types';
 
 function num(value: unknown, fallback: number): number {
   const n = typeof value === 'string' ? parseFloat(value) : typeof value === 'number' ? value : NaN;
@@ -129,9 +129,9 @@ export function pagesFromModel(model: TmForgeModel): PageGraph[] {
 /**
  * Editor pages -> canonical model. Mirrors the engine's `TmForgeJsonFormat`: the top-level
  * `elements`/`flows` carry the first page for single-page readers, and `diagrams` is emitted only
- * when there is more than one page. The per-model validation selection is attached when present.
+ * when there is more than one page. The per-model analysis selection is attached when present.
  */
-export function modelFromPages(pages: PageGraph[], validation?: TmForgeValidation): TmForgeModel {
+export function modelFromPages(pages: PageGraph[], analysis?: TmForgeAnalysis): TmForgeModel {
   const perPage = pages.map((p) => ({ page: p, graph: toModel(p.nodes, p.edges) }));
   const first = perPage[0]?.graph;
   const model: TmForgeModel = {
@@ -148,8 +148,8 @@ export function modelFromPages(pages: PageGraph[], validation?: TmForgeValidatio
       flows: graph.flows,
     }));
   }
-  if (validation) {
-    model.validation = validation;
+  if (analysis) {
+    model.analysis = analysis;
   }
   return model;
 }

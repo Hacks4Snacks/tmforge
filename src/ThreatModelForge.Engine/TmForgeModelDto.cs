@@ -25,8 +25,8 @@ namespace ThreatModelForge.Engine
         /// </summary>
         public IReadOnlyList<TmForgeDiagramDto>? Diagrams { get; init; }
 
-        /// <summary>Gets the per-model validation configuration (which rule packs or rules to skip).</summary>
-        public TmForgeValidationDto? Validation { get; init; }
+        /// <summary>Gets the per-model analysis configuration (which rule packs or rules to skip).</summary>
+        public TmForgeAnalysisDto? Analysis { get; init; }
 
         /// <summary>
         /// Gets the threat triage overlay: the persisted lifecycle state (accepted risks and their

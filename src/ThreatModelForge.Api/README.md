@@ -20,7 +20,7 @@ Studio's typed client is generated from it. A checked-in copy lives at
 | `GET /v1/rules` | Catalog | List analysis rules. |
 | `GET /v1/rule-packs` | Catalog | List rule packs. |
 | `GET /v1/property-schema` | Catalog | List the typed custom-property schema (the values rules read). |
-| `POST /v1/model/validate` | Model | Validate a model and return findings. |
+| `POST /v1/model/analyze` | Model | Analyze a model and return findings. |
 | `POST /v1/model/read` | Model | Parse uploaded bytes (base64) into the canonical model. |
 | `POST /v1/model/convert?to=<format>` | Model | Convert a model to another format (`tm7`, `drawio`, `vsdx`, `tmforge-json`). |
 | `POST /v1/model/export/tm7` | Model | Export a model as a `.tm7` file. |

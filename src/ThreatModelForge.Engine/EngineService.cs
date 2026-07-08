@@ -129,7 +129,7 @@ namespace ThreatModelForge.Engine
         /// </summary>
         /// <param name="dto">The canonical model.</param>
         /// <returns>The findings produced by the engine.</returns>
-        public static IReadOnlyList<FindingDto> Validate(TmForgeModelDto dto)
+        public static IReadOnlyList<FindingDto> Analyze(TmForgeModelDto dto)
         {
             List<FindingDto> findings = new List<FindingDto>();
             try
@@ -137,9 +137,9 @@ namespace ThreatModelForge.Engine
                 ThreatModel model = BuildModel(dto, out Dictionary<string, List<string>> nameToIds);
                 using (RuleSet ruleSet = LoadRuleSet())
                 {
-                    if (dto.Validation != null)
+                    if (dto.Analysis != null)
                     {
-                        ruleSet.Disable(dto.Validation.DisabledPacks, dto.Validation.DisabledRuleIds);
+                        ruleSet.Disable(dto.Analysis.DisabledPacks, dto.Analysis.DisabledRuleIds);
                     }
 
                     CollectingMessageWriter writer = new CollectingMessageWriter();
@@ -180,8 +180,8 @@ namespace ThreatModelForge.Engine
         }
 
         /// <summary>
-        /// Projects the model's validation findings into STRIDE threats. Detection is entirely the
-        /// rule set's — this runs the same rules <see cref="Validate"/> runs and frames the findings
+        /// Projects the model's analysis findings into STRIDE threats. Detection is entirely the
+        /// rule set's — this runs the same rules <see cref="Analyze"/> runs and frames the findings
         /// from threat-bearing rules as persistable threats. CLI, <c>/v1</c>, and WASM call the same
         /// projector, so results are identical by construction.
         /// </summary>
@@ -195,9 +195,9 @@ namespace ThreatModelForge.Engine
                 ThreatModel model = BuildModel(dto, out _);
                 using (RuleSet ruleSet = LoadRuleSet())
                 {
-                    if (dto.Validation != null)
+                    if (dto.Analysis != null)
                     {
-                        ruleSet.Disable(dto.Validation.DisabledPacks, dto.Validation.DisabledRuleIds);
+                        ruleSet.Disable(dto.Analysis.DisabledPacks, dto.Analysis.DisabledRuleIds);
                     }
 
                     GenerationResult generation = ThreatGenerator.Generate(model, ruleSet);

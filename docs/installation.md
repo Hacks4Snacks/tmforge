@@ -71,14 +71,14 @@ sha256sum -c checksums.txt
 Run the published image (pulls automatically on first use):
 
 ```bash
-docker run --rm -v "$PWD:/work" ghcr.io/hacks4snacks/tmforge-cli tmforge lint model.tm7
+docker run --rm -v "$PWD:/work" ghcr.io/hacks4snacks/tmforge-cli tmforge analyze model.tm7
 ```
 
 Or build it from source:
 
 ```bash
 docker build -f build/Dockerfile -t tmforge-cli .
-docker run --rm -v "$PWD:/work" tmforge-cli tmforge lint model.tm7
+docker run --rm -v "$PWD:/work" tmforge-cli tmforge analyze model.tm7
 ```
 
 The working directory is mounted at `/work`, so paths in your commands are relative to it.
