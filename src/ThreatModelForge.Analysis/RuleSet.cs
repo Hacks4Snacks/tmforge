@@ -3,6 +3,7 @@ namespace ThreatModelForge.Analysis
     using System;
     using System.Collections.Generic;
     using System.Collections.ObjectModel;
+    using System.IO;
     using System.Linq;
     using System.Reflection;
 
@@ -19,12 +20,18 @@ namespace ThreatModelForge.Analysis
         public Collection<Rule> Rules { get; } = new Collection<Rule>();
 
         /// <summary>
-        /// Loads a default rule set based on the rules defined in the given assemblies.
+        /// Loads a default rule set based on the rules defined in the given assemblies. Discovery is
+        /// resilient to third-party input: an assembly whose types cannot be enumerated, an abstract
+        /// <see cref="Rule"/> subclass, a rule without a public parameterless constructor, or a rule
+        /// whose constructor throws is reported through <paramref name="diagnostics"/> and skipped
+        /// rather than aborting the whole load.
         /// </summary>
         /// <param name="analysisAssemblies">The analysis assemblies.</param>
+        /// <param name="diagnostics">An optional sink for non-fatal load warnings.</param>
         /// <returns>A new instance of the <see cref="RuleSet"/> class.</returns>
         public static RuleSet LoadDefault(
-            IEnumerable<Assembly> analysisAssemblies)
+            IEnumerable<Assembly> analysisAssemblies,
+            Action<string>? diagnostics = null)
         {
             if (analysisAssemblies == null)
             {
@@ -34,15 +41,43 @@ namespace ThreatModelForge.Analysis
             RuleSet result = new RuleSet();
             foreach (Assembly asm in analysisAssemblies)
             {
-                if (asm != null)
+                if (asm == null)
                 {
-                    foreach (Type t in asm.GetExportedTypes())
+                    continue;
+                }
+
+                Type[] types;
+                try
+                {
+                    types = asm.GetExportedTypes();
+                }
+                catch (Exception ex) when (ex is ReflectionTypeLoadException || ex is FileNotFoundException || ex is FileLoadException || ex is TypeLoadException)
+                {
+                    diagnostics?.Invoke($"Skipped rule assembly '{asm.GetName().Name}': {ex.Message}");
+                    continue;
+                }
+
+                foreach (Type t in types)
+                {
+                    if (!typeof(Rule).IsAssignableFrom(t) || t.IsAbstract)
                     {
-                        if (typeof(Rule).IsAssignableFrom(t))
-                        {
-                            Rule r = (Rule)Activator.CreateInstance(t);
-                            result.Rules.Add(r);
-                        }
+                        continue;
+                    }
+
+                    if (t.GetConstructor(Type.EmptyTypes) == null)
+                    {
+                        diagnostics?.Invoke($"Skipped rule '{t.FullName}': no public parameterless constructor.");
+                        continue;
+                    }
+
+                    try
+                    {
+                        Rule r = (Rule)Activator.CreateInstance(t);
+                        result.Rules.Add(r);
+                    }
+                    catch (Exception ex) when (ex is MissingMethodException || ex is MemberAccessException || ex is TargetInvocationException)
+                    {
+                        diagnostics?.Invoke($"Skipped rule '{t.FullName}': {ex.Message}");
                     }
                 }
             }
@@ -67,13 +102,26 @@ namespace ThreatModelForge.Analysis
             IEnumerable<Assembly> analysisAssemblies)
         {
             RuleSet result = LoadDefault(analysisAssemblies);
+            result.ApplyOverrides(path);
+            return result;
+        }
+
+        /// <summary>
+        /// Applies the severity and disable overrides from a <c>.ruleset</c> file to the rules in
+        /// this set. Rule ids listed in the file that are not present in the set are ignored, so the
+        /// same override file composes over any rule source (built-in or custom). Matching is
+        /// case-insensitive.
+        /// </summary>
+        /// <param name="path">The path to the <c>.ruleset</c> file.</param>
+        public void ApplyOverrides(string path)
+        {
             Xml.RuleSetXml xml = Xml.RuleSetXml.Load(path);
 
             foreach (Xml.RulesXml ruleBlock in xml.Rules)
             {
                 foreach (Xml.RuleXml ruleOverride in ruleBlock.Rules)
                 {
-                    Rule rule = result.Rules.FirstOrDefault(
+                    Rule rule = this.Rules.FirstOrDefault(
                         e => string.Equals(e.ID, ruleOverride.Id, StringComparison.OrdinalIgnoreCase));
                     if (rule == null)
                     {
@@ -97,8 +145,6 @@ namespace ThreatModelForge.Analysis
                     }
                 }
             }
-
-            return result;
         }
 
         /// <inheritdoc/>

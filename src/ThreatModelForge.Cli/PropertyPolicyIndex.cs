@@ -2,7 +2,6 @@ namespace ThreatModelForge.Cli
 {
     using System;
     using System.Collections.Generic;
-    using System.Reflection;
     using ThreatModelForge.Analysis;
 
     /// <summary>
@@ -21,13 +20,12 @@ namespace ThreatModelForge.Cli
             this.byKey = byKey;
         }
 
-        /// <summary>Builds the index by reflecting each rule's property bindings.</summary>
-        /// <param name="ruleAssemblies">The assemblies that contain the rules.</param>
+        /// <summary>Builds the index from the rules in a loaded rule set (built-in plus any custom).</summary>
+        /// <param name="ruleSet">The rule set whose rules' property bindings are indexed.</param>
         /// <returns>A populated index.</returns>
-        public static PropertyPolicyIndex Build(IEnumerable<Assembly> ruleAssemblies)
+        public static PropertyPolicyIndex Build(RuleSet ruleSet)
         {
             Dictionary<string, PropertyPolicy> map = new Dictionary<string, PropertyPolicy>(StringComparer.OrdinalIgnoreCase);
-            using RuleSet ruleSet = RuleSet.LoadDefault(ruleAssemblies);
             foreach (Rule rule in ruleSet.Rules)
             {
                 string severity = rule.Severity.ToString();

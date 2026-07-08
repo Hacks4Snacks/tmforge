@@ -30,7 +30,7 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            CliArgs parsed = CliArgs.Parse(args, Array.Empty<string>(), new[] { "write" });
+            CliArgs parsed = CliArgs.Parse(args, new[] { "rules" }, new[] { "write" });
             if (parsed.Help)
             {
                 PrintUsage();
@@ -58,7 +58,8 @@ namespace ThreatModelForge.Cli
             }
 
             (ThreatModel model, IThreatModelFormat? format) = CliModelLoader.Load(input!);
-            GenerationResult result = ThreatGenerator.Generate(model);
+            using RuleSet ruleSet = AnalysisRuleSources.Create(RuleSourceCli.FromPath(parsed.Get("rules")));
+            GenerationResult result = ThreatGenerator.Generate(model, ruleSet);
 
             ApplyResult? written = null;
             if (parsed.HasFlag("write"))
@@ -179,7 +180,7 @@ namespace ThreatModelForge.Cli
         {
             Console.Error.WriteLine("Report the model's threats — the persistable, triaged view of the validation findings.");
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  tmforge threats [--write] [--json] <file>");
+            Console.Error.WriteLine("  tmforge threats [--write] [--json] [--rules <path>] <file>");
             Console.Error.WriteLine();
             Console.Error.WriteLine("--write     persist the threats into the model's register (preserves prior triage).");
             Console.Error.WriteLine();

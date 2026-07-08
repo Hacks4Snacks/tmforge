@@ -163,6 +163,86 @@ formats (for example `.tm7`) use the full rule set unless you pass an explicit `
 tmforge analyze model.tm7 --ruleset ./my-ruleset.xml
 ```
 
+### Authoring custom rules (declarative)
+
+Ship your own rules as **data**, not code. A declarative rule spec is a JSON file (`*.tmrules.json`)
+loaded with `--rules` on [`analyze`](cli-reference.md#analyze), [`threats`](cli-reference.md#threats),
+and [`properties`](cli-reference.md#properties):
+
+```bash
+tmforge analyze model.tm7 --rules ./rules.tmrules.json   # one spec file
+tmforge analyze model.tm7 --rules ./rules/               # a directory of specs (searched recursively)
+```
+
+Because a spec is inspectable data — not an assembly — it is safe to share and review, and it runs
+everywhere the CLI does. Custom rules are **added to** the built-in rules, never a replacement for
+them: `--rules` loads your rules *alongside* the full built-in set and both are evaluated together
+(custom rules show up in findings, SARIF, `analyze --json`, and — when they read a property — in
+`properties --explain`). To narrow the built-ins, use the existing controls independently of
+`--rules`: a model's embedded `disabledPacks`, an `--ruleset` override, or `--max-severity`.
+
+A spec is a `rules` array. A finding is raised for each element of `appliesTo` that matches `when`
+(the guard) and fails `assert` (the requirement); at least one of `when`/`assert` is required:
+
+```jsonc
+{
+  "rules": [
+    {
+      "id": "ACME001",                 // your own id namespace (built-ins use TM####)
+      "pack": "acme-governance",
+      "severity": "error",             // error | warning | info (default: warning)
+      "appliesTo": "datastore",        // process | datastore | external | flow
+      "message": "Data store {name} does not declare encryption at rest.",
+      "fullDescription": "Persisted data must be encrypted at rest.",
+      "helpText": "Set Encrypted to At-rest, TDE, Client-side, or Platform.",
+      "assert": { "property": "Encrypted", "notAnyOf": ["No"] }
+    },
+    {
+      "id": "ACME002",
+      "pack": "acme-governance",
+      "severity": "warning",
+      "appliesTo": "flow",
+      "message": "Flow {name} carries sensitive data in the clear across a trust boundary.",
+      "stride": "InformationDisclosure",           // optional; makes it a `threats` threat
+      "threatReferences": ["CWE:319"],             // optional: CWE:<n> | CAPEC:<n> | ATTACK:<id>
+      "when":   { "property": "DataType", "anyOf": ["EUII", "Customer Content"], "crossesTrustBoundary": true },
+      "assert": { "property": "Protocol", "anyOf": ["HTTPS", "TLS", "mTLS"] }
+    }
+  ]
+}
+```
+
+The `{name}` token in `message` is replaced with the element's display text. **Conditions** (`when`
+and `assert`) are facets that must *all* hold; a bare `property` with no value matcher means "must be
+present":
+
+| Facet | Applies to | Meaning |
+| --- | --- | --- |
+| `property` + `anyOf` | any | The value is one of the listed values. |
+| `property` + `notAnyOf` | any | The value is none of the listed values. |
+| `property` + `equals` | any | The value equals a single value. |
+| `property` + `present` | any | The property is present (`true`) or absent (`false`). |
+| `crossesTrustBoundary` | `flow` | The flow crosses (`true`) or does not cross (`false`) a trust boundary. |
+| `source` / `target` | `flow` | A condition on the flow's endpoint: its `kind` (`process`/`datastore`/`external`) and/or a property matcher. |
+
+- **Ids are your namespace.** A custom rule whose id collides with an already-loaded rule is dropped
+  with a warning, so the built-in `TM####` namespace always wins (ids appear in SARIF and suppressions).
+- **Property names are validated** against the typed [property schema](cli-reference.md#properties).
+  An unknown property is a warning, not an error — but it catches a typo (`Encryption` vs `Encrypted`)
+  that would otherwise make a rule silently never match.
+- **Resilient loading.** A malformed spec file or an individual invalid rule is reported to standard
+  error and skipped; the rest still load.
+- **Threats.** A custom rule that declares a `stride` category is projected into
+  [`threats`](cli-reference.md#threats) exactly like a built-in threat-bearing rule.
+- **CLI only (and why).** `--rules` works on the CLI; the HTTP API (`/v1`) and the in-browser
+  (WebAssembly) engine load the built-in rules only. This is deliberate, not an oversight: (1) those
+  hosts share a **stateless** engine facade — a model in, findings out — with no per-request channel
+  for selecting rule sources; (2) the **WebAssembly host has no filesystem**, so the file/directory
+  loader behind `--rules` cannot read spec files there; and (3) loading rules over a shared service is
+  a security-sensitive contract change (in-memory rule injection, and treating rule-loading as a
+  privileged action) deferred to a later increment. The rule engine itself is portable the
+  limitation is the injection surface, not the DSL.
+
 ### Rule variables
 
 Some rules read variables supplied on the command line (repeatable):

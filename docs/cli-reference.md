@@ -125,7 +125,7 @@ serves at `GET /v1/property-schema`; use it to discover closed enums (for exampl
 `Encrypted`, `AccessControl`, or the approved cipher list) without running `analyze` first.
 
 ```text
-tmforge properties [--base <process|datastore|external|flow>] [--explain] [--json]
+tmforge properties [--base <process|datastore|external|flow>] [--explain] [--rules <path>] [--json]
 ```
 
 ```bash
@@ -136,7 +136,8 @@ tmforge properties --base datastore --json | jq '.data.properties'
 
 Add `--explain` to map each property **value** to the rule id and severity it triggers, so you can
 predict analysis behavior before running [`analyze`](#analyze). A value shown as `(unset/condition)` means the
-rule fires when the property is absent or by a computed condition.
+rule fires when the property is absent or by a computed condition. Pass `--rules <path>` to fold your
+[custom declarative rules](analysis-rules.md#authoring-custom-rules-declarative) into the explanation.
 
 ```bash
 tmforge properties --base flow --explain
@@ -465,12 +466,13 @@ Evaluate the analysis rules against the model. See [Analysis rules & CI](analysi
 full rule catalog, packs, and suppressions.
 
 ```text
-tmforge analyze [--ruleset <path>] [--suppressionFile <path>] [--reportFolder <dir>] [--define name=value ...] [--max-severity <level>] [--json] <model>
+tmforge analyze [--ruleset <path>] [--rules <path>] [--suppressionFile <path>] [--reportFolder <dir>] [--define name=value ...] [--max-severity <level>] [--json] <model>
 ```
 
 | Option | Meaning |
 | --- | --- |
 | `--ruleset <path>` | Use a custom rule set instead of the built-in default. |
+| `--rules <path>` | Load custom [declarative rules](analysis-rules.md#authoring-custom-rules-declarative) from a `*.tmrules.json` file (or a directory of them) in addition to the built-in rules. |
 | `--suppressionFile <path>` | Apply a suppression document to filter findings. |
 | `--reportFolder <dir>` | Also write SARIF + HTML findings reports (and a JSON listing) to `<dir>`. |
 | `--define name=value` | Repeatable. Supplies a rule variable. |
@@ -507,12 +509,13 @@ persisted and triaged (`open -> mitigated -> accepted`). With `--write`, the thr
 the model's register, keyed so a re-run updates in place and never overwrites prior triage.
 
 ```text
-tmforge threats [--write] [--json] <model>
+tmforge threats [--write] [--rules <path>] [--json] <model>
 ```
 
 | Option | Meaning |
 | --- | --- |
 | `--write` | Persist the threats into the model's register (preserves prior triage). |
+| `--rules <path>` | Also project threats from custom [declarative rules](analysis-rules.md#authoring-custom-rules-declarative); a custom rule that declares a `stride` category becomes a threat. |
 
 Each threat carries a STRIDE category, the rule's mitigation, and external references (CWE / CAPEC).
 There is no separate threat catalog: **extend coverage the way detection is extended — add a rule to a

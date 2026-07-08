@@ -16,6 +16,7 @@ namespace ThreatModelForge.Cli
             "suppressionFile",
             "reportFolder",
             "max-severity",
+            "rules",
         };
 
         private AnalyzeArguments(
@@ -23,6 +24,7 @@ namespace ThreatModelForge.Cli
             string ruleSetPath,
             string suppressionFilePath,
             string reportFolderPath,
+            string rulePath,
             IReadOnlyDictionary<string, string> variables,
             bool json,
             MessageSeverity maxSeverity)
@@ -33,6 +35,7 @@ namespace ThreatModelForge.Cli
             this.RuleSetPath = ruleSetPath;
             this.SuppressionFilePath = suppressionFilePath;
             this.ReportFolderPath = reportFolderPath;
+            this.RulePath = rulePath;
             this.Json = json;
             this.MaxSeverity = maxSeverity;
             if (variables == null)
@@ -65,6 +68,11 @@ namespace ThreatModelForge.Cli
         /// Gets the optional path to the folder for reports.
         /// </summary>
         public string ReportFolderPath { get; }
+
+        /// <summary>
+        /// Gets the optional path to a declarative custom rule spec file or a directory of them.
+        /// </summary>
+        public string RulePath { get; }
 
         /// <summary>
         /// Gets a value indicating whether machine-readable JSON output was requested.
@@ -157,6 +165,7 @@ namespace ThreatModelForge.Cli
                 parsed.Get("ruleset") ?? string.Empty,
                 parsed.Get("suppressionFile") ?? string.Empty,
                 parsed.Get("reportFolder") ?? string.Empty,
+                parsed.Get("rules") ?? string.Empty,
                 variables,
                 parsed.Json,
                 maxSeverity);

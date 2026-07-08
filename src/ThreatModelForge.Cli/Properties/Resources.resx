@@ -138,6 +138,7 @@ Options:
   --json                    Emit machine-readable JSON to standard output.
   --define &lt;name&gt;=&lt;value&gt;   Define a variable &lt;name&gt; with the given &lt;value&gt;.
   --ruleset &lt;path&gt;          Path to a .ruleset file to use. Optional.
+  --rules &lt;path&gt;            Path to a declarative custom rule spec (*.tmrules.json) or a directory of them. Optional.
   --suppressionFile &lt;path&gt;  Path to a suppression .json file to use. Optional.
   --reportFolder &lt;path&gt;     Path to a folder where report output files will be written. Optional.
   --max-severity &lt;level&gt;    Gate the exit code on findings at or above &lt;level&gt; (error|warning|info). Default: error.

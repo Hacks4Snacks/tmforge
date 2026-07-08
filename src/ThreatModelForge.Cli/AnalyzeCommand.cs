@@ -42,7 +42,7 @@
                     return ErrorExitCode;
                 }
 
-                using (RuleSet ruleSet = GetRuleSet(arguments!.RuleSetPath))
+                using (RuleSet ruleSet = GetRuleSet(arguments!.RuleSetPath, arguments.RulePath))
                 {
                     if (string.IsNullOrWhiteSpace(arguments.RuleSetPath))
                     {
@@ -176,20 +176,15 @@
             }
         }
 
-        private static RuleSet GetRuleSet(string ruleSetPath)
+        private static RuleSet GetRuleSet(string ruleSetPath, string rulePath)
         {
-            IEnumerable<Assembly> analysisAssemblies = LoadAnalysisAssemblies();
-            return string.IsNullOrWhiteSpace(ruleSetPath) ?
-                RuleSet.LoadDefault(analysisAssemblies) :
-                RuleSet.Load(ruleSetPath, analysisAssemblies);
-        }
-
-        private static IEnumerable<Assembly> LoadAnalysisAssemblies()
-        {
-            return new[]
+            RuleSet ruleSet = AnalysisRuleSources.Create(RuleSourceCli.FromPath(rulePath));
+            if (!string.IsNullOrWhiteSpace(ruleSetPath))
             {
-                Assembly.Load("ThreatModelForge.Analysis.Rules"),
-            };
+                ruleSet.ApplyOverrides(ruleSetPath);
+            }
+
+            return ruleSet;
         }
 
         private static ToolInfo LoadToolInfo()

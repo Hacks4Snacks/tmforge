@@ -3,7 +3,7 @@ namespace ThreatModelForge.Cli
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Reflection;
+    using ThreatModelForge.Analysis;
     using ThreatModelForge.Editing;
 
     /// <summary>
@@ -22,7 +22,7 @@ namespace ThreatModelForge.Cli
         /// <returns>Zero on success; a non-zero value on error.</returns>
         public static int Run(string[] args)
         {
-            CliArgs parsed = CliArgs.Parse(args, new[] { "base" }, new[] { "explain" });
+            CliArgs parsed = CliArgs.Parse(args, new[] { "base", "rules" }, new[] { "explain" });
             if (parsed.Help)
             {
                 PrintUsage();
@@ -56,7 +56,8 @@ namespace ThreatModelForge.Cli
             // The rules own the policy for each property (which rule reads it, at what severity, and
             // which values it flags). Join the pure schema with the loaded rule set at emit time so
             // severities and flagged values are never duplicated in the schema and cannot drift.
-            PropertyPolicyIndex policy = PropertyPolicyIndex.Build(new[] { Assembly.Load("ThreatModelForge.Analysis.Rules") });
+            using RuleSet ruleSet = AnalysisRuleSources.Create(RuleSourceCli.FromPath(parsed.Get("rules")));
+            PropertyPolicyIndex policy = PropertyPolicyIndex.Build(ruleSet);
 
             if (parsed.HasFlag("explain"))
             {
@@ -191,7 +192,7 @@ namespace ThreatModelForge.Cli
         {
             Console.Error.WriteLine("List the built-in typed property schema (custom properties the analyzer reads and Studio edits).");
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  tmforge properties [--base <process|datastore|external|flow>] [--explain] [--json]");
+            Console.Error.WriteLine("  tmforge properties [--base <process|datastore|external|flow>] [--explain] [--json] [--rules <path>]");
             Console.Error.WriteLine();
             Console.Error.WriteLine("--explain maps each property VALUE to the rule ID and severity it triggers, so you can");
             Console.Error.WriteLine("predict analyze behavior before running 'tmforge analyze'.");

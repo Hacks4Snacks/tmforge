@@ -4,7 +4,6 @@ namespace ThreatModelForge.Engine
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
-    using System.Reflection;
     using System.Text;
     using System.Text.Json;
     using ThreatModelForge.Analysis;
@@ -563,7 +562,7 @@ namespace ThreatModelForge.Engine
 
         private static RuleSet LoadRuleSet()
         {
-            return RuleSet.LoadDefault(new[] { Assembly.Load("ThreatModelForge.Analysis.Rules") });
+            return AnalysisRuleSources.Create();
         }
 
         private static string MapSeverity(MessageSeverity severity)
