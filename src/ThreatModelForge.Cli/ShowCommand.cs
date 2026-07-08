@@ -56,12 +56,6 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            if (!Guid.TryParse(idText, out Guid id))
-            {
-                Console.Error.WriteLine("Invalid --id GUID: " + idText);
-                return 1;
-            }
-
             if (!File.Exists(input))
             {
                 Console.Error.WriteLine("File not found: " + input);
@@ -69,6 +63,12 @@ namespace ThreatModelForge.Cli
             }
 
             (ThreatModel model, _) = CliModelLoader.Load(input!);
+
+            if (!AuthoringSupport.TryResolveElementId(model, null, idText!, out Guid id, out string? resolveError))
+            {
+                Console.Error.WriteLine(resolveError);
+                return 1;
+            }
 
             Entity? target = null;
             bool isFlow = false;
@@ -126,7 +126,9 @@ namespace ThreatModelForge.Cli
         {
             Console.Error.WriteLine("Show an element or flow's name, type, and custom properties.");
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  tmforge show --id <guid> [--json] <file>");
+            Console.Error.WriteLine("  tmforge show --id <ref> [--json] <file>");
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("--id accepts a GUID, an element --alias, or a unique element name.");
         }
     }
 }

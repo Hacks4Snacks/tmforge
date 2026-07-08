@@ -2,20 +2,24 @@ namespace ThreatModelForge.Cli
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.IO;
     using System.Linq;
     using ThreatModelForge.Editing;
     using ThreatModelForge.Formats;
     using ThreatModelForge.Model;
+    using ThreatModelForge.Model.Abstracts;
 
     /// <summary>
-    /// Implements the <c>tmforge remove</c> command: removes an element by GUID. Removing a
-    /// component also removes any data flows attached to it.
+    /// Implements <c>tmforge layout</c>: applies a deterministic, dependency-free layered auto-layout
+    /// to a model's pages, so an author never has to hand-place coordinates. Components are arranged
+    /// left-to-right by their data flows and connectors are re-routed; trust boundaries are left where
+    /// they are (so this arranges the data-flow graph rather than preserving boundary placement).
     /// </summary>
-    internal static class RemoveCommand
+    internal static class LayoutCommand
     {
         /// <summary>
-        /// Runs the remove command.
+        /// Runs the layout command.
         /// </summary>
         /// <param name="args">The command arguments (after the verb).</param>
         /// <returns>Zero on success; a non-zero value on error.</returns>
@@ -27,7 +31,7 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            CliArgs parsed = CliArgs.Parse(args, new[] { "id", "page" });
+            CliArgs parsed = CliArgs.Parse(args, new[] { "node-spacing", "layer-spacing", "page" });
             if (parsed.Help)
             {
                 PrintUsage();
@@ -48,14 +52,6 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            string? idText = parsed.Get("id");
-            if (string.IsNullOrEmpty(idText))
-            {
-                Console.Error.WriteLine("--id is required.");
-                PrintUsage();
-                return 1;
-            }
-
             if (!File.Exists(input))
             {
                 Console.Error.WriteLine("File not found: " + input);
@@ -69,21 +65,26 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            if (!AuthoringSupport.TryResolveElementId(model, null, idText!, out Guid id, out string? resolveError))
+            LayoutOptions options = new LayoutOptions();
+            if (TryGetInt(parsed, "node-spacing", out int nodeSpacing))
             {
-                Console.Error.WriteLine(resolveError);
-                return 1;
+                options.NodeSpacing = nodeSpacing;
+            }
+
+            if (TryGetInt(parsed, "layer-spacing", out int layerSpacing))
+            {
+                options.LayerSpacing = layerSpacing;
             }
 
             string? pageSpec = parsed.Get("page");
-            DrawingSurfaceModel? diagram;
+            List<DrawingSurfaceModel> targets = new List<DrawingSurfaceModel>();
             if (string.IsNullOrEmpty(pageSpec))
             {
-                diagram = AuthoringSupport.FindDiagramContaining(model, id);
+                targets.AddRange(model.DrawingSurfaceList);
             }
             else if (AuthoringSupport.TryResolveDiagram(model, pageSpec!, out DrawingSurfaceModel? resolved, out string? pageError))
             {
-                diagram = resolved;
+                targets.Add(resolved!);
             }
             else
             {
@@ -91,44 +92,46 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            if (diagram == null || DiagramEditor.FindElement(diagram, id) == null)
+            int components = 0;
+            foreach (DrawingSurfaceModel diagram in targets)
             {
-                Console.Error.WriteLine("Element not found: " + id);
-                return 1;
+                components += diagram.Borders.Values.OfType<DrawingElement>().Count(element => !(element is BorderBoundary));
+                DiagramLayout.Apply(diagram, options);
             }
-
-            HashSet<Guid> before = new HashSet<Guid>(diagram.Borders.Keys);
-            before.UnionWith(diagram.Lines.Keys);
-
-            DiagramEditor editor = new DiagramEditor(model);
-            editor.RemoveElement(diagram, id);
-
-            before.ExceptWith(diagram.Borders.Keys);
-            before.ExceptWith(diagram.Lines.Keys);
-            List<Guid> removed = before.OrderBy(guid => guid).ToList();
 
             AuthoringSupport.Save(model, input!, format);
 
             if (parsed.Json)
             {
-                CliJson.WriteEnvelope("remove", new { removed });
+                CliJson.WriteEnvelope("layout", new { pages = targets.Count, components });
             }
             else
             {
-                Console.Error.WriteLine("Removed " + removed.Count + " element(s) from " + input + ".");
+                Console.Error.WriteLine("Laid out " + components + " component(s) across " + targets.Count + " page(s) in " + input + ".");
             }
 
             return 0;
         }
 
+        private static bool TryGetInt(CliArgs parsed, string name, out int value)
+        {
+            string? raw = parsed.Get(name);
+            if (!string.IsNullOrEmpty(raw) && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
+            {
+                return true;
+            }
+
+            value = 0;
+            return false;
+        }
+
         private static void PrintUsage()
         {
-            Console.Error.WriteLine("Remove an element (and its connected flows).");
+            Console.Error.WriteLine("Auto-lay-out a model's pages (layered left-to-right; boundaries are left in place).");
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  tmforge remove --id <ref> [--page <name|index>] [--json] <file>");
+            Console.Error.WriteLine("  tmforge layout [--page <name|index>] [--node-spacing <n>] [--layer-spacing <n>] [--json] <model>");
             Console.Error.WriteLine();
-            Console.Error.WriteLine("--id accepts a GUID, an element --alias, or a unique element name.");
-            Console.Error.WriteLine("The element is found on any page by default; --page scopes the search to one page.");
+            Console.Error.WriteLine("Arranges components by their data flows so you need not hand-place coordinates.");
         }
     }
 }

@@ -22,7 +22,7 @@ namespace ThreatModelForge.Cli
         /// <returns>Zero on success; a non-zero value on error.</returns>
         public static int Run(string[] args)
         {
-            CliArgs parsed = CliArgs.Parse(args, new[] { "base" });
+            CliArgs parsed = CliArgs.Parse(args, new[] { "base" }, new[] { "explain" });
             if (parsed.Help)
             {
                 PrintUsage();
@@ -57,6 +57,11 @@ namespace ThreatModelForge.Cli
             // which values it flags). Join the pure schema with the loaded rule set at emit time so
             // severities and flagged values are never duplicated in the schema and cannot drift.
             PropertyPolicyIndex policy = PropertyPolicyIndex.Build(new[] { Assembly.Load("ThreatModelForge.Analysis.Rules") });
+
+            if (parsed.HasFlag("explain"))
+            {
+                return Explain(descriptors, policy, parsed.Json, bases);
+            }
 
             if (parsed.Json)
             {
@@ -116,6 +121,60 @@ namespace ThreatModelForge.Cli
             return 0;
         }
 
+        private static int Explain(IReadOnlyList<PropertyDescriptor> descriptors, PropertyPolicyIndex policy, bool json, IReadOnlyList<string> bases)
+        {
+            List<(string AppliesTo, string Property, string Value, string Rule, string Severity)> rows =
+                new List<(string, string, string, string, string)>();
+            foreach (PropertyDescriptor descriptor in descriptors)
+            {
+                PropertyPolicy entry = policy.For(descriptor.AppliesTo, descriptor.Name);
+                foreach (PropertyPolicy.RuleValueBinding binding in entry.Bindings)
+                {
+                    if (binding.Flagged.Count > 0)
+                    {
+                        foreach (string value in binding.Flagged)
+                        {
+                            rows.Add((descriptor.AppliesTo, descriptor.Name, value, binding.Id, binding.Severity));
+                        }
+                    }
+                    else
+                    {
+                        rows.Add((descriptor.AppliesTo, descriptor.Name, "(unset/condition)", binding.Id, binding.Severity));
+                    }
+                }
+            }
+
+            if (json)
+            {
+                var explain = rows.Select(row => new
+                {
+                    appliesTo = row.AppliesTo,
+                    property = row.Property,
+                    value = row.Value,
+                    rule = row.Rule,
+                    severity = row.Severity,
+                }).ToList();
+                CliJson.WriteEnvelope("properties", new { bases, explain });
+                return 0;
+            }
+
+            if (rows.Count == 0)
+            {
+                Console.Error.WriteLine("No rules read the selected properties, so there is nothing to explain.");
+                return 1;
+            }
+
+            string[] headers = { "BASE", "PROPERTY", "VALUE", "RULE", "SEVERITY" };
+            List<string[]> tableRows = rows
+                .Select(row => new[] { row.AppliesTo, row.Property, row.Value, row.Rule, row.Severity })
+                .ToList();
+            Console.Out.WriteLine(TextTable.Render(headers, tableRows));
+            Console.Out.WriteLine();
+            Console.Out.WriteLine("Setting a property to a listed VALUE triggers the given RULE at that severity.");
+            Console.Out.WriteLine("VALUE '(unset/condition)' means the rule fires when the property is absent or by a computed condition.");
+            return 0;
+        }
+
         private static string FormatValues(PropertyDescriptor descriptor, PropertyPolicy policy)
         {
             if (descriptor.Values.Count == 0)
@@ -132,7 +191,10 @@ namespace ThreatModelForge.Cli
         {
             Console.Error.WriteLine("List the built-in typed property schema (custom properties the linter reads and Studio edits).");
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  tmforge properties [--base <process|datastore|external|flow>] [--json]");
+            Console.Error.WriteLine("  tmforge properties [--base <process|datastore|external|flow>] [--explain] [--json]");
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("--explain maps each property VALUE to the rule ID and severity it triggers, so you can");
+            Console.Error.WriteLine("predict lint behavior before running 'tmforge lint'.");
         }
     }
 }

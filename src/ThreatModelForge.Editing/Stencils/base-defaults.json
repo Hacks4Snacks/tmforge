@@ -15,7 +15,8 @@
     "AccessControl": "None"
   },
   "external": {
-    "AuthenticatesItself": "No"
+    "AuthenticatesItself": "No",
+    "AuthenticationScheme": "None"
   },
   "boundary": {}
 }

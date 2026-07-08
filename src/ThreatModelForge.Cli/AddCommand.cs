@@ -29,7 +29,7 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            CliArgs parsed = CliArgs.Parse(args, new[] { "name", "left", "top", "stencil", "width", "height", "page" }, new[] { "force" });
+            CliArgs parsed = CliArgs.Parse(args, new[] { "name", "left", "top", "stencil", "width", "height", "page", "alias", "boundary" }, new[] { "force" });
             if (parsed.Help)
             {
                 PrintUsage();
@@ -178,13 +178,55 @@ namespace ThreatModelForge.Cli
                 }
             }
 
+            string? boundaryRef = parsed.Get("boundary");
+            if (!string.IsNullOrEmpty(boundaryRef) && added is DrawingElement placedComponent)
+            {
+                if (!AuthoringSupport.TryResolveElementId(model, diagram, boundaryRef!, out Guid boundaryId, out string? boundaryError))
+                {
+                    Console.Error.WriteLine(boundaryError);
+                    return 1;
+                }
+
+                Entity? boundaryEntity = DiagramEditor.FindElement(diagram, boundaryId);
+                if (boundaryEntity is not BorderBoundary boundaryBox)
+                {
+                    Console.Error.WriteLine("--boundary must reference a trust boundary (run 'tmforge list boundaries " + input + "').");
+                    return 1;
+                }
+
+                IReadOnlyDictionary<string, string> boundaryProps = DiagramElementHelper.GetCustomProperties(boundaryEntity);
+                string boundaryName = DiagramElementHelper.GetName(boundaryEntity);
+                string membershipKey = boundaryProps.TryGetValue(AuthoringSupport.AliasPropertyName, out string? boundaryAlias) && !string.IsNullOrEmpty(boundaryAlias)
+                    ? boundaryAlias!
+                    : (string.IsNullOrWhiteSpace(boundaryName) ? boundaryRef! : boundaryName);
+                int memberIndex = AuthoringSupport.CountBoundaryMembers(diagram, membershipKey);
+                (int insideLeft, int insideTop) = AuthoringSupport.PositionInsideBoundary(boundaryBox, memberIndex);
+                editor.ResizeElement(diagram, id, insideLeft, insideTop, placedComponent.Width, placedComponent.Height);
+                DiagramElementHelper.SetCustomProperty(added, AuthoringSupport.BoundaryPropertyName, membershipKey);
+            }
+
+            string? alias = parsed.Get("alias");
+            if (!string.IsNullOrEmpty(alias) && added != null)
+            {
+                Guid desired = AuthoringSupport.DeterministicId(alias!);
+                if (desired != id && AuthoringSupport.FindDiagramContaining(model, desired) != null)
+                {
+                    Console.Error.WriteLine("Alias '" + alias + "' already maps to an existing element in this model; aliases must be unique.");
+                    return 1;
+                }
+
+                DiagramElementHelper.SetCustomProperty(added, AuthoringSupport.AliasPropertyName, alias!);
+                AuthoringSupport.RekeyComponent(diagram, id, desired);
+                id = desired;
+            }
+
             string effectiveName = added != null ? DiagramElementHelper.GetName(added) : string.Empty;
 
             AuthoringSupport.Save(model, input, format);
 
             if (parsed.Json)
             {
-                CliJson.WriteEnvelope("add", new { id, kind, name = effectiveName, stencil = stencil?.Id, diagramId = diagram.Guid });
+                CliJson.WriteEnvelope("add", new { id, kind, name = effectiveName, stencil = stencil?.Id, diagramId = diagram.Guid, alias });
             }
             else
             {
@@ -215,6 +257,8 @@ namespace ThreatModelForge.Cli
             Console.Error.WriteLine();
             Console.Error.WriteLine("Options:");
             Console.Error.WriteLine("  --name <name>             Element name.");
+            Console.Error.WriteLine("  --alias <name>            Stable handle (resolvable by connect/set/remove/rename/show) with a deterministic, citeable id.");
+            Console.Error.WriteLine("  --boundary <ref>          Place the element inside this trust boundary (by alias/name/GUID) and record membership.");
             Console.Error.WriteLine("  --left <n> --top <n>      Position (default: auto-placed on a grid).");
             Console.Error.WriteLine("  --width <n> --height <n>   Size; boundaries default to 260x180 so they enclose.");
             Console.Error.WriteLine("  --page <name|index>       Target page (default: the first page; one is created if none exists).");

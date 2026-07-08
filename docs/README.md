@@ -1,9 +1,9 @@
 # Threat Model Forge documentation
 
-Welcome to the user documentation for **Threat Model Forge** (`tmforge`), a cross-platform,
-container-executed, browser-interacted toolkit for authoring, validating, and reporting on
-`.tm7`-compatible threat models. It is an automatable successor to the Windows-only Microsoft
-Threat Modeling Tool (MTMT).
+Welcome to the user documentation for **Threat Model Forge** (`tmforge`), a cross-platform
+toolkit for authoring, validating, and reporting on `.tm7`-compatible threat models — in the
+browser, in the terminal, and in CI. It is an open, automatable successor to the Windows-only
+Microsoft Threat Modeling Tool (MTMT).
 
 ## Start here
 

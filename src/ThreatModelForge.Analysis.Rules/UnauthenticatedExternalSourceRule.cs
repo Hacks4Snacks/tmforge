@@ -10,8 +10,11 @@ namespace ThreatModelForge.Analysis.Rules
     /// </summary>
     /// <remarks>
     /// An external interactor that sends a data flow into the system but does not authenticate itself
-    /// (<c>AuthenticatesItself = No</c> or unset) cannot be reliably identified by the elements it calls,
-    /// so an attacker can spoof its identity and act on its behalf.
+    /// (<c>AuthenticatesItself = No</c> or unset, and no <c>AuthenticationScheme</c>) cannot be reliably
+    /// identified by the elements it calls, so an attacker can spoof its identity and act on its behalf.
+    /// Setting <c>AuthenticatesItself = Yes</c> or a non-<c>None</c> <c>AuthenticationScheme</c> (for
+    /// example a token or an SSH public key) records how the entity proves its identity and clears the
+    /// finding.
     /// </remarks>
     public class UnauthenticatedExternalSourceRule : Rule
     {
@@ -30,6 +33,7 @@ namespace ThreatModelForge.Analysis.Rules
         public override IReadOnlyList<PropertyBinding> PropertyBindings => new[]
         {
             new PropertyBinding("external", "AuthenticatesItself", "No"),
+            new PropertyBinding("external", "AuthenticationScheme", "None"),
         };
 
         /// <inheritdoc/>
@@ -65,8 +69,18 @@ namespace ThreatModelForge.Analysis.Rules
 
         private static bool AuthenticatesItself(Entity component)
         {
-            return component.TryGetCustomPropertyValue("AuthenticatesItself", out string? value) &&
-                string.Equals(value, "Yes", StringComparison.OrdinalIgnoreCase);
+            if (component.TryGetCustomPropertyValue("AuthenticatesItself", out string? value) &&
+                string.Equals(value, "Yes", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            // A declared authentication scheme (for example an ARM RP token or an operator's SSH public
+            // key) also establishes the external's identity, so treat any scheme other than "None" as
+            // authenticating.
+            return component.TryGetCustomPropertyValue("AuthenticationScheme", out string? scheme) &&
+                !string.IsNullOrWhiteSpace(scheme) &&
+                !string.Equals(scheme, "None", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool InitiatesFlowIntoSystem(DrawingSurfaceModel diagram, Entity external)

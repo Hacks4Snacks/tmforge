@@ -19,6 +19,7 @@
   ],
   "external": [
     { "name": "AuthenticatesItself", "kind": "bool", "values": ["Yes", "No"], "default": "No" },
+    { "name": "AuthenticationScheme", "kind": "enum", "values": ["None", "Basic", "OAuth", "RBAC", "Certificate", "ManagedIdentity", "Token", "PublicKey"], "default": "None" },
     { "name": "Multiplicity", "kind": "string", "default": "" }
   ],
   "flow": [

@@ -91,6 +91,53 @@ namespace ThreatModelForge.Cli.Tests
             Assert.AreEqual(1, exit);
         }
 
+        /// <summary>
+        /// Verifies that <c>--format svg</c> writes a standalone SVG diagram to standard output.
+        /// </summary>
+        [TestMethod]
+        public void SvgFormatWritesStandaloneSvgToStandardOutput()
+        {
+            string input = this.WriteInput();
+
+            (int exit, string stdout) = Run(new[] { "--format", "svg", input });
+
+            Assert.AreEqual(0, exit);
+            StringAssert.Contains(stdout, "<svg");
+            StringAssert.Contains(stdout, "http://www.w3.org/2000/svg");
+        }
+
+        /// <summary>
+        /// Verifies that <c>--format svg</c> with <c>--out</c> and <c>--json</c> writes the SVG and
+        /// reports the svg format in the envelope.
+        /// </summary>
+        [TestMethod]
+        public void SvgFormatJsonWritesFileAndReportsSvg()
+        {
+            string input = this.WriteInput();
+            string output = Path.Combine(this.WorkingDirectory, "diagram.svg");
+
+            (int exit, string stdout) = Run(new[] { "--format", "svg", "--out", output, "--json", input });
+
+            Assert.AreEqual(0, exit);
+            Assert.IsTrue(File.Exists(output));
+            StringAssert.Contains(File.ReadAllText(output), "<svg");
+            using JsonDocument document = JsonDocument.Parse(stdout);
+            Assert.AreEqual("svg", document.RootElement.GetProperty("data").GetProperty("format").GetString());
+        }
+
+        /// <summary>
+        /// Verifies that an unknown <c>--format</c> is reported as an error.
+        /// </summary>
+        [TestMethod]
+        public void UnknownFormatReturnsError()
+        {
+            string input = this.WriteInput();
+
+            (int exit, _) = Run(new[] { "--format", "pdf", input });
+
+            Assert.AreEqual(1, exit);
+        }
+
         private static (int Exit, string Stdout) Run(string[] args)
         {
             StringWriter outWriter = new StringWriter();

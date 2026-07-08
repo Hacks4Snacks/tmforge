@@ -58,12 +58,6 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            if (!Guid.TryParse(idText, out Guid id))
-            {
-                Console.Error.WriteLine("Invalid --id GUID: " + idText);
-                return 1;
-            }
-
             string? name = parsed.Get("name");
             if (string.IsNullOrEmpty(name) && parsed.Properties.Count == 0)
             {
@@ -82,6 +76,12 @@ namespace ThreatModelForge.Cli
             if (format == null || !format.Capabilities.CanWrite)
             {
                 Console.Error.WriteLine("The model's format does not support writing.");
+                return 1;
+            }
+
+            if (!AuthoringSupport.TryResolveElementId(model, null, idText!, out Guid id, out string? resolveError))
+            {
+                Console.Error.WriteLine(resolveError);
                 return 1;
             }
 
@@ -153,7 +153,9 @@ namespace ThreatModelForge.Cli
         {
             Console.Error.WriteLine("Set the name and/or custom properties of an existing element or flow.");
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  tmforge set --id <guid> [--name <name>] [--page <name|index>] [--property KEY=VALUE]... [--json] <file>");
+            Console.Error.WriteLine("  tmforge set --id <ref> [--name <name>] [--page <name|index>] [--property KEY=VALUE]... [--json] <file>");
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("--id accepts a GUID, an element --alias, or a unique element name.");
             Console.Error.WriteLine();
             Console.Error.WriteLine("Resolve linter findings, e.g. --property Protocol=HTTPS --property Port=443,");
             Console.Error.WriteLine("--property DataType=\"Customer Content\", or --property AuthenticationScheme=OAuth.");

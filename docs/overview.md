@@ -18,6 +18,8 @@ its file format and fidelity while removing those constraints:
   move between tools without drift.
 - **Pluggable formats.** Beyond `.tm7`, import/export draw.io and Visio for interoperability, plus
   a canonical JSON wire format.
+- **Git-native.** Semantic `diff` and three-way `merge` treat `.tm7` files like source code, so
+  threat models live in the same repo and review workflow as the systems they describe.
 - **CI-grade validation.** A built-in rule set flags completeness and security-hygiene issues, with
   SARIF and HTML reports and meaningful exit codes.
 
@@ -84,6 +86,17 @@ what you set in Studio, the CLI, or MTMT stays consistent.
 - **Terminal rendering** (`render`): draw the diagram directly in your terminal (Unicode/ANSI, or
   `--plain` ASCII).
 
+### Versioning & collaboration
+
+- **Semantic diff** (`diff`): compare models by stable element ID, ignoring geometry noise, with
+  a `--textconv` mode for readable `git diff` output on `.tm7` files.
+- **Three-way merge** (`merge`): a git merge driver that resolves concurrent edits semantically
+  and emits a conflicts sidecar when it can't.
+- **One-command git integration** (`git-setup`): wire the diff and merge drivers into a repo
+  locally or globally.
+- **Model-as-code manifests** (`apply`, `export`): build or capture a whole model from a
+  declarative JSON manifest, atomically and idempotently.
+
 ### Validation
 
 - **A built-in rule set** organized into rule packs (Core Hygiene, STRIDE Completeness,
@@ -106,7 +119,7 @@ what you set in Studio, the CLI, or MTMT stays consistent.
 ## What's in v0.1 (and what isn't)
 
 **In scope:** `.tm7` read / write / validate / report, browser and CLI authoring, multi-format
-import/export, and CI validation.
+import/export, git-native diff/merge, and CI validation.
 
 **Deferred:** in-product **STRIDE threat generation** and knowledge-base compilation are not in
 v0.1. You author and validate models; automated threat suggestion is planned as a later, optional

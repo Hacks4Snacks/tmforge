@@ -17,7 +17,9 @@ tmforge <command> [options] <file>
 - **Help.** `tmforge --help` lists commands; `tmforge <command> --help` (also `-h`, `-?`) shows
   command-specific options.
 - **Version.** `tmforge --version` prints the released version.
-- **Elements are addressed by GUID.** Discover GUIDs with `tmforge list` or the output of `add`.
+- **Elements are addressed by GUID, alias, or unique name.** `add --alias <name>` gives an element a
+  stable, citeable id plus a handle that `connect`/`set`/`remove`/`rename`/`show` resolve (they also
+  accept a unique element name). Discover ids with `tmforge list` or the output of `add`.
 
 ## Command summary
 
@@ -28,6 +30,7 @@ tmforge <command> [options] <file>
 | [`show`](#show) | Inspect | Show one element/flow's name, type, and properties. |
 | [`stencils`](#stencils) | Inspect | List the built-in authoring stencils. |
 | [`properties`](#properties) | Inspect | List the typed custom-property schema. |
+| [`schema`](#schema) | Inspect | Describe the `--json` envelope and per-command output shapes. |
 | [`render`](#render) | Inspect | Draw the diagram in the terminal. |
 | [`diff`](#diff) | Inspect | Structurally compare two models (or emit a git textconv). |
 | [`merge`](#merge) | Merge | Three-way merge two models against a common ancestor (git driver). |
@@ -39,9 +42,12 @@ tmforge <command> [options] <file>
 | [`rename`](#rename) | Author | Rename an element. |
 | [`set`](#set) | Author | Set an element/flow's name or properties. |
 | [`page`](#page) | Author | List, add, rename, reorder, or remove pages (diagrams). |
+| [`layout`](#layout) | Author | Auto-lay-out the diagram (layered; no hand-placed coordinates). |
 | [`lint`](#lint) | Validate | Evaluate the rule set against a model. |
 | [`report`](#report) | Report | Generate a self-contained HTML report. |
 | [`convert`](#convert) | Convert | Convert a model between file formats. |
+| [`apply`](#apply) | Author | Build a model from a declarative JSON manifest (all-or-nothing). |
+| [`export`](#export) | Author | Export a model as a declarative JSON manifest. |
 
 ---
 
@@ -117,13 +123,37 @@ serves at `GET /v1/property-schema`; use it to discover closed enums (for exampl
 `Encrypted`, `AccessControl`, or the approved cipher list) without running `lint` first.
 
 ```text
-tmforge properties [--base <process|datastore|external|flow>] [--json]
+tmforge properties [--base <process|datastore|external|flow>] [--explain] [--json]
 ```
 
 ```bash
 tmforge properties
 tmforge properties --base flow
 tmforge properties --base datastore --json | jq '.data.properties'
+```
+
+Add `--explain` to map each property **value** to the rule id and severity it triggers, so you can
+predict lint behavior before running [`lint`](#lint). A value shown as `(unset/condition)` means the
+rule fires when the property is absent or by a computed condition.
+
+```bash
+tmforge properties --base flow --explain
+tmforge properties --base external --explain --json | jq '.data.explain'
+```
+
+### `schema`
+
+Describe the machine-readable [`--json`](#json-output) envelope and the `data` payload shape of every
+command, so automation can be written against a documented contract instead of shapes discovered by
+probing output.
+
+```text
+tmforge schema [--json]
+```
+
+```bash
+tmforge schema
+tmforge schema --json | jq '.data.commands'
 ```
 
 ### `render`
@@ -288,6 +318,8 @@ tmforge add --stencil <id> [options] <file>
 | Option | Meaning |
 | --- | --- |
 | `--name <name>` | Element name (defaults to the stencil label when using `--stencil`). |
+| `--alias <name>` | Stable authoring handle. Resolvable by `connect`/`set`/`remove`/`rename`/`show`, and gives the element a **deterministic** id (the same alias yields the same id across rebuilds) so reports and docs can cite it. |
+| `--boundary <ref>` | Place the element inside this trust boundary (by alias, name, or GUID) and record membership, so `export` and boundary-aware rules see it. |
 | `--stencil <id>` | Concrete stencil from the catalog; stamps `StencilType=<id>` plus preset defaults. |
 | `--left <n>` / `--top <n>` | Explicit coordinates (otherwise auto-laid-out). |
 | `--width <n>` / `--height <n>` | Size (boundaries default to 260×180 so they enclose in `render`). |
@@ -299,6 +331,17 @@ tmforge add process  payments.tm7 --name "Checkout API"
 tmforge add store    payments.tm7 --name "Orders DB" --property Encrypted=At-rest
 tmforge add boundary payments.tm7 --name "Azure VNet"
 tmforge add payments.tm7 --stencil azure-app-service --name "Checkout API"
+```
+
+`--alias` gives an element a durable handle and a deterministic id: authoring the same alias in a
+rebuilt model yields the same GUID, so companion docs and reports can cite it. Reference it later by
+alias (or unique name) instead of GUID:
+
+```bash
+tmforge add process payments.tm7 --alias P1 --name "Checkout API"
+tmforge add store   payments.tm7 --alias ORD --name "Orders DB"
+tmforge connect payments.tm7 --source P1 --target ORD --name "place order"
+tmforge set payments.tm7 --id P1 --property AuthenticationScheme=OAuth
 ```
 
 ### `connect`
@@ -341,7 +384,7 @@ tmforge remove --id <guid> [--page <name|index>] [--json] <file>
 Rename an element. The element is found on any page by default; `--page` scopes the search.
 
 ```text
-tmforge rename --id <guid> --name <name> [--page <name|index>] [--json] <file>
+tmforge rename --id <ref> --name <name> [--page <name|index>] [--json] <file>
 ```
 
 ### `set`
@@ -351,7 +394,7 @@ findings (e.g. add a missing `Protocol`) without recreating the element. List ev
 and its allowed values with [`tmforge properties`](#properties).
 
 ```text
-tmforge set --id <guid> [--name <name>] [--page <name|index>] [--property KEY=VALUE ...] [--json] <file>
+tmforge set --id <ref> [--name <name>] [--page <name|index>] [--property KEY=VALUE ...] [--json] <file>
 ```
 
 ```bash
@@ -389,6 +432,22 @@ tmforge page ls payments.tm7
 tmforge page add payments.tm7 --name "Payments service"
 tmforge add process payments.tm7 --name "Ledger" --page "Payments service"
 tmforge page reorder payments.tm7 --page "Payments service" --to 1
+```
+
+### `layout`
+
+Apply a deterministic **layered auto-layout** so you never hand-place coordinates: components are
+arranged left-to-right by their data flows and connectors are re-routed. Trust boundaries are left in
+place, so run this to tidy a graph (it arranges the data-flow graph rather than preserving boundary
+placement).
+
+```text
+tmforge layout [--page <name|index>] [--node-spacing <n>] [--layer-spacing <n>] [--json] <model>
+```
+
+```bash
+tmforge layout payments.tm7
+tmforge layout payments.tm7 --node-spacing 60 --layer-spacing 120
 ```
 
 ---
@@ -435,14 +494,20 @@ tmforge lint payments.tm7 --suppressionFile suppressions.json --json
 
 ### `report`
 
-Generate a self-contained HTML report with an inline SVG diagram per page.
+Generate a self-contained HTML report with an inline SVG diagram per page, or export just the
+diagram as a standalone SVG for review artifacts.
 
 ```text
-tmforge report [--out <path.html>] [--json] <model.tm7>
+tmforge report [--format <html|svg>] [--out <path>] [--json] <model.tm7>
 ```
+
+- `--format html` (default) writes a self-contained HTML report (findings table + inline SVG per page).
+- `--format svg` writes just the diagram as a standalone SVG (every page stacked), suitable for
+  attaching to a pull request or embedding in docs.
 
 ```bash
 tmforge report payments.tm7 --out payments.html
+tmforge report payments.tm7 --format svg --out payments.svg
 ```
 
 ### `convert`
@@ -469,6 +534,73 @@ tmforge convert payments.drawio --to tm7 --out payments.tm7
 
 ---
 
+## Declarative manifest
+
+A manifest is a small, review-friendly JSON document that describes a whole model — boundaries,
+elements, and flows — by **alias** instead of GUID, so it diffs cleanly in a pull request and is the
+source of truth for the `.tm7`. `apply` materializes it; `export` emits it from any model.
+
+```json
+{
+  "name": "Checkout Service",
+  "boundaries": [
+    { "alias": "TB1", "name": "Payments VNet" }
+  ],
+  "elements": [
+    { "alias": "API", "kind": "process", "name": "Checkout API", "boundary": "TB1",
+      "props": { "RunningAs": "Service Account", "AuthenticationScheme": "OAuth" } },
+    { "alias": "DB", "kind": "store", "stencil": "azure-sql", "name": "Orders DB", "boundary": "TB1" }
+  ],
+  "flows": [
+    { "from": "API", "to": "DB", "name": "store order",
+      "props": { "DataType": "Customer Content", "Protocol": "SQL", "Port": "1433" } }
+  ]
+}
+```
+
+- `elements[].boundary` names the trust boundary an element belongs to; `apply` places the element
+  inside it so trust-boundary crossings are computed and membership round-trips through `export`.
+- `elements[].alias` gives each element a **deterministic** id (stable across rebuilds), and flows
+  reference elements by that alias (or by unique name).
+- Either `kind` or `stencil` identifies an element; a stencil's base primitive sets the kind.
+
+### `apply`
+
+Build a model from a manifest. The whole model is built in memory and written **atomically**, so a
+bad manifest never leaves a half-built model; re-running regenerates the model idempotently.
+
+```text
+tmforge apply <manifest.json> [--out <model>] [--format <id>] [--force] [--dry-run] [--json]
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--out <model>` | Output path (default: the manifest path with a `.tm7` extension). |
+| `--format <id>` | Output format id (`tm7`, `tmforge-json`, `drawio`, `vsdx`); inferred from `--out` otherwise. |
+| `--dry-run` | Validate the manifest and report counts without writing. |
+| `--force` | Store unknown/invalid property values instead of rejecting them. |
+
+```bash
+tmforge apply model.json --out model.tm7
+tmforge apply model.json --dry-run
+```
+
+### `export`
+
+Emit a manifest from an existing model (round-trips with `apply`). Geometry is intentionally dropped
+so the manifest stays a stable, diffable source.
+
+```text
+tmforge export [--out <manifest.json>] [--json] <model>
+```
+
+```bash
+tmforge export payments.tm7 --out payments.json
+tmforge export payments.tm7 | jq '.elements'
+```
+
+---
+
 ## JSON output
 
 With `--json`, every command emits a single **versioned envelope** to stdout:
@@ -490,6 +622,10 @@ Diagnostics never mix into this stream (they go to stderr), so piping to `jq` is
 ```bash
 tmforge list components payments.tm7 --json | jq '.data'
 ```
+
+For the `data` shape of each command, run [`tmforge schema`](#schema) (add `--json` for a
+machine-readable catalog). For example, `add` returns the new element id at `data.id`, and `connect`
+returns `data.id` / `data.source` / `data.target`.
 
 ## See also
 
