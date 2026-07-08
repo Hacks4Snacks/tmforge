@@ -196,6 +196,39 @@
         }
       }
     },
+    "/v1/model/threats": {
+      "post": {
+        "tags": [
+          "Model"
+        ],
+        "operationId": "GenerateThreats",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TmForgeModelDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ThreatDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/model/merge": {
       "post": {
         "tags": [
@@ -711,6 +744,79 @@
         },
         "description": "Describes an authoring stencil: a named, categorized specialization of one of the four DFD\nprimitives (`process`, `datastore`, `external`, `boundary`). A stencil\nmaps to its string StencilDto.Base primitive for analysis, and its identity plus preset\nproperties enrich the model without requiring per-stencil rules."
       },
+      "ThreatDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ruleId": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "mitigation": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "severity": {
+            "type": "string"
+          },
+          "priority": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "references": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "elementIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "interaction": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "justification": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ThreatStateDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "justification": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "TmForgeDiagramDto": {
         "type": "object",
         "properties": {
@@ -874,6 +980,15 @@
                 "$ref": "#/components/schemas/TmForgeValidationDto"
               }
             ]
+          },
+          "threats": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ThreatStateDto"
+            }
           }
         }
       },

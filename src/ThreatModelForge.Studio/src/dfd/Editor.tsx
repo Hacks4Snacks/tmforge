@@ -28,7 +28,8 @@ import { Toolbar } from './Toolbar';
 import { Inspector } from './Inspector';
 import { ValidationSettings } from './ValidationSettings';
 import { FALLBACK_PACKS, FALLBACK_STENCILS } from './stencils';
-import { createHttpEngine, loadWasmEngine, offlineEngine, probeEngine, type Finding, type FormatInfo, type IEngineClient, type PackInfo, type PropertyDescriptorInfo, type RuleInfo, type RulePackInfo, type StencilInfo } from './engineClient';
+import { createHttpEngine, loadWasmEngine, offlineEngine, probeEngine, type Finding, type FormatInfo, type IEngineClient, type PackInfo, type PropertyDescriptorInfo, type RuleInfo, type RulePackInfo, type StencilInfo, type Threat } from './engineClient';
+import { ThreatsPanel } from './ThreatsPanel';
 import { DEFAULT_NODE_SIZE, modelFromPages, pagesFromModel, type PageGraph } from './mapping';
 import { useUndoRedo } from './useUndoRedo';
 import { FlowEdge } from './edges/FlowEdge';
@@ -36,7 +37,7 @@ import { PageTabs } from './PageTabs';
 import { MergeResolveModal } from './MergeResolveModal';
 import { DfdActionsContext, type DfdActions } from './editorContext';
 import { Toaster, toast } from './toast';
-import type { DfdEdge, DfdKind, DfdNode, TmForgeModel, TmForgeValidation } from './types';
+import type { DfdEdge, DfdKind, DfdNode, ThreatTriage, TmForgeModel, TmForgeValidation } from './types';
 
 const nodeTypes: NodeTypes = {
   process: ShapeNode,
@@ -89,6 +90,7 @@ interface StoredWorkspace {
   pages: PageGraph[];
   activePageId: string;
   validation?: TmForgeValidation;
+  threats?: ThreatTriage[];
 }
 
 /** Reads the saved multi-page workspace (v2), migrating a legacy single-page model (v1) when present. */
@@ -100,7 +102,7 @@ function loadStoredWorkspace(): StoredWorkspace | null {
       if (parsed?.model?.schema === 'tmforge-json') {
         const pages = pagesFromModel(parsed.model);
         const activePageId = pages.some((p) => p.id === parsed.activePageId) ? parsed.activePageId! : pages[0].id;
-        return { pages, activePageId, validation: parsed.model.validation };
+        return { pages, activePageId, validation: parsed.model.validation, threats: parsed.model.threats };
       }
     }
   } catch {
@@ -112,7 +114,7 @@ function loadStoredWorkspace(): StoredWorkspace | null {
       const model = JSON.parse(raw) as TmForgeModel;
       if (model?.schema === 'tmforge-json') {
         const pages = pagesFromModel(model);
-        return { pages, activePageId: pages[0].id, validation: model.validation };
+        return { pages, activePageId: pages[0].id, validation: model.validation, threats: model.threats };
       }
     }
   } catch {
@@ -232,6 +234,8 @@ export function Editor() {
   const [nodes, setNodes, onNodesChange] = useNodesState<DfdNode>(INITIAL_ACTIVE.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<DfdEdge>(INITIAL_ACTIVE.edges);
   const [findings, setFindings] = useState<Finding[]>([]);
+  const [threats, setThreats] = useState<Threat[]>([]);
+  const [threatTriage, setThreatTriage] = useState<ThreatTriage[]>(INITIAL_WORKSPACE.threats ?? []);
   const flaggedIdsRef = useRef<ReadonlySet<string>>(new Set());
   const [engine, setEngine] = useState<IEngineClient>(offlineEngine);
   const [engineOnline, setEngineOnline] = useState(false);
@@ -419,10 +423,10 @@ export function Editor() {
   // the model, so selecting a node never marks it dirty); `dirty` compares it to the snapshot from
   // the last explicit Save. A debounced localStorage write of the whole workspace (pages + active
   // tab) runs on every change as a crash-recovery net, so a reload never loses work.
-  const currentModel = useMemo(
-    () => modelFromPages(allPages, buildValidation(disabledRulePacks, disabledRuleIds)),
-    [allPages, disabledRulePacks, disabledRuleIds],
-  );
+  const currentModel = useMemo(() => {
+    const model = modelFromPages(allPages, buildValidation(disabledRulePacks, disabledRuleIds));
+    return threatTriage.length > 0 ? { ...model, threats: threatTriage } : model;
+  }, [allPages, disabledRulePacks, disabledRuleIds, threatTriage]);
   const currentJson = useMemo(() => JSON.stringify(currentModel), [currentModel]);
   const [savedJson, setSavedJson] = useState(INITIAL_SAVED_JSON);
   const dirty = currentJson !== savedJson;
@@ -543,8 +547,9 @@ export function Editor() {
 
   const findingPageIds = useMemo(() => {
     const set = new Set<string>();
-    for (const finding of findings) {
-      for (const id of finding.elementIds) {
+    const elementIdLists = [...findings.map((f) => f.elementIds), ...threats.map((t) => t.elementIds)];
+    for (const elementIds of elementIdLists) {
+      for (const id of elementIds) {
         const pageId = elementPageIndex.get(id);
         if (pageId) {
           set.add(pageId);
@@ -552,20 +557,7 @@ export function Editor() {
       }
     }
     return set;
-  }, [findings, elementPageIndex]);
-
-  const jumpToFinding = useCallback(
-    (finding: Finding) => {
-      for (const id of finding.elementIds) {
-        const pageId = elementPageIndex.get(id);
-        if (pageId && pageId !== activePageId) {
-          switchPage(pageId);
-          return;
-        }
-      }
-    },
-    [elementPageIndex, activePageId, switchPage],
-  );
+  }, [findings, threats, elementPageIndex]);
 
   const serializeModel = useCallback(
     async (formatId: string): Promise<Blob> => {
@@ -878,36 +870,88 @@ export function Editor() {
     setNodes((nds) => nds.map((n) => (n.className ? { ...n, className: undefined } : n)));
     setEdges((eds) => eds.map((e) => (e.className ? { ...e, className: undefined } : e)));
     setFindings([]);
+    setThreats([]);
     flaggedIdsRef.current = new Set();
     validationActiveRef.current = false;
   }, [setNodes, setEdges]);
 
-  const runValidate = useCallback(async () => {
-    let result: Finding[];
+  // Analyze the model: generate the STRIDE threat register and, in parallel, the model-hygiene
+  // findings. Threats (threat-bearing rules) and findings (the rest) are the same detection, so they
+  // share one panel: the register leads, non-threat findings trail. The register carries the model's
+  // acceptance triage, so accepted risks come back Accepted.
+  const runAnalyze = useCallback(async () => {
+    let generated: Threat[];
+    let allFindings: Finding[];
     try {
-      result = await engine.validate(currentModel);
+      [generated, allFindings] = await Promise.all([
+        engine.generateThreats(currentModel),
+        engine.validate(currentModel),
+      ]);
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Validation failed.', 'error');
+      toast(err instanceof Error ? err.message : 'Analysis failed.', 'error');
       return;
     }
-    setFindings(result);
+    setThreats(generated);
+    // "Other findings" = findings from non-threat-bearing (hygiene) rules; the threat-bearing ones
+    // are already shown as threats.
+    const threatRuleIds = new Set(generated.map((t) => t.ruleId));
+    setFindings(allFindings.filter((f) => !f.ruleId || !threatRuleIds.has(f.ruleId)));
     validationActiveRef.current = true;
-    const flagged = new Set(result.flatMap((f) => f.elementIds));
+    const flagged = new Set([...generated.flatMap((t) => t.elementIds), ...allFindings.flatMap((f) => f.elementIds)]);
     flaggedIdsRef.current = flagged;
     const applied = applyFlags(nodes, edges, flagged);
     setNodes(applied.nodes);
     setEdges(applied.edges);
   }, [engine, currentModel, nodes, edges, setNodes, setEdges]);
 
-  // When a validation is already on screen, changing the rule selection re-runs it so the findings
-  // reflect the new choice immediately. A ref holds the latest runValidate to avoid a dependency loop.
-  const runValidateRef = useRef(runValidate);
-  runValidateRef.current = runValidate;
+  // When an analysis is already on screen, changing the rule selection re-runs it so the results
+  // reflect the new choice immediately. A ref holds the latest runAnalyze to avoid a dependency loop.
+  const runAnalyzeRef = useRef(runAnalyze);
+  runAnalyzeRef.current = runAnalyze;
   useEffect(() => {
     if (validationActiveRef.current) {
-      void runValidateRef.current();
+      void runAnalyzeRef.current();
     }
   }, [disabledRulePacks, disabledRuleIds]);
+
+  // Accept a threat's risk with a justification: record it in the model's triage overlay (so it
+  // persists and round-trips) and reflect it immediately in the panel, no re-analysis needed.
+  const acceptThreat = useCallback((threat: Threat, reason: string) => {
+    setThreatTriage((prev) => [...prev.filter((t) => t.id !== threat.id), { id: threat.id, state: 'Accepted', justification: reason }]);
+    setThreats((prev) => prev.map((t) => (t.id === threat.id ? { ...t, state: 'Accepted', justification: reason } : t)));
+  }, []);
+
+  // Revert an accepted threat back to open.
+  const undoAccept = useCallback((threat: Threat) => {
+    setThreatTriage((prev) => prev.filter((t) => t.id !== threat.id));
+    setThreats((prev) => prev.map((t) => (t.id === threat.id ? { ...t, state: 'Open', justification: undefined } : t)));
+  }, []);
+
+  // Navigates to the page holding the first of a threat's / finding's referenced elements.
+  const jumpToElements = useCallback(
+    (elementIds: string[]) => {
+      for (const id of elementIds) {
+        const pageId = elementPageIndex.get(id);
+        if (pageId && pageId !== activePageId) {
+          switchPage(pageId);
+          return;
+        }
+      }
+    },
+    [elementPageIndex, activePageId, switchPage],
+  );
+
+  // The name of the page a threat's elements live on, when that is not the page in view (for a badge).
+  const offPageLabel = useCallback(
+    (elementIds: string[]): string | undefined => {
+      const pageId = elementIds.map((id) => elementPageIndex.get(id)).find(Boolean);
+      if (!pageId || pageId === activePageId) {
+        return undefined;
+      }
+      return pages.find((p) => p.id === pageId)?.name;
+    },
+    [elementPageIndex, activePageId, pages],
+  );
 
   const exportAs = useCallback(
     async (formatId: string) => {
@@ -935,6 +979,8 @@ export function Editor() {
       setDisabledRulePacks(nextPacks);
       setDisabledRuleIds(nextRuleIds);
       setFindings([]);
+      setThreats([]);
+      setThreatTriage(model.threats ?? []);
       flaggedIdsRef.current = new Set();
       validationActiveRef.current = false;
       setSelection({ node: null, edge: null });
@@ -1008,6 +1054,8 @@ export function Editor() {
     setNodes([]);
     setEdges([]);
     setFindings([]);
+    setThreats([]);
+    setThreatTriage([]);
     flaggedIdsRef.current = new Set();
     validationActiveRef.current = false;
     setSelection({ node: null, edge: null });
@@ -1036,7 +1084,7 @@ export function Editor() {
         onMerge={() => setShowMerge(true)}
         dirty={dirty}
         fileName={fileName}
-        onValidate={runValidate}
+        onAnalyze={runAnalyze}
         onClear={clearAll}
         onFit={() => fitView({ padding: 0.25, maxZoom: 1.15, duration: 300 })}
         onUndo={undo}
@@ -1069,7 +1117,7 @@ export function Editor() {
             onNodesDelete={takeSnapshot}
             onEdgesDelete={takeSnapshot}
             onSelectionChange={onSelectionChange}
-            onPaneClick={findings.length ? clearFlags : undefined}
+            onPaneClick={findings.length || threats.length ? clearFlags : undefined}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             defaultEdgeOptions={defaultEdgeOptions}
@@ -1120,39 +1168,15 @@ export function Editor() {
                       onToggleRule={toggleRule}
                     />
                   )}
-                  {findings.length > 0 && (
-                    <div className="findings">
-                      <h3>
-                        {findings.length} finding{findings.length === 1 ? '' : 's'}
-                      </h3>
-                      {findings.map((f) => {
-                        const pageId = f.elementIds.map((id) => elementPageIndex.get(id)).find(Boolean);
-                        const pageName =
-                          pageId && pageId !== activePageId ? pages.find((p) => p.id === pageId)?.name : undefined;
-                        return (
-                          <div
-                            key={f.id}
-                            className="finding"
-                            role="button"
-                            tabIndex={0}
-                            title={pageName ? `On page “${pageName}” — click to open` : undefined}
-                            onClick={() => jumpToFinding(f)}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter' || event.key === ' ') {
-                                event.preventDefault();
-                                jumpToFinding(f);
-                              }
-                            }}
-                          >
-                            <span className={`sev sev-${f.severity}`}>{f.severity}</span>
-                            <span>
-                              {f.ruleId ? <code className="rule-id">{f.ruleId}</code> : null} {f.message}
-                              {pageName ? <span className="finding-page">{pageName}</span> : null}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
+                  {(threats.length > 0 || findings.length > 0) && (
+                    <ThreatsPanel
+                      threats={threats}
+                      findings={findings}
+                      onSelect={jumpToElements}
+                      offPageLabel={offPageLabel}
+                      onAccept={acceptThreat}
+                      onUndoAccept={undoAccept}
+                    />
                   )}
                 </div>
             </Panel>

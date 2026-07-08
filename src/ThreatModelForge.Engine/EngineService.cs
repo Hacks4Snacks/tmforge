@@ -201,8 +201,10 @@ namespace ThreatModelForge.Engine
                     }
 
                     GenerationResult generation = ThreatGenerator.Generate(model, ruleSet);
+                    Dictionary<string, ThreatStateDto> triage = BuildTriage(dto.Threats);
                     foreach (GeneratedThreat threat in generation.Threats)
                     {
+                        triage.TryGetValue(threat.Id, out ThreatStateDto? state);
                         result.Add(new ThreatDto
                         {
                             Id = threat.Id,
@@ -215,6 +217,8 @@ namespace ThreatModelForge.Engine
                             References = threat.References.Select(r => r.Id).ToList(),
                             ElementIds = BuildElementIds(threat),
                             Interaction = threat.InteractionString,
+                            State = NormalizeState(state?.State),
+                            Justification = state?.Justification,
                         });
                     }
                 }
@@ -392,6 +396,26 @@ namespace ThreatModelForge.Engine
 
             return ids;
         }
+
+        private static Dictionary<string, ThreatStateDto> BuildTriage(IReadOnlyList<ThreatStateDto>? states)
+        {
+            Dictionary<string, ThreatStateDto> map = new Dictionary<string, ThreatStateDto>(StringComparer.OrdinalIgnoreCase);
+            if (states != null)
+            {
+                foreach (ThreatStateDto state in states)
+                {
+                    if (!string.IsNullOrEmpty(state.Id))
+                    {
+                        map[state.Id] = state;
+                    }
+                }
+            }
+
+            return map;
+        }
+
+        private static string NormalizeState(string? state)
+            => string.Equals(state, "Accepted", StringComparison.OrdinalIgnoreCase) ? "Accepted" : "Open";
 
         private static ThreatModel BuildModel(TmForgeModelDto dto, out Dictionary<string, List<string>> nameToIds)
         {

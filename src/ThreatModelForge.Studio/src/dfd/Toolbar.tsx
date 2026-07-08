@@ -82,7 +82,7 @@ interface ToolbarProps {
   dirty: boolean;
   /** Name of the file the model is bound to (what Save overwrites), or null when unsaved. */
   fileName: string | null;
-  onValidate: () => void;
+  onAnalyze: () => void;
   onClear: () => void;
   onFit: () => void;
   onUndo: () => void;
@@ -137,8 +137,12 @@ export function Toolbar(props: ToolbarProps) {
 
       <span className="toolbar-div" />
 
-      <button className="btn btn-primary" onClick={props.onValidate} title="Analyze the model for threats">
-        Validate
+      <button
+        className="btn btn-primary"
+        onClick={props.onAnalyze}
+        title="Analyze the model: generate the STRIDE threat register and check model hygiene"
+      >
+        Analyze
       </button>
 
       <span className="toolbar-spacer" />

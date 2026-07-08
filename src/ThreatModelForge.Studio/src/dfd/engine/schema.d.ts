@@ -132,6 +132,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/model/threats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["GenerateThreats"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/model/merge": {
         parameters: {
             query?: never;
@@ -346,6 +362,25 @@ export interface components {
                 [key: string]: string;
             };
         };
+        ThreatDto: {
+            id?: string;
+            ruleId?: string;
+            category?: string;
+            title?: string;
+            mitigation?: null | string;
+            severity?: string;
+            priority?: null | string;
+            references?: string[];
+            elementIds?: string[];
+            interaction?: string;
+            state?: string;
+            justification?: null | string;
+        };
+        ThreatStateDto: {
+            id?: string;
+            state?: string;
+            justification?: null | string;
+        };
         TmForgeDiagramDto: {
             id?: string;
             name?: string;
@@ -384,6 +419,7 @@ export interface components {
             flows?: null | components["schemas"]["TmForgeFlowDto"][];
             diagrams?: null | components["schemas"]["TmForgeDiagramDto"][];
             validation?: null | components["schemas"]["TmForgeValidationDto"];
+            threats?: null | components["schemas"]["ThreatStateDto"][];
         };
         TmForgeValidationDto: {
             disabledPacks?: null | string[];
@@ -558,6 +594,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FindingDto"][];
+                };
+            };
+        };
+    };
+    GenerateThreats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TmForgeModelDto"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreatDto"][];
                 };
             };
         };

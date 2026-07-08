@@ -39,17 +39,45 @@ namespace ThreatModelForge.Api.Tests
             Assert.IsFalse(threats.Any(t => t.RuleId == "TM1023"));
         }
 
-        private static TmForgeModelDto BuildModel(TmForgeValidationDto? validation)
+        /// <summary>A model that carries an acceptance overlay returns that threat as Accepted, others Open.</summary>
+        [TestMethod]
+        public void GenerateThreats_OverlaysAcceptedTriage()
         {
-            TmForgeElementDto external = new TmForgeElementDto { Id = "e1", Kind = "external", Name = "Client", X = 50, Y = 50 };
-            TmForgeElementDto process = new TmForgeElementDto { Id = "p1", Kind = "process", Name = "Gateway", X = 220, Y = 50 };
+            // First pass: discover the spoofing threat's register id (it starts open).
+            IReadOnlyList<ThreatDto> open = EngineService.GenerateThreats(BuildModel(null));
+            ThreatDto spoof = open.First(t => t.RuleId == "TM1023");
+            Assert.AreEqual("Open", spoof.State);
+
+            // Second pass: carry an acceptance for that threat on the model's triage overlay.
+            ThreatStateDto[] triage = new[]
+            {
+                new ThreatStateDto { Id = spoof.Id, State = "Accepted", Justification = "Client authenticates upstream." },
+            };
+            IReadOnlyList<ThreatDto> triaged = EngineService.GenerateThreats(BuildModel(null, triage));
+
+            ThreatDto accepted = triaged.First(t => t.Id == spoof.Id);
+            Assert.AreEqual("Accepted", accepted.State);
+            Assert.AreEqual("Client authenticates upstream.", accepted.Justification);
+            Assert.IsTrue(triaged.Where(t => t.Id != spoof.Id).All(t => t.State == "Open"));
+        }
+
+        private static TmForgeModelDto BuildModel(TmForgeValidationDto? validation, IReadOnlyList<ThreatStateDto>? threats = null)
+        {
+            // Guid-shaped ids so the generated threat ids are stable across builds: the register is
+            // keyed by the target element's guid, and tmforge-json preserves guid ids on read (real
+            // Studio ids are crypto.randomUUID() guids, so this matches production behavior).
+            const string externalId = "11111111-1111-4111-8111-111111111111";
+            const string processId = "22222222-2222-4222-8222-222222222222";
+            TmForgeElementDto external = new TmForgeElementDto { Id = externalId, Kind = "external", Name = "Client", X = 50, Y = 50 };
+            TmForgeElementDto process = new TmForgeElementDto { Id = processId, Kind = "process", Name = "Gateway", X = 220, Y = 50 };
             return new TmForgeModelDto
             {
                 Schema = "tmforge-json",
                 Version = "0.1",
                 Elements = new[] { external, process },
-                Flows = new[] { new TmForgeFlowDto { Id = "f1", Source = "e1", Target = "p1", Name = "request" } },
+                Flows = new[] { new TmForgeFlowDto { Id = "33333333-3333-4333-8333-333333333333", Source = externalId, Target = processId, Name = "request" } },
                 Validation = validation,
+                Threats = threats,
             };
         }
     }

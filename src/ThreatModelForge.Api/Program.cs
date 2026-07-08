@@ -65,6 +65,9 @@ namespace ThreatModelForge.Api
             app.MapPost("/v1/model/validate", (TmForgeModelDto model) => TypedResults.Ok(EngineService.Validate(model)))
                 .WithName("ValidateModel")
                 .WithTags("Model");
+            app.MapPost("/v1/model/threats", (TmForgeModelDto model) => TypedResults.Ok(EngineService.GenerateThreats(model)))
+                .WithName("GenerateThreats")
+                .WithTags("Model");
             app.MapPost(
                 "/v1/model/merge",
                 (MergeRequestDto request) => TypedResults.Ok(

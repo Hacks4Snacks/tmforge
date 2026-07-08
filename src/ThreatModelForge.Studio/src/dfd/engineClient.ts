@@ -15,6 +15,36 @@ export interface Finding {
   elementIds: string[];
 }
 
+/**
+ * A generated STRIDE threat: the persisted-register projection of a threat-bearing finding. Same
+ * detection as {@link Finding} (the rules), enriched with a STRIDE category and external references.
+ */
+export interface Threat {
+  /** Deterministic register key (`{targetGuid:ruleId}`). */
+  id: string;
+  /** The rule that detected the threat (for example `TM1023`). */
+  ruleId: string;
+  /** The STRIDE category (`Spoofing`, `Tampering`, `Repudiation`, ...). */
+  category: string;
+  /** The threat statement (the finding text). */
+  title: string;
+  /** The suggested mitigation (the rule's help text). */
+  mitigation?: string;
+  severity: Severity;
+  /** The coarse priority hint (`High` / `Medium` / `Low`). */
+  priority?: string;
+  /** External catalog references (`CWE-###`, `CAPEC-###`, ATT&CK technique ids). */
+  references: string[];
+  /** ids of the elements/flows this threat refers to, so the UI can highlight them. */
+  elementIds: string[];
+  /** Human-readable scope (`source -> target` for a flow, else the element name). */
+  interaction: string;
+  /** Triage state: `Open` (default) or `Accepted`. */
+  state: 'Open' | 'Accepted';
+  /** The risk-acceptance justification, when accepted. */
+  justification?: string;
+}
+
 /** A single point a three-way merge could not reconcile automatically (the merge kept `ours`). */
 export interface MergeConflict {
   /** The stable id of the element the conflict concerns. */
@@ -128,6 +158,8 @@ export interface IEngineClient {
   write(model: TmForgeModel): Promise<string>;
   read(text: string): Promise<TmForgeModel>;
   validate(model: TmForgeModel): Promise<Finding[]>;
+  /** Projects the model's threat-bearing findings into the STRIDE threat register (the same detection as validate). */
+  generateThreats(model: TmForgeModel): Promise<Threat[]>;
   exportTm7(model: TmForgeModel): Promise<Blob>;
   /** Lists the engine's registered file formats and their capabilities. */
   getFormats(): Promise<FormatInfo[]>;
@@ -323,6 +355,24 @@ function toMergeResult(dto: components['schemas']['MergeResultDto']): MergeResul
   };
 }
 
+/** Normalizes a generated ThreatDto (all fields optional) onto the UI's Threat. */
+function toThreat(dto: components['schemas']['ThreatDto']): Threat {
+  return {
+    id: dto.id ?? '',
+    ruleId: dto.ruleId ?? '',
+    category: dto.category ?? '',
+    title: dto.title ?? '',
+    mitigation: dto.mitigation ?? undefined,
+    severity: (dto.severity ?? 'warning') as Severity,
+    priority: dto.priority ?? undefined,
+    references: dto.references ?? [],
+    elementIds: dto.elementIds ?? [],
+    interaction: dto.interaction ?? '',
+    state: dto.state === 'Accepted' ? 'Accepted' : 'Open',
+    justification: dto.justification ?? undefined,
+  };
+}
+
 class OfflineEngineClient implements IEngineClient {
   public readonly label = 'offline (engine unavailable)';
 
@@ -337,6 +387,16 @@ class OfflineEngineClient implements IEngineClient {
   public validate(): Promise<Finding[]> {
     // No fake analysis: when neither the /v1 engine nor the in-browser WASM engine is reachable,
     // fail honestly rather than returning heuristics that disagree with the real rule set.
+    return Promise.reject(
+      new Error(
+        'The analysis engine has not loaded. WebAssembly may be disabled or blocked (for example by a ' +
+          'Content-Security-Policy), or is still downloading — reload the page, or use the hosted app.',
+      ),
+    );
+  }
+
+  public generateThreats(): Promise<Threat[]> {
+    // Same honesty as validate: without the engine there is no rule set to project threats from.
     return Promise.reject(
       new Error(
         'The analysis engine has not loaded. WebAssembly may be disabled or blocked (for example by a ' +
@@ -452,6 +512,14 @@ class HttpEngineClient implements IEngineClient {
       message: f.message ?? '',
       elementIds: f.elementIds ?? [],
     }));
+  }
+
+  public async generateThreats(model: TmForgeModel): Promise<Threat[]> {
+    const { data, response } = await this.client.POST('/v1/model/threats', { body: model });
+    if (!response.ok) {
+      throw new Error(`Engine threat generation failed (${response.status}).`);
+    }
+    return (data ?? []).map(toThreat);
   }
 
   public async exportTm7(model: TmForgeModel): Promise<Blob> {
@@ -582,6 +650,7 @@ interface WasmEngineExports {
   RulePacks(): string;
   PropertySchema(): string;
   Validate(tmforgeJson: string): string;
+  Threats(tmforgeJson: string): string;
   Detect(contentBase64: string): string;
   ReadFile(contentBase64: string, formatId: string): string;
   ExportTm7(tmforgeJson: string): string;
@@ -621,6 +690,11 @@ class WasmEngineClient implements IEngineClient {
       message: f.message ?? '',
       elementIds: f.elementIds ?? [],
     }));
+  }
+
+  public async generateThreats(model: TmForgeModel): Promise<Threat[]> {
+    const threats = JSON.parse(this.wasm.Threats(JSON.stringify(model))) as Array<components['schemas']['ThreatDto']>;
+    return threats.map(toThreat);
   }
 
   public async exportTm7(model: TmForgeModel): Promise<Blob> {

@@ -68,6 +68,13 @@ namespace ThreatModelForge.Wasm
         public static string Validate(string tmforgeJson)
             => Serialize(EngineService.Validate(Deserialize(tmforgeJson)));
 
+        /// <summary>Projects the model's validation findings into STRIDE threats via the shared engine.</summary>
+        /// <param name="tmforgeJson">The canonical tmforge-json model.</param>
+        /// <returns>The generated threats as a JSON array (the /v1 ThreatDto shape).</returns>
+        [JSExport]
+        public static string Threats(string tmforgeJson)
+            => Serialize(EngineService.GenerateThreats(Deserialize(tmforgeJson)));
+
         /// <summary>Merges two edited tmforge-json models, keyed by element identity.</summary>
         /// <param name="baseJson">The common ancestor model, or an empty string for a two-way merge.</param>
         /// <param name="oursJson">The local model.</param>

@@ -88,4 +88,19 @@ export interface TmForgeModel {
   diagrams?: TmForgeDiagram[];
   /** Which rule packs or rules to skip when validating this model. */
   validation?: TmForgeValidation;
+  /**
+   * The threat triage overlay: the persisted lifecycle state (accepted risks + justifications) of
+   * generated threats, keyed by threat id. Absent or empty means every generated threat is open.
+   */
+  threats?: ThreatTriage[];
+}
+
+/** One generated threat's persisted triage state, carried on {@link TmForgeModel.threats}. */
+export interface ThreatTriage {
+  /** The threat's register id (`{targetGuid:ruleId}`) this state applies to. */
+  id: string;
+  /** The triage state: `Open` (default) or `Accepted`. */
+  state: 'Open' | 'Accepted';
+  /** The risk-acceptance justification, when accepted. */
+  justification?: string;
 }

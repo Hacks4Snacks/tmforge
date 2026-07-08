@@ -42,6 +42,7 @@ that declare them. List them from the API with `GET /v1/rule-packs`.
 | `data-protection` | Data Protection | Data-at-rest protection: encryption, access control, integrity, retention. |
 | `transport-security` | Transport Security | Data-in-transit protection across trust boundaries. |
 | `identity-access` | Identity & Access | Authentication, least privilege, and access to components. |
+| `availability` | Availability | Recoverability and audit-trail durability: backups for important data. |
 
 ## Built-in rules
 
@@ -72,6 +73,7 @@ snapshot. `tmforge` and the engine's `GET /v1/rules` report the live rule set.
 | 1009 | Edge missing protocol description | Info | A flow mentions its protocol in the description text. |
 | 1010 | Edge missing port | Warning | A flow declares a port when it can't be inferred from the protocol. |
 | 1013 | Edge missing data classification | Warning | A flow declares a data classification. |
+| 1029 | Unaudited boundary process | Warning | A process receiving input across a trust boundary writes to an audit-log store so its actions can be attributed. |
 
 ### Input Validation (`input-validation`)
 
@@ -91,6 +93,7 @@ snapshot. `tmforge` and the engine's `GET /v1/rules` report the live rule set.
 | 1022 | Credentials in log store | Warning | A store recording log data does not also store credentials. |
 | 1025 | Weak or unapproved cipher | Warning | A flow or store declaring an encryption algorithm uses an approved authenticated cipher (AES-GCM, AES-CBC+HMAC, or ChaCha20-Poly1305). |
 | 1027 | Cached credential read | Warning | A flow reading from a credential store is not cached (`Cached=No`), so a rotated or revoked credential is not served stale. |
+| 1030 | Sensitive data to external | Warning | A flow carrying sensitive data (EUII, EUPI, customer content, account data, or access-control data) is not sent to an external interactor. |
 
 ### Transport Security (`transport-security`)
 
@@ -106,6 +109,12 @@ snapshot. `tmforge` and the engine's `GET /v1/rules` report the live rule set.
 | 1023 | Unauthenticated external source | Warning | An external entity initiating flows into the system authenticates itself. |
 | 1024 | Over-privileged process | Warning | A process does not run as a highly privileged account (root/admin/system). |
 | 1026 | Shared static identity | Warning | A single `Identity` is not asserted by flows from 2+ distinct sources; each calling principal has its own scoped identity. |
+
+### Availability (`availability`)
+
+| ID | Rule | Severity | Checks |
+| --- | --- | --- | --- |
+| 1028 | Data store without backup | Warning | A store holding credentials or audit/log data declares a backup (`Backup=Yes`), so its contents can be recovered after loss or a destructive attack. |
 
 ## Rule help
 
@@ -136,8 +145,9 @@ tmforge set model.tm7 --id <process-guid> --property AuthenticationScheme=OAuth
 
 Common rule-checked properties include `Protocol`, `Port`, `DataType` / data classification,
 `AuthenticationScheme`, `SanitizesInput` / `SanitizesOutput`, `Isolation`, `AccessControl`, `Signed`,
-`AuthenticatesItself`, `RunningAs`, `Algorithm`, and encryption/at-rest flags. In
-[Studio](studio-guide.md), edit the same properties in the inspector and re-**Validate**.
+`AuthenticatesItself`, `RunningAs`, `Algorithm`, `StoresCredentials` / `StoresLogData`, `Backup`, and
+encryption/at-rest flags. In [Studio](studio-guide.md), edit the same properties in the inspector and
+re-**Validate**.
 
 ## Customizing the rule set
 
