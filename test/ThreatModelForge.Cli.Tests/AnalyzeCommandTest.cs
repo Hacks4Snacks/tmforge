@@ -6,10 +6,10 @@ namespace ThreatModelForge.Cli.Tests
     using Microsoft.VisualStudio.TestTools.UnitTesting;
 
     /// <summary>
-    /// Unit tests for the <see cref="LintCommand"/> class.
+    /// Unit tests for the <see cref="AnalyzeCommand"/> class.
     /// </summary>
     [TestClass]
-    public class LintCommandTest
+    public class AnalyzeCommandTest
     {
         private const string SampleJson =
             "{\"schema\":\"tmforge-json\",\"version\":\"0.1\"," +
@@ -24,7 +24,7 @@ namespace ThreatModelForge.Cli.Tests
             "{\"id\":\"p1\",\"kind\":\"process\",\"name\":\"API\",\"x\":100,\"y\":100}," +
             "{\"id\":\"ds1\",\"kind\":\"datastore\",\"name\":\"DB\",\"x\":400,\"y\":100}]," +
             "\"flows\":[{\"id\":\"f1\",\"source\":\"p1\",\"target\":\"ds1\",\"name\":\"query\"}]," +
-            "\"validation\":{\"disabledPacks\":[\"core-hygiene\",\"stride-completeness\",\"input-validation\",\"data-protection\",\"transport-security\",\"identity-access\"]}}";
+            "\"analysis\":{\"disabledPacks\":[\"core-hygiene\",\"stride-completeness\",\"input-validation\",\"data-protection\",\"transport-security\",\"identity-access\"]}}";
 
         /// <summary>
         /// Gets or sets the working directory created for each test.
@@ -37,7 +37,7 @@ namespace ThreatModelForge.Cli.Tests
         [TestInitialize]
         public void Initialize()
         {
-            this.WorkingDirectory = Path.Combine(Path.GetTempPath(), "tmforge-lint-" + Guid.NewGuid().ToString("N"));
+            this.WorkingDirectory = Path.Combine(Path.GetTempPath(), "tmforge-analyze-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(this.WorkingDirectory);
         }
 
@@ -80,7 +80,7 @@ namespace ThreatModelForge.Cli.Tests
             using JsonDocument document = JsonDocument.Parse(output);
             JsonElement root = document.RootElement;
             Assert.AreEqual(1, root.GetProperty("schemaVersion").GetInt32());
-            Assert.AreEqual("lint", root.GetProperty("command").GetString());
+            Assert.AreEqual("analyze", root.GetProperty("command").GetString());
             Assert.IsTrue(root.GetProperty("data").TryGetProperty("sourcePath", out _));
         }
 
@@ -96,8 +96,8 @@ namespace ThreatModelForge.Cli.Tests
         }
 
         /// <summary>
-        /// Verifies the CLI honors the model-borne validation selection: a model whose embedded
-        /// selection disables every rule pack produces no findings and lints clean (exit 0).
+        /// Verifies the CLI honors the model-borne analysis selection: a model whose embedded
+        /// selection disables every rule pack produces no findings and analyzes clean (exit 0).
         /// </summary>
         [TestMethod]
         public void ModelBorneSelectionDisablesRules()
@@ -120,7 +120,7 @@ namespace ThreatModelForge.Cli.Tests
             Console.SetError(errorWriter);
             try
             {
-                int exit = LintCommand.Run(args);
+                int exit = AnalyzeCommand.Run(args);
                 return (exit, outWriter.ToString());
             }
             finally

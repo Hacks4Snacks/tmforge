@@ -56,6 +56,25 @@ namespace ThreatModelForge.Editing.Tests
             Assert.AreEqual("HTTP", flow.Attributes["Protocol"]);
         }
 
+        /// <summary>
+        /// Verifies that a stencil-subtyped element (its specific type in <c>TypeId</c>, its primitive
+        /// in <c>GenericTypeId</c>) is classified by its generic primitive.
+        /// </summary>
+        [TestMethod]
+        public void CaptureClassifiesSubtypedElementByGenericType()
+        {
+            StencilEllipse element = new StencilEllipse { Guid = Guid.NewGuid(), GenericTypeId = "GE.DS", TypeId = "azure-sql" };
+            DiagramElementHelper.SetName(element, "Azure SQL");
+            DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "Main" };
+            surface.Borders[element.Guid] = element;
+            ThreatModel model = new ThreatModel();
+            model.DrawingSurfaceList.Add(surface);
+
+            ElementDescriptor descriptor = ModelSnapshot.Capture(model).Single();
+
+            Assert.AreEqual("store", descriptor.Kind);
+        }
+
         private static ThreatModel Build()
         {
             Guid process = Guid.NewGuid();

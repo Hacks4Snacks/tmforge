@@ -10,7 +10,7 @@ namespace ThreatModelForge.Cli
     /// <summary>
     /// Implements <c>tmforge show</c>: a read-only view of an element or flow's name, type, stencil,
     /// and custom properties. This is the verify counterpart of <c>tmforge set</c> — an agent can
-    /// confirm what it wrote without re-running <c>lint</c>.
+    /// confirm what it wrote without re-running <c>analyze</c>.
     /// </summary>
     internal static class ShowCommand
     {

@@ -163,7 +163,7 @@ export function Inspector(props: InspectorProps) {
         />
         <p className="inspector-hint">
           Set the properties a rule reads — for example <b>Protocol</b> and <b>Port</b>, a <b>DataType</b>, or an{' '}
-          <b>Algorithm</b> — and mention the protocol in the label, then re-validate to clear the flow findings
+          <b>Algorithm</b> — and mention the protocol in the label, then re-analyze to clear the flow findings
           (for example TM1008 / TM1009 / TM1010 / TM1013 / TM1016 / TM1025).
         </p>
         <button className="btn btn-danger" onClick={props.onDelete}>

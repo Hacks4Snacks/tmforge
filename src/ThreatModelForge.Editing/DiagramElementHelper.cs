@@ -13,6 +13,10 @@ namespace ThreatModelForge.Editing
     {
         private const string NamePropertyName = "Name";
 
+        // The Microsoft Threat Modeling Tool uses a leading "Select" entry as the unset sentinel for
+        // its list (drop-down) attributes; a selection pointing at it means the property has no value.
+        private const string UnsetListOption = "Select";
+
         /// <summary>
         /// Gets the display name of an element from its <c>Name</c> property.
         /// </summary>
@@ -96,7 +100,12 @@ namespace ThreatModelForge.Editing
         }
 
         /// <summary>
-        /// Reads the custom properties (see <see cref="SetCustomProperty"/>) declared on an element.
+        /// Reads an element's user-defined properties. This surfaces both the custom <c>key:value</c>
+        /// attributes written by <see cref="SetCustomProperty"/> and the typed list (drop-down)
+        /// properties that the Microsoft Threat Modeling Tool stores for schema-backed attributes, so a
+        /// model imported from a typed <c>.tm7</c> exposes the same property names (for example,
+        /// <c>Protocol</c>) that the analysis rules read. A selection pointing at the unset sentinel is
+        /// treated as absent, and a custom value takes precedence over a typed one for the same key.
         /// </summary>
         /// <param name="element">The element.</param>
         /// <returns>A map of property key to value.</returns>
@@ -115,6 +124,26 @@ namespace ThreatModelForge.Editing
                 if (separator > 0)
                 {
                     result[current.Substring(0, separator)] = current.Substring(separator + 1);
+                }
+            }
+
+            foreach (ListDisplayAttribute list in element.Properties.OfType<ListDisplayAttribute>())
+            {
+                string key = list.DisplayName ?? string.Empty;
+                if (key.Length == 0 ||
+                    string.Equals(key, NamePropertyName, StringComparison.OrdinalIgnoreCase) ||
+                    result.ContainsKey(key))
+                {
+                    continue;
+                }
+
+                if (list.Value is string[] options && list.SelectedIndex >= 0 && list.SelectedIndex < options.Length)
+                {
+                    string selected = options[list.SelectedIndex] ?? string.Empty;
+                    if (selected.Length > 0 && !string.Equals(selected, UnsetListOption, StringComparison.OrdinalIgnoreCase))
+                    {
+                        result[key] = selected;
+                    }
                 }
             }
 

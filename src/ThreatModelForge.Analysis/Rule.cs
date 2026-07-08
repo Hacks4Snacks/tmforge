@@ -87,9 +87,24 @@ namespace ThreatModelForge.Analysis
         /// Gets the typed custom properties this rule reads, together with the values it flags as
         /// risky. A rule that reads a property overrides this so an authoring surface can join the
         /// property schema with the rule set and show which rule (and severity) consumes each
-        /// property without a separate lint pass. Empty by default.
+        /// property without a separate analysis pass. Empty by default.
         /// </summary>
         public virtual IReadOnlyList<PropertyBinding> PropertyBindings => Array.Empty<PropertyBinding>();
+
+        /// <summary>
+        /// Gets the STRIDE category the rule's finding represents, or <see langword="null"/> when the
+        /// rule is a structural or naming hygiene check rather than a threat. Threat generation reads
+        /// this to decide which findings become persisted threats, so a rule declares its own threat
+        /// identity in one place and there is no separate map to drift from.
+        /// </summary>
+        public virtual StrideCategory? Stride => null;
+
+        /// <summary>
+        /// Gets the external catalog references (CWE / CAPEC / MITRE ATT&amp;CK) for the threat this
+        /// rule detects. Declared together with <see cref="Stride"/> on a threat-bearing rule; empty by
+        /// default. The mitigation is not duplicated here — it is the rule's <see cref="HelpText"/>.
+        /// </summary>
+        public virtual IReadOnlyList<ThreatReference> ThreatReferences => Array.Empty<ThreatReference>();
 
         /// <inheritdoc/>
         public void Dispose()

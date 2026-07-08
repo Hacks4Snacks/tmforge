@@ -7,7 +7,7 @@ namespace ThreatModelForge.Analysis
     /// Declares a typed custom property that a rule reads, and (optionally) the values of that
     /// property the rule flags as risky. A rule owns the policy attached to a property, so an
     /// authoring surface can join the property schema with the rule set and tell an author which
-    /// rule consumes a property — and which values to avoid — without a separate lint pass. Because
+    /// rule consumes a property — and which values to avoid — without a separate analysis pass. Because
     /// the binding lives on the rule, the rule's severity is never duplicated and the link cannot
     /// drift from the code that reads the property.
     /// </summary>

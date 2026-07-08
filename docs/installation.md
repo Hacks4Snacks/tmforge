@@ -30,7 +30,7 @@ are attached to each GitHub Release for six platforms:
 ```bash
 # Replace OWNER/REPO, the version, and the RID for your platform.
 curl -fsSL -o tmforge.tar.gz \
-  https://github.com/OWNER/REPO/releases/download/v0.1.0/tmforge-0.1.0-linux-x64.tar.gz
+  https://github.com/hacks4snacks/tmforge/releases/download/v0.1.0/tmforge-0.1.0-linux-x64.tar.gz
 tar -xzf tmforge.tar.gz
 ./tmforge-0.1.0-linux-x64/tmforge --version
 ```
@@ -41,7 +41,7 @@ Move the binary somewhere on your `PATH`, e.g. `sudo mv tmforge-0.1.0-linux-x64/
 
 ```powershell
 Invoke-WebRequest -Uri `
-  https://github.com/OWNER/REPO/releases/download/v0.1.0/tmforge-0.1.0-win-x64.zip `
+  https://github.com/hacks4snacks/tmforge/releases/download/v0.1.0/tmforge-0.1.0-win-x64.zip `
   -OutFile tmforge.zip
 Expand-Archive tmforge.zip -DestinationPath tmforge
 .\tmforge\tmforge.exe --version
@@ -71,14 +71,14 @@ sha256sum -c checksums.txt
 Run the published image (pulls automatically on first use):
 
 ```bash
-docker run --rm -v "$PWD:/work" ghcr.io/hacks4snacks/tmforge-cli tmforge lint model.tm7
+docker run --rm -v "$PWD:/work" ghcr.io/hacks4snacks/tmforge-cli tmforge analyze model.tm7
 ```
 
 Or build it from source:
 
 ```bash
 docker build -f build/Dockerfile -t tmforge-cli .
-docker run --rm -v "$PWD:/work" tmforge-cli tmforge lint model.tm7
+docker run --rm -v "$PWD:/work" tmforge-cli tmforge analyze model.tm7
 ```
 
 The working directory is mounted at `/work`, so paths in your commands are relative to it.

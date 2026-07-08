@@ -10,21 +10,56 @@ namespace ThreatModelForge.Model.Abstracts
     [DataContract(Namespace = "http://schemas.datacontract.org/2004/07/ThreatModeling.Model.Abstracts")]
     public abstract class LineElement : Entity
     {
-        /// <summary>Gets or sets the x coordinate of the curve handle.</summary>
-        [DataMember]
-        public int HandleX { get; set; }
+        private int handleX;
+        private int handleY;
+        private string? portSource;
+        private string? portTarget;
 
-        /// <summary>Gets or sets the y coordinate of the curve handle.</summary>
+        /// <summary>
+        /// Gets or sets the x coordinate of the curve handle. When unset it serializes as the midpoint
+        /// of the source and target so the line satisfies the Microsoft Threat Modeling Tool's
+        /// coordinate validation (which rejects a handle below its minimum drawing coordinate).
+        /// </summary>
         [DataMember]
-        public int HandleY { get; set; }
+        public int HandleX
+        {
+            get => this.handleX != 0 ? this.handleX : (this.SourceX + this.TargetX) / 2;
+            set => this.handleX = value;
+        }
 
-        /// <summary>Gets or sets the name of the source port.</summary>
+        /// <summary>
+        /// Gets or sets the y coordinate of the curve handle. When unset it serializes as the midpoint
+        /// of the source and target so the line satisfies the tool's coordinate validation.
+        /// </summary>
         [DataMember]
-        public string? PortSource { get; set; }
+        public int HandleY
+        {
+            get => this.handleY != 0 ? this.handleY : (this.SourceY + this.TargetY) / 2;
+            set => this.handleY = value;
+        }
 
-        /// <summary>Gets or sets the name of the target port.</summary>
+        /// <summary>
+        /// Gets or sets the source connection port. It serializes as a <c>StencilConnectionPort</c>
+        /// name (<c>None</c> when unset) because the Microsoft Threat Modeling Tool types this member
+        /// as a non-nullable enum and cannot deserialize a nil value.
+        /// </summary>
         [DataMember]
-        public string? PortTarget { get; set; }
+        public string PortSource
+        {
+            get => string.IsNullOrEmpty(this.portSource) ? "None" : this.portSource!;
+            set => this.portSource = value;
+        }
+
+        /// <summary>
+        /// Gets or sets the target connection port. It serializes as a <c>StencilConnectionPort</c>
+        /// name (<c>None</c> when unset) for the same reason as <see cref="PortSource"/>.
+        /// </summary>
+        [DataMember]
+        public string PortTarget
+        {
+            get => string.IsNullOrEmpty(this.portTarget) ? "None" : this.portTarget!;
+            set => this.portTarget = value;
+        }
 
         /// <summary>Gets or sets the identifier of the element the source end attaches to.</summary>
         [DataMember]

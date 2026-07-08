@@ -186,7 +186,7 @@ For batch validation/conversion, mount your working directory into the CLI image
 published image:
 
 ```bash
-docker run --rm -v "$PWD:/work" ghcr.io/hacks4snacks/tmforge-cli tmforge lint model.tm7
+docker run --rm -v "$PWD:/work" ghcr.io/hacks4snacks/tmforge-cli tmforge analyze model.tm7
 docker run --rm -v "$PWD:/work" ghcr.io/hacks4snacks/tmforge-cli tmforge convert model.tm7 --to drawio --out model.drawio
 ```
 
@@ -194,7 +194,7 @@ Or build it from source:
 
 ```bash
 docker build -f build/Dockerfile -t tmforge-cli .
-docker run --rm -v "$PWD:/work" tmforge-cli tmforge lint model.tm7
+docker run --rm -v "$PWD:/work" tmforge-cli tmforge analyze model.tm7
 ```
 
 The image mounts your files at `/work`, so paths in your commands are relative to it.
@@ -214,21 +214,21 @@ container image.
       https://github.com/hacks4snacks/tmforge/releases/download/v0.1.0/tmforge-0.1.0-linux-x64.tar.gz
     tar -xzf tmforge.tar.gz
     echo "$PWD/tmforge-0.1.0-linux-x64" >> "$GITHUB_PATH"
-- name: Validate
-  run: tmforge lint model.tm7 --reportFolder reports
+- name: Analyze
+  run: tmforge analyze model.tm7 --reportFolder reports
 ```
 
 ### With the CLI container
 
 ```yaml
-- name: Validate
+- name: Analyze
   run: |
     docker run --rm -v "$PWD:/work" ghcr.io/hacks4snacks/tmforge-cli:0.1.0 \
-      tmforge lint /work/model.tm7 --reportFolder /work/reports
+      tmforge analyze /work/model.tm7 --reportFolder /work/reports
 ```
 
 Both fail the step on findings (exit `2`) and on tool errors (exit `1`). Upload the `reports/`
-SARIF for code-scanning annotations. See [Validation rules & CI](validation-rules.md#ci-integration).
+SARIF for code-scanning annotations. See [Analysis rules & CI](analysis-rules.md#ci-integration).
 
 ### Azure DevOps example
 
@@ -237,8 +237,8 @@ SARIF for code-scanning annotations. See [Validation rules & CI](validation-rule
     curl -fsSL -o tmforge.tar.gz \
       https://github.com/hacks4snacks/tmforge/releases/download/v0.1.0/tmforge-0.1.0-linux-x64.tar.gz
     tar -xzf tmforge.tar.gz
-    ./tmforge-0.1.0-linux-x64/tmforge lint model.tm7 --reportFolder $(Build.ArtifactStagingDirectory)/threatmodel
-  displayName: Validate threat model
+    ./tmforge-0.1.0-linux-x64/tmforge analyze model.tm7 --reportFolder $(Build.ArtifactStagingDirectory)/threatmodel
+  displayName: Analyze threat model
 ```
 
 ## Supply-chain verification
@@ -264,4 +264,4 @@ assembly's informational version).
 
 - [Installation](installation.md): all install channels.
 - [Engine API reference](api-reference.md): endpoints and hosting notes.
-- [Validation rules & CI](validation-rules.md): gating pipelines on findings.
+- [Analysis rules & CI](analysis-rules.md): gating pipelines on findings.

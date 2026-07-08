@@ -15,7 +15,7 @@ renders it, editing mutates it, and the CLI and API expose it.
 | --- | --- |
 | [`ThreatModelForge.Core`](ThreatModelForge.Core) | The `ThreatModel` object graph and its byte-for-byte-lossless `.tm7`/`.tb7` IO (`DataContractSerializer`), the knowledge-base types, and shared serialization abstractions. |
 | [`ThreatModelForge.Formats`](ThreatModelForge.Formats) | Pluggable format layer (`IThreatModelFormat` + `ThreatModelFormatRegistry`). `.tm7` is the first provider; draw.io, Visio (`.vsdx`), and `tmforge-json` map to and from the canonical model. |
-| [`ThreatModelForge.Analysis`](ThreatModelForge.Analysis) | The analysis object model: the base rule types that rule sets derive from, plus the machinery `tmforge lint` uses to evaluate a model. |
+| [`ThreatModelForge.Analysis`](ThreatModelForge.Analysis) | The analysis object model: the base rule types that rule sets derive from, plus the machinery `tmforge analyze` uses to evaluate a model. |
 | [`ThreatModelForge.Analysis.Rules`](ThreatModelForge.Analysis.Rules) | The built-in rule set: completeness/hygiene checks and security-property checks. |
 | [`ThreatModelForge.Analysis.Reporting`](ThreatModelForge.Analysis.Reporting) | Report writers for analysis *findings*: SARIF (for CI/code-scanning) and self-contained HTML. |
 | [`ThreatModelForge.Reporting`](ThreatModelForge.Reporting) | Renders the threat *model itself* to a self-contained HTML report with inline SVG diagrams (no native graphics libraries). |

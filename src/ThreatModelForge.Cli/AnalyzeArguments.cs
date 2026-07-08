@@ -8,7 +8,7 @@ namespace ThreatModelForge.Cli
     /// <summary>
     /// Program arguments.
     /// </summary>
-    internal class LintArguments
+    internal class AnalyzeArguments
     {
         private static readonly string[] ValueOptionNames = new[]
         {
@@ -18,7 +18,7 @@ namespace ThreatModelForge.Cli
             "max-severity",
         };
 
-        private LintArguments(
+        private AnalyzeArguments(
             string path,
             string ruleSetPath,
             string suppressionFilePath,
@@ -72,7 +72,7 @@ namespace ThreatModelForge.Cli
         public bool Json { get; }
 
         /// <summary>
-        /// Gets the severity at or above which findings cause a non-zero <c>lint</c> exit code
+        /// Gets the severity at or above which findings cause a non-zero <c>analyze</c> exit code
         /// (<see cref="MessageSeverity.Error"/> is the most severe). Defaults to
         /// <see cref="MessageSeverity.Error"/>, so warnings and info do not gate a build unless
         /// <c>--max-severity</c> lowers the bar.
@@ -86,12 +86,12 @@ namespace ThreatModelForge.Cli
             StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
-        /// Tries to parse the arguments into an instance of the <see cref="LintArguments"/> class.
+        /// Tries to parse the arguments into an instance of the <see cref="AnalyzeArguments"/> class.
         /// </summary>
         /// <param name="args">The raw program arguments.</param>
-        /// <param name="result">on success, receives an instance to a new instance of the <see cref="LintArguments"/> class.</param>
+        /// <param name="result">on success, receives an instance to a new instance of the <see cref="AnalyzeArguments"/> class.</param>
         /// <returns><c>True</c> if the arguments were parsed succesfully; otherwise, <c>false</c>.</returns>
-        public static bool TryParse(string[] args, out LintArguments? result)
+        public static bool TryParse(string[] args, out AnalyzeArguments? result)
         {
             result = null;
             if (args.Length < 1)
@@ -152,7 +152,7 @@ namespace ThreatModelForge.Cli
                 }
             }
 
-            result = new LintArguments(
+            result = new AnalyzeArguments(
                 path,
                 parsed.Get("ruleset") ?? string.Empty,
                 parsed.Get("suppressionFile") ?? string.Empty,

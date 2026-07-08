@@ -1,5 +1,6 @@
 import createClient, { type Client } from 'openapi-fetch';
 import { FALLBACK_PACKS, FALLBACK_STENCILS } from './stencils';
+import { normalizeKind } from './types';
 import type { DfdKind, TmForgeModel } from './types';
 import type { components, paths } from './engine/schema';
 
@@ -15,11 +16,41 @@ export interface Finding {
   elementIds: string[];
 }
 
+/**
+ * A generated STRIDE threat: the persisted-register projection of a threat-bearing finding. Same
+ * detection as {@link Finding} (the rules), enriched with a STRIDE category and external references.
+ */
+export interface Threat {
+  /** Deterministic register key (`{targetGuid:ruleId}`). */
+  id: string;
+  /** The rule that detected the threat (for example `TM1023`). */
+  ruleId: string;
+  /** The STRIDE category (`Spoofing`, `Tampering`, `Repudiation`, ...). */
+  category: string;
+  /** The threat statement (the finding text). */
+  title: string;
+  /** The suggested mitigation (the rule's help text). */
+  mitigation?: string;
+  severity: Severity;
+  /** The coarse priority hint (`High` / `Medium` / `Low`). */
+  priority?: string;
+  /** External catalog references (`CWE-###`, `CAPEC-###`, ATT&CK technique ids). */
+  references: string[];
+  /** ids of the elements/flows this threat refers to, so the UI can highlight them. */
+  elementIds: string[];
+  /** Human-readable scope (`source -> target` for a flow, else the element name). */
+  interaction: string;
+  /** Triage state: `Open` (default) or `Accepted`. */
+  state: 'Open' | 'Accepted';
+  /** The risk-acceptance justification, when accepted. */
+  justification?: string;
+}
+
 /** A single point a three-way merge could not reconcile automatically (the merge kept `ours`). */
 export interface MergeConflict {
   /** The stable id of the element the conflict concerns. */
   elementId: string;
-  /** The element kind ('process' | 'store' | 'external' | 'boundary' | 'flow'). */
+  /** The element kind, normalized to the Studio vocabulary ('process' | 'datastore' | 'external' | 'boundary' | 'flow'). */
   elementKind: string;
   /** The element's display name. */
   name: string;
@@ -76,7 +107,7 @@ export interface PackInfo {
   count: number;
 }
 
-/** An analysis rule offered by the engine (surfaced in the validation settings UI). */
+/** An analysis rule offered by the engine (surfaced in the Analysis Rules settings UI). */
 export interface RuleInfo {
   id: string;
   /** The rule pack this rule belongs to (for example, 'security-properties'). */
@@ -120,14 +151,16 @@ export interface PropertyDescriptorInfo {
  *   - `OfflineEngineClient` - honest fallback when neither is reachable: client-side authoring only.
  *
  * `read`/`write` just (de)serialize the canonical `tmforge-json` client-side — no engine needed —
- * so all clients share them. Everything else (`validate`, `getFormats`, `detect`, `readFile`,
+ * so all clients share them. Everything else (`analyze`, `getFormats`, `detect`, `readFile`,
  * `convert`, `report`, `exportTm7`) is a coarse-grained engine call.
  */
 export interface IEngineClient {
   readonly label: string;
   write(model: TmForgeModel): Promise<string>;
   read(text: string): Promise<TmForgeModel>;
-  validate(model: TmForgeModel): Promise<Finding[]>;
+  analyze(model: TmForgeModel): Promise<Finding[]>;
+  /** Projects the model's threat-bearing findings into the STRIDE threat register (the same detection as analyze). */
+  generateThreats(model: TmForgeModel): Promise<Threat[]>;
   exportTm7(model: TmForgeModel): Promise<Blob>;
   /** Lists the engine's registered file formats and their capabilities. */
   getFormats(): Promise<FormatInfo[]>;
@@ -135,9 +168,9 @@ export interface IEngineClient {
   getStencils(): Promise<StencilInfo[]>;
   /** Lists the stencil packs offered to the palette (for show/hide toggles). */
   getStencilPacks(): Promise<PackInfo[]>;
-  /** Lists the analysis rules offered by the engine (for the validation settings UI). */
+  /** Lists the analysis rules offered by the engine (for the Analysis Rules settings UI). */
   getRules(): Promise<RuleInfo[]>;
-  /** Lists the rule packs offered by the engine (for per-model validation toggles). */
+  /** Lists the rule packs offered by the engine (for per-model analysis-rule toggles). */
   getRulePacks(): Promise<RulePackInfo[]>;
   /** Lists the typed element-property schema (drives typed Inspector controls + canonical values). */
   getPropertySchema(): Promise<PropertyDescriptorInfo[]>;
@@ -296,10 +329,10 @@ function toModel(dto: components['schemas']['TmForgeModelDto']): TmForgeModel {
       name: f.name ?? '',
       properties: f.properties ?? {},
     })),
-    validation: dto.validation
+    analysis: dto.analysis
       ? {
-          disabledPacks: dto.validation.disabledPacks ?? undefined,
-          disabledRuleIds: dto.validation.disabledRuleIds ?? undefined,
+          disabledPacks: dto.analysis.disabledPacks ?? undefined,
+          disabledRuleIds: dto.analysis.disabledRuleIds ?? undefined,
         }
       : undefined,
   };
@@ -311,7 +344,7 @@ function toMergeResult(dto: components['schemas']['MergeResultDto']): MergeResul
     merged: toModel(dto.merged ?? ({} as components['schemas']['TmForgeModelDto'])),
     conflicts: (dto.conflicts ?? []).map((c) => ({
       elementId: c.elementId ?? '',
-      elementKind: c.elementKind ?? '',
+      elementKind: normalizeKind(c.elementKind ?? ''),
       name: c.name ?? '',
       diagramName: c.diagramName ?? '',
       kind: c.kind ?? '',
@@ -320,6 +353,24 @@ function toMergeResult(dto: components['schemas']['MergeResultDto']): MergeResul
       ours: c.ours ?? undefined,
       theirs: c.theirs ?? undefined,
     })),
+  };
+}
+
+/** Normalizes a generated ThreatDto (all fields optional) onto the UI's Threat. */
+function toThreat(dto: components['schemas']['ThreatDto']): Threat {
+  return {
+    id: dto.id ?? '',
+    ruleId: dto.ruleId ?? '',
+    category: dto.category ?? '',
+    title: dto.title ?? '',
+    mitigation: dto.mitigation ?? undefined,
+    severity: (dto.severity ?? 'warning') as Severity,
+    priority: dto.priority ?? undefined,
+    references: dto.references ?? [],
+    elementIds: dto.elementIds ?? [],
+    interaction: dto.interaction ?? '',
+    state: dto.state === 'Accepted' ? 'Accepted' : 'Open',
+    justification: dto.justification ?? undefined,
   };
 }
 
@@ -334,9 +385,19 @@ class OfflineEngineClient implements IEngineClient {
     return readJson(text);
   }
 
-  public validate(): Promise<Finding[]> {
+  public analyze(): Promise<Finding[]> {
     // No fake analysis: when neither the /v1 engine nor the in-browser WASM engine is reachable,
     // fail honestly rather than returning heuristics that disagree with the real rule set.
+    return Promise.reject(
+      new Error(
+        'The analysis engine has not loaded. WebAssembly may be disabled or blocked (for example by a ' +
+          'Content-Security-Policy), or is still downloading — reload the page, or use the hosted app.',
+      ),
+    );
+  }
+
+  public generateThreats(): Promise<Threat[]> {
+    // Same honesty as analyze: without the engine there is no rule set to project threats from.
     return Promise.reject(
       new Error(
         'The analysis engine has not loaded. WebAssembly may be disabled or blocked (for example by a ' +
@@ -439,10 +500,10 @@ class HttpEngineClient implements IEngineClient {
     return readJson(text);
   }
 
-  public async validate(model: TmForgeModel): Promise<Finding[]> {
-    const { data, response } = await this.client.POST('/v1/model/validate', { body: model });
+  public async analyze(model: TmForgeModel): Promise<Finding[]> {
+    const { data, response } = await this.client.POST('/v1/model/analyze', { body: model });
     if (!response.ok) {
-      throw new Error(`Engine validate failed (${response.status}).`);
+      throw new Error(`Engine analyze failed (${response.status}).`);
     }
     // The generated FindingDto has every field optional/nullable; normalize onto the UI's Finding.
     return (data ?? []).map((f) => ({
@@ -452,6 +513,14 @@ class HttpEngineClient implements IEngineClient {
       message: f.message ?? '',
       elementIds: f.elementIds ?? [],
     }));
+  }
+
+  public async generateThreats(model: TmForgeModel): Promise<Threat[]> {
+    const { data, response } = await this.client.POST('/v1/model/threats', { body: model });
+    if (!response.ok) {
+      throw new Error(`Engine threat generation failed (${response.status}).`);
+    }
+    return (data ?? []).map(toThreat);
   }
 
   public async exportTm7(model: TmForgeModel): Promise<Blob> {
@@ -581,7 +650,8 @@ interface WasmEngineExports {
   Rules(): string;
   RulePacks(): string;
   PropertySchema(): string;
-  Validate(tmforgeJson: string): string;
+  Analyze(tmforgeJson: string): string;
+  Threats(tmforgeJson: string): string;
   Detect(contentBase64: string): string;
   ReadFile(contentBase64: string, formatId: string): string;
   ExportTm7(tmforgeJson: string): string;
@@ -612,8 +682,8 @@ class WasmEngineClient implements IEngineClient {
     return readJson(text);
   }
 
-  public async validate(model: TmForgeModel): Promise<Finding[]> {
-    const findings = JSON.parse(this.wasm.Validate(JSON.stringify(model))) as Array<components['schemas']['FindingDto']>;
+  public async analyze(model: TmForgeModel): Promise<Finding[]> {
+    const findings = JSON.parse(this.wasm.Analyze(JSON.stringify(model))) as Array<components['schemas']['FindingDto']>;
     return findings.map((f) => ({
       id: f.id ?? '',
       severity: (f.severity ?? 'info') as Severity,
@@ -621,6 +691,11 @@ class WasmEngineClient implements IEngineClient {
       message: f.message ?? '',
       elementIds: f.elementIds ?? [],
     }));
+  }
+
+  public async generateThreats(model: TmForgeModel): Promise<Threat[]> {
+    const threats = JSON.parse(this.wasm.Threats(JSON.stringify(model))) as Array<components['schemas']['ThreatDto']>;
+    return threats.map(toThreat);
   }
 
   public async exportTm7(model: TmForgeModel): Promise<Blob> {

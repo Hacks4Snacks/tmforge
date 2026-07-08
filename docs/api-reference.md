@@ -33,7 +33,7 @@ and `/openapi` are matched first.
 | `GET /v1/rules` | Catalog | List analysis rules. |
 | `GET /v1/rule-packs` | Catalog | List rule packs. |
 | `GET /v1/property-schema` | Catalog | List the typed custom-property schema the rules read. |
-| `POST /v1/model/validate` | Model | Validate a model and return findings. |
+| `POST /v1/model/analyze` | Model | Analyze a model and return findings. |
 | `POST /v1/model/read` | Model | Parse uploaded bytes (base64) into the canonical model. |
 | `POST /v1/model/convert?to=<format>` | Model | Convert a model to another format. |
 | `POST /v1/model/export/tm7` | Model | Export a model as a `.tm7` file. |
@@ -55,7 +55,7 @@ curl http://localhost:8080/v1/health
 
 ```bash
 curl http://localhost:8080/v1/formats          # what can be read/written and how faithfully
-curl http://localhost:8080/v1/rules            # the validation rules
+curl http://localhost:8080/v1/rules            # the analysis rules
 curl http://localhost:8080/v1/rule-packs       # the rule packs (core-hygiene, stride-completeness, ...)
 curl http://localhost:8080/v1/property-schema  # typed custom properties the rules read
 curl http://localhost:8080/v1/stencils         # authoring stencils
@@ -65,10 +65,10 @@ curl http://localhost:8080/v1/stencils         # authoring stencils
 
 `POST /v1/detect` sniffs uploaded bytes and reports the matching format.
 
-### Validate a model
+### Analyze a model
 
-`POST /v1/model/validate` returns findings for a supplied model, the same rule engine `tmforge lint`
-uses. This is how Studio's **Validate** button overlays findings on the canvas.
+`POST /v1/model/analyze` returns findings for a supplied model, the same rule engine `tmforge analyze`
+uses. This is how Studio's **Analyze** button overlays findings on the canvas.
 
 ### Convert / export
 
@@ -78,6 +78,10 @@ uses. This is how Studio's **Validate** button overlays findings on the canvas.
 # Export a .tm7 specifically:
 #   POST /v1/model/export/tm7
 ```
+
+Both `.tm7` paths embed the Threat Model Forge knowledge base and write typed properties, so the
+exported file opens in the Microsoft Threat Modeling Tool. See
+[Formats](formats.md#tm7-and-the-microsoft-threat-modeling-tool).
 
 ### Report
 

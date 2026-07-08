@@ -9,7 +9,7 @@ namespace ThreatModelForge.Analysis.Reporting
 
     /// <summary>
     /// Writes threat-model analysis findings (a <see cref="ModelReport"/>) as a self-contained
-    /// HTML document. Used by <c>tmforge lint --reportFolder</c>.
+    /// HTML document. Used by <c>tmforge analyze --reportFolder</c>.
     /// </summary>
     public class FindingsHtmlReportWriter : ReportWriter
     {
@@ -71,7 +71,7 @@ namespace ThreatModelForge.Analysis.Reporting
             this.Inner.WriteEndElement(); // head
 
             this.Inner.WriteStartElement("body");
-            this.Inner.WriteElementString("h1", $"Threat Model Forge Lint Report for {report.ThreatModelName}");
+            this.Inner.WriteElementString("h1", $"Threat Model Forge Analysis Report for {report.ThreatModelName}");
             this.WriteSummaryBlock(report);
             this.WriteMessageBlock(report);
 

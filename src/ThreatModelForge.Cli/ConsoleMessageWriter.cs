@@ -64,7 +64,7 @@
 
         /// <summary>
         /// Returns whether any recorded finding is at or above the given severity threshold, where
-        /// <see cref="MessageSeverity.Error"/> is the most severe. Used to gate the lint exit code.
+        /// <see cref="MessageSeverity.Error"/> is the most severe. Used to gate the analyze exit code.
         /// </summary>
         /// <param name="threshold">The minimum severity that should gate the exit code.</param>
         /// <returns><see langword="true"/> when a finding met or exceeded the threshold.</returns>

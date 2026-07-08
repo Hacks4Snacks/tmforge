@@ -164,7 +164,7 @@ namespace ThreatModelForge.Cli
             Console.Error.WriteLine();
             Console.Error.WriteLine("Both endpoints must be on the same page; --page selects it (default: the first page).");
             Console.Error.WriteLine("--source and --target accept a GUID, an element --alias, or a unique element name.");
-            Console.Error.WriteLine("Set flow properties the linter checks, e.g. --property Protocol=HTTPS --property Port=443 --property DataType=\"Customer Content\".");
+            Console.Error.WriteLine("Set flow properties the analyzer checks, e.g. --property Protocol=HTTPS --property Port=443 --property DataType=\"Customer Content\".");
             Console.Error.WriteLine("Mark a non-network flow to skip protocol/port/cleartext checks: --property Channel=In-Process|Local-file|Unix-socket|Loopback.");
             Console.Error.WriteLine("List every property and its allowed values with 'tmforge properties --base flow'.");
             Console.Error.WriteLine("Values are validated against the schema; pass --force to store an unknown property or value.");

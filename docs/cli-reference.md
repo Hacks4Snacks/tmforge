@@ -43,7 +43,9 @@ tmforge <command> [options] <file>
 | [`set`](#set) | Author | Set an element/flow's name or properties. |
 | [`page`](#page) | Author | List, add, rename, reorder, or remove pages (diagrams). |
 | [`layout`](#layout) | Author | Auto-lay-out the diagram (layered; no hand-placed coordinates). |
-| [`lint`](#lint) | Validate | Evaluate the rule set against a model. |
+| [`analyze`](#analyze) | Analyze | Evaluate the analysis rules against a model. |
+| [`threats`](#threats) | Analyze | Report threats — the persisted, triaged view of the analysis findings (`--write` to persist). |
+| [`accept`](#accept) | Analyze | Accept a generated threat's risk (records a justification). |
 | [`report`](#report) | Report | Generate a self-contained HTML report. |
 | [`convert`](#convert) | Convert | Convert a model between file formats. |
 | [`apply`](#apply) | Author | Build a model from a declarative JSON manifest (all-or-nothing). |
@@ -120,7 +122,7 @@ tmforge stencils --pack azure --json
 List the built-in **typed property schema**: the custom properties the linter reads and Studio
 edits, with each property's value kind, allowed values, and default. This is the same schema the API
 serves at `GET /v1/property-schema`; use it to discover closed enums (for example `Channel`,
-`Encrypted`, `AccessControl`, or the approved cipher list) without running `lint` first.
+`Encrypted`, `AccessControl`, or the approved cipher list) without running `analyze` first.
 
 ```text
 tmforge properties [--base <process|datastore|external|flow>] [--explain] [--json]
@@ -133,7 +135,7 @@ tmforge properties --base datastore --json | jq '.data.properties'
 ```
 
 Add `--explain` to map each property **value** to the rule id and severity it triggers, so you can
-predict lint behavior before running [`lint`](#lint). A value shown as `(unset/condition)` means the
+predict analysis behavior before running [`analyze`](#analyze). A value shown as `(unset/condition)` means the
 rule fires when the property is absent or by a computed condition.
 
 ```bash
@@ -305,6 +307,9 @@ tmforge new payments.tm7 --name "Payments"
 tmforge new payments.tmforge.json --format tmforge-json
 ```
 
+A `.tm7` written here — and by every authoring verb, `apply`, and `convert --to tm7` — embeds the
+knowledge base, so it opens in the Microsoft Threat Modeling Tool without a separate export step.
+
 ### `add`
 
 Add an element to a page (the first diagram by default; target another with `--page`). Use a **positional kind** for a generic element, **or**
@@ -320,7 +325,7 @@ tmforge add --stencil <id> [options] <file>
 | `--name <name>` | Element name (defaults to the stencil label when using `--stencil`). |
 | `--alias <name>` | Stable authoring handle. Resolvable by `connect`/`set`/`remove`/`rename`/`show`, and gives the element a **deterministic** id (the same alias yields the same id across rebuilds) so reports and docs can cite it. |
 | `--boundary <ref>` | Place the element inside this trust boundary (by alias, name, or GUID) and record membership, so `export` and boundary-aware rules see it. |
-| `--stencil <id>` | Concrete stencil from the catalog; stamps `StencilType=<id>` plus preset defaults. |
+| `--stencil <id>` | Concrete stencil from the catalog; stamps `StencilType=<id>` plus preset defaults. On `.tm7` export the stencil becomes a first-class element type in the Microsoft Threat Modeling Tool's palette. |
 | `--left <n>` / `--top <n>` | Explicit coordinates (otherwise auto-laid-out). |
 | `--width <n>` / `--height <n>` | Size (boundaries default to 260×180 so they enclose in `render`). |
 | `--page <name\|index>` | Target page: a 1-based index or a page name (default: the first page; one is created if the model has none). |
@@ -452,15 +457,15 @@ tmforge layout payments.tm7 --node-spacing 60 --layer-spacing 120
 
 ---
 
-## Validation, reporting & conversion
+## Analysis, reporting & conversion
 
-### `lint`
+### `analyze`
 
-Evaluate a rule set against the model. See [Validation rules & CI](validation-rules.md) for the
+Evaluate the analysis rules against the model. See [Analysis rules & CI](analysis-rules.md) for the
 full rule catalog, packs, and suppressions.
 
 ```text
-tmforge lint [--ruleset <path>] [--suppressionFile <path>] [--reportFolder <dir>] [--define name=value ...] [--max-severity <level>] [--json] <model>
+tmforge analyze [--ruleset <path>] [--suppressionFile <path>] [--reportFolder <dir>] [--define name=value ...] [--max-severity <level>] [--json] <model>
 ```
 
 | Option | Meaning |
@@ -483,14 +488,68 @@ The distinct `2` lets CI fail on findings while separating them from a broken in
 gate with `--max-severity warning` (or `info`) to also fail the build on those severities.
 
 ```bash
-tmforge lint payments.tm7
-tmforge lint payments.tm7 --reportFolder ./findings
-tmforge lint payments.tm7 --suppressionFile suppressions.json --json
+tmforge analyze payments.tm7
+tmforge analyze payments.tm7 --reportFolder ./findings
+tmforge analyze payments.tm7 --suppressionFile suppressions.json --json
 ```
 
-> When a model is loaded from the native `tmforge-json` format, its embedded validation selection
+> When a model is loaded from the native `tmforge-json` format, its embedded analysis selection
 > (disabled packs/rules) is honored automatically. Other formats use the full rule set or an
 > explicit `--ruleset`.
+
+### `threats`
+
+Report the model's **STRIDE threats** — the persisted, triaged view of the analysis findings.
+Detection is entirely the rule set: `threats` runs the same rules as [`analyze`](#analyze), keeps the
+findings from threat-bearing rules, and frames each as a STRIDE threat against its element or flow.
+The difference from `analyze` is **lifecycle** — where a finding is transient and gated, a threat is
+persisted and triaged (`open -> mitigated -> accepted`). With `--write`, the threats are persisted into
+the model's register, keyed so a re-run updates in place and never overwrites prior triage.
+
+```text
+tmforge threats [--write] [--json] <model>
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--write` | Persist the threats into the model's register (preserves prior triage). |
+
+Each threat carries a STRIDE category, the rule's mitigation, and external references (CWE / CAPEC).
+There is no separate threat catalog: **extend coverage the way detection is extended — add a rule to a
+rule pack** (see [Analysis rules](analysis-rules.md)). Rules that represent structural or naming
+hygiene (rather than a security weakness) are not reported as threats.
+
+```bash
+tmforge threats payments.tm7                 # report (read-only), same findings as lint
+tmforge threats payments.tm7 --write         # persist into the register
+tmforge threats payments.tm7 --json
+```
+
+After `--write`, triage the register with [`list threats`](#list) and [`accept`](#accept).
+
+### `accept`
+
+Record **inline risk acceptance** for a generated threat. Acceptance is a threat *state*: the threat
+moves to `NotApplicable` with your justification, stays visible in the register and report, and no
+longer counts as open. Because it is scoped to a single threat (one pattern on one interaction), it
+can never silently swallow an unrelated finding — unlike a blanket suppression.
+
+```text
+tmforge accept --threat <id> --reason <text> [--json] <model>
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--threat <id>` | The threat to accept: its register key, interaction key, or numeric id (from `list threats`). |
+| `--reason <text>` | The justification, stored with the threat and shown in the register and report. |
+
+```bash
+tmforge threats payments.tm7 --write
+tmforge list threats payments.tm7
+tmforge accept --threat 3 --reason "Mitigated by the upstream WAF; residual risk accepted." payments.tm7
+```
+
+Acceptance round-trips through `.tm7` and is honored identically by the CLI, the `/v1` API, and Studio.
 
 ### `report`
 
@@ -515,21 +574,27 @@ tmforge report payments.tm7 --format svg --out payments.svg
 Convert between formats. The target is chosen by `--to` or inferred from the `--out` extension.
 
 ```text
-tmforge convert [--to <format>] [--out <path>] [--json] <input>
+tmforge convert [--to <format>] [--out <path>] [--knowledge-base <file.tb7>] [--json] <input>
 ```
 
 | Format id | Extension | Notes |
 | --- | --- | --- |
-| `tm7` | `.tm7` | Lossless, byte-stable. |
+| `tm7` | `.tm7` | Lossless, byte-stable; embeds a knowledge base so it opens in MTMT. |
 | `tmforge-json` | `.tmforge.json` | Canonical wire model. |
 | `drawio` | `.drawio` | draw.io / diagrams.net (structural). |
 | `vsdx` | `.vsdx` | Microsoft Visio (structural). |
 
 See [Formats & interoperability](formats.md) for fidelity details.
 
+A `.tm7` target embeds the Threat Model Forge knowledge base by default so the file opens in the
+[Microsoft Threat Modeling Tool](formats.md#tm7-and-the-microsoft-threat-modeling-tool); pass
+`--knowledge-base <file.tb7>` to embed a specific one instead. A knowledge base already present in the
+source model (for example, a file authored in the tool) is preserved.
+
 ```bash
 tmforge convert payments.tm7 --to drawio --out payments.drawio
 tmforge convert payments.drawio --to tm7 --out payments.tm7
+tmforge convert payments.tmforge.json --to tm7 --out payments.tm7 --knowledge-base Custom.tb7
 ```
 
 ---
@@ -630,5 +695,5 @@ returns `data.id` / `data.source` / `data.target`.
 ## See also
 
 - [Quick start](quickstart.md): the commands in a worked example.
-- [Validation rules & CI](validation-rules.md): the rule catalog and gating.
+- [Analysis rules & CI](analysis-rules.md): the rule catalog and gating.
 - [Formats & interoperability](formats.md): conversion fidelity.

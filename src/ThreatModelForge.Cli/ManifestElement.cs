@@ -20,7 +20,7 @@ namespace ThreatModelForge.Cli
         /// <summary>Gets or sets the alias of the trust boundary this element belongs to.</summary>
         public string? Boundary { get; set; }
 
-        /// <summary>Gets or sets the typed custom properties the linter reads.</summary>
+        /// <summary>Gets or sets the typed custom properties the analyzer reads.</summary>
         public Dictionary<string, string>? Props { get; set; }
     }
 }

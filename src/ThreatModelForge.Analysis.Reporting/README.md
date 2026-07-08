@@ -5,7 +5,7 @@ machine- and human-readable formats.
 
 Given a `ModelReport` produced by `ThreatModelForge.Analysis` (the findings from evaluating a
 rule set against a model), this library serializes those findings for consumption by CI and by
-people. It is used by the `tmforge lint` command (via `--reportFolder`).
+people. It is used by the `tmforge analyze` command (via `--reportFolder`).
 
 The core pieces are:
 

@@ -5,8 +5,9 @@ namespace ThreatModelForge.KnowledgeBase
     using ThreatModelForge.Model;
 
     /// <summary>
-    /// A threat type defined by a knowledge base. Its generation-filter expressions are read from the
-    /// <c>.tb7</c> but are not persisted into the <c>.tm7</c> snapshot.
+    /// A threat type defined by a knowledge base, including the generation-filter expressions that
+    /// decide which interactions it applies to. Persisted in both the <c>.tb7</c> knowledge base and
+    /// the copy embedded in a <c>.tm7</c> model.
     /// </summary>
     [DataContract(
         Name = "ThreatType",
@@ -14,6 +15,7 @@ namespace ThreatModelForge.KnowledgeBase
     public class ThreatType : Extendable
     {
         private List<ThreatMetaDatum>? propertiesMetaData;
+        private GenerationFilters? generationFilters;
 
         /// <summary>Gets or sets the identifier.</summary>
         [DataMember(Name = "Id")]
@@ -39,12 +41,16 @@ namespace ThreatModelForge.KnowledgeBase
         [DataMember(Name = "PropertiesMetaData")]
         public List<ThreatMetaDatum> PropertiesMetaData => this.propertiesMetaData ??= new List<ThreatMetaDatum>();
 
-        /// <summary>Gets or sets the include generation-filter expression (TB7 only).</summary>
-        [IgnoreDataMember]
-        public string? IncludeGenerationFilter { get; set; }
-
-        /// <summary>Gets or sets the exclude generation-filter expression (TB7 only).</summary>
-        [IgnoreDataMember]
-        public string? ExcludeGenerationFilter { get; set; }
+        /// <summary>
+        /// Gets or sets the generation-filter expressions (include/exclude) for this threat type. The
+        /// Microsoft Threat Modeling Tool requires this element on every threat type in an embedded
+        /// knowledge base, so the getter never returns <see langword="null"/>.
+        /// </summary>
+        [DataMember(Name = "GenerationFilters")]
+        public GenerationFilters GenerationFilters
+        {
+            get => this.generationFilters ??= new GenerationFilters();
+            set => this.generationFilters = value;
+        }
     }
 }

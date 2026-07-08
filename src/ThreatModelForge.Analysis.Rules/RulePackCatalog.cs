@@ -29,6 +29,9 @@ namespace ThreatModelForge.Analysis.Rules
         /// <summary>Rules that check authentication, least privilege, and access to components.</summary>
         public const string IdentityAccess = "identity-access";
 
+        /// <summary>Rules that check availability and recoverability: backups, redundancy, and audit-trail durability.</summary>
+        public const string Availability = "availability";
+
         private static readonly IReadOnlyList<KeyValuePair<string, string>> OrderedPacks = new List<KeyValuePair<string, string>>
         {
             new KeyValuePair<string, string>(CoreHygiene, "Core Hygiene"),
@@ -37,6 +40,7 @@ namespace ThreatModelForge.Analysis.Rules
             new KeyValuePair<string, string>(DataProtection, "Data Protection"),
             new KeyValuePair<string, string>(TransportSecurity, "Transport Security"),
             new KeyValuePair<string, string>(IdentityAccess, "Identity & Access"),
+            new KeyValuePair<string, string>(Availability, "Availability"),
         };
 
         /// <summary>

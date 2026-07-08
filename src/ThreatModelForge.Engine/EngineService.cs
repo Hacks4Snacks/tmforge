@@ -3,6 +3,7 @@ namespace ThreatModelForge.Engine
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using System.Reflection;
     using System.Text;
     using System.Text.Json;
@@ -128,7 +129,7 @@ namespace ThreatModelForge.Engine
         /// </summary>
         /// <param name="dto">The canonical model.</param>
         /// <returns>The findings produced by the engine.</returns>
-        public static IReadOnlyList<FindingDto> Validate(TmForgeModelDto dto)
+        public static IReadOnlyList<FindingDto> Analyze(TmForgeModelDto dto)
         {
             List<FindingDto> findings = new List<FindingDto>();
             try
@@ -136,9 +137,9 @@ namespace ThreatModelForge.Engine
                 ThreatModel model = BuildModel(dto, out Dictionary<string, List<string>> nameToIds);
                 using (RuleSet ruleSet = LoadRuleSet())
                 {
-                    if (dto.Validation != null)
+                    if (dto.Analysis != null)
                     {
-                        ruleSet.Disable(dto.Validation.DisabledPacks, dto.Validation.DisabledRuleIds);
+                        ruleSet.Disable(dto.Analysis.DisabledPacks, dto.Analysis.DisabledRuleIds);
                     }
 
                     CollectingMessageWriter writer = new CollectingMessageWriter();
@@ -179,13 +180,74 @@ namespace ThreatModelForge.Engine
         }
 
         /// <summary>
+        /// Projects the model's analysis findings into STRIDE threats. Detection is entirely the
+        /// rule set's — this runs the same rules <see cref="Analyze"/> runs and frames the findings
+        /// from threat-bearing rules as persistable threats. CLI, <c>/v1</c>, and WASM call the same
+        /// projector, so results are identical by construction.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <returns>The generated threats.</returns>
+        public static IReadOnlyList<ThreatDto> GenerateThreats(TmForgeModelDto dto)
+        {
+            List<ThreatDto> result = new List<ThreatDto>();
+            try
+            {
+                ThreatModel model = BuildModel(dto, out _);
+                using (RuleSet ruleSet = LoadRuleSet())
+                {
+                    if (dto.Analysis != null)
+                    {
+                        ruleSet.Disable(dto.Analysis.DisabledPacks, dto.Analysis.DisabledRuleIds);
+                    }
+
+                    GenerationResult generation = ThreatGenerator.Generate(model, ruleSet);
+                    Dictionary<string, ThreatStateDto> triage = BuildTriage(dto.Threats);
+                    foreach (GeneratedThreat threat in generation.Threats)
+                    {
+                        triage.TryGetValue(threat.Id, out ThreatStateDto? state);
+                        result.Add(new ThreatDto
+                        {
+                            Id = threat.Id,
+                            RuleId = threat.RuleId,
+                            Category = threat.Category.ToString(),
+                            Title = threat.Title,
+                            Mitigation = threat.Mitigation,
+                            Severity = threat.Severity,
+                            Priority = threat.Priority,
+                            References = threat.References.Select(r => r.Id).ToList(),
+                            ElementIds = BuildElementIds(threat),
+                            Interaction = threat.InteractionString,
+                            State = NormalizeState(state?.State),
+                            Justification = state?.Justification,
+                        });
+                    }
+                }
+            }
+#pragma warning disable CA1031 // Do not catch general exception types
+            catch (Exception ex)
+#pragma warning restore CA1031 // Do not catch general exception types
+            {
+                result.Add(new ThreatDto
+                {
+                    Id = "engine-error",
+                    Severity = "error",
+                    Title = $"Threat generation failed: {ex.Message}",
+                });
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// Serializes the supplied model to lossless <c>.tm7</c> bytes via the real engine.
         /// </summary>
         /// <param name="dto">The canonical model.</param>
         /// <returns>The <c>.tm7</c> document bytes.</returns>
         public static byte[] ExportTm7(TmForgeModelDto dto)
         {
-            ThreatModel model = BuildModel(dto, out _);
+            ThreatModel model = BuildModelForExport(dto);
+            Tm7ExportPreparer.Prepare(model);
+
             using (MemoryStream stream = new MemoryStream())
             {
                 model.Save(stream);
@@ -230,7 +292,11 @@ namespace ThreatModelForge.Engine
                 throw new ArgumentException("Value cannot be null or empty.", nameof(formatId));
             }
 
-            ThreatModel model = BuildModel(dto, out _);
+            // .tm7 is the lossless, register-bearing format, so materialize the full threat register
+            // (with acceptance) for it; the other formats drop the register, so keep the cheaper build.
+            ThreatModel model = string.Equals(formatId, Tm7Format.FormatId, StringComparison.OrdinalIgnoreCase)
+                ? BuildModelForExport(dto)
+                : BuildModel(dto, out _);
             ThreatModelFormatRegistry registry = ThreatModelFormatRegistry.CreateDefault();
             IThreatModelFormat format = registry.FindById(formatId)
                 ?? throw new NotSupportedException($"No threat model format with id '{formatId}'.");
@@ -323,6 +389,80 @@ namespace ThreatModelForge.Engine
             }
 
             return new MergeResultDto { Merged = ToDto(result.Merged), Conflicts = conflicts };
+        }
+
+        private static IReadOnlyList<string> BuildElementIds(GeneratedThreat threat)
+        {
+            List<string> ids = new List<string> { threat.SourceGuid.ToString() };
+            if (threat.IsFlowScoped)
+            {
+                ids.Add(threat.TargetGuid.ToString());
+                ids.Add(threat.FlowGuid.ToString());
+            }
+
+            return ids;
+        }
+
+        private static Dictionary<string, ThreatStateDto> BuildTriage(IReadOnlyList<ThreatStateDto>? states)
+        {
+            Dictionary<string, ThreatStateDto> map = new Dictionary<string, ThreatStateDto>(StringComparer.OrdinalIgnoreCase);
+            if (states != null)
+            {
+                foreach (ThreatStateDto state in states)
+                {
+                    if (!string.IsNullOrEmpty(state.Id))
+                    {
+                        map[state.Id] = state;
+                    }
+                }
+            }
+
+            return map;
+        }
+
+        private static string NormalizeState(string? state)
+            => string.Equals(state, "Accepted", StringComparison.OrdinalIgnoreCase) ? "Accepted" : "Open";
+
+        /// <summary>
+        /// Builds the model for a register-bearing export (for example, <c>.tm7</c>), materializing the
+        /// full, titled threat register the CLI's <c>tmforge threats --write</c> produces and overlaying
+        /// the model's acceptance triage. The canonical read seeds only a sparse (accepted-only) register
+        /// from the wire overlay because the register is otherwise regenerable; for a lossless export we
+        /// regenerate it in full so the file carries a complete, titled register — accepted risks keep
+        /// their state and justification — for tools that consume it, such as the Microsoft Threat
+        /// Modeling Tool.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <returns>The model with its threat register materialized and triaged.</returns>
+        private static ThreatModel BuildModelForExport(TmForgeModelDto dto)
+        {
+            ThreatModel model = BuildModel(dto, out _);
+
+            // Rebuild the register from the rules (titled and categorized) rather than the sparse,
+            // accepted-only seed the wire read produced, then re-apply acceptance so accepted risks keep
+            // their state and justification on top of the freshly generated threats.
+            model.AllThreatsDictionary.Clear();
+            using (RuleSet ruleSet = LoadRuleSet())
+            {
+                if (dto.Analysis != null)
+                {
+                    ruleSet.Disable(dto.Analysis.DisabledPacks, dto.Analysis.DisabledRuleIds);
+                }
+
+                GenerationResult generation = ThreatGenerator.Generate(model, ruleSet);
+                ThreatGenerator.Apply(model, generation);
+            }
+
+            foreach (ThreatStateDto state in dto.Threats ?? Array.Empty<ThreatStateDto>())
+            {
+                if (!string.IsNullOrEmpty(state.Id) &&
+                    string.Equals(state.State, "Accepted", StringComparison.OrdinalIgnoreCase))
+                {
+                    ThreatGenerator.Accept(model, state.Id, state.Justification ?? string.Empty);
+                }
+            }
+
+            return model;
         }
 
         private static ThreatModel BuildModel(TmForgeModelDto dto, out Dictionary<string, List<string>> nameToIds)

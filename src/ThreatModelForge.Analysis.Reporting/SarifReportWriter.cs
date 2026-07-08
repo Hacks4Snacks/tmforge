@@ -57,7 +57,7 @@ namespace ThreatModelForge.Analysis.Reporting
         public string? DocumentFilePath { get; set; }
 
         /// <summary>
-        /// Gets or sets a value indicating whether the linter outputs have suppressed messages.
+        /// Gets or sets a value indicating whether the analyzer outputs have suppressed messages.
         /// </summary>
         public bool HasSuppressedMessage { get; set; }
 

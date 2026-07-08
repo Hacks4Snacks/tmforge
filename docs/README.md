@@ -19,13 +19,13 @@ Microsoft Threat Modeling Tool (MTMT).
 | Guide | What it covers |
 | --- | --- |
 | [Overview & features](overview.md) | Concepts, the three surfaces (CLI, Studio, API), formats, and rules at a glance. |
-| [Quick start](quickstart.md) | Author, validate, and report on your first model. |
+| [Quick start](quickstart.md) | Author, analyze, and report on your first model. |
 | [Installation](installation.md) | Prebuilt binaries, container images, the .NET global tool, and building from source. |
 | [CLI reference](cli-reference.md) | Every `tmforge` command, its options, exit codes, and JSON output. |
 | [Studio guide](studio-guide.md) | Browser-based diagram authoring with the React Studio SPA. |
 | [Engine API reference](api-reference.md) | The versioned `/v1` HTTP surface and its endpoints. |
 | [Formats & interoperability](formats.md) | `.tm7`, `tmforge-json`, draw.io, and Visio import/export and fidelity. |
-| [Validation rules & CI](validation-rules.md) | The built-in rule set, rule packs, suppressions, and gating a build. |
+| [Analysis rules & CI](analysis-rules.md) | The built-in rule set, rule packs, suppressions, and gating a build. |
 | [Deployment](deployment.md) | Running the engine API + Studio in containers, Kubernetes, and CI/CD. |
 
 ## The three surfaces

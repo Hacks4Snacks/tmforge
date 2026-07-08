@@ -86,10 +86,10 @@ Add `--json` to any command for machine-readable output.
 ## 5. Validate
 
 ```bash
-tmforge lint payments.tm7
+tmforge analyze payments.tm7
 ```
 
-`lint` evaluates the built-in rule set and reports findings. Its exit code is meaningful:
+`analyze` evaluates the built-in rule set and reports findings. Its exit code is meaningful:
 
 | Exit code | Meaning |
 | --- | --- |
@@ -101,10 +101,10 @@ That lets CI **fail on findings** while distinguishing them from a broken invoca
 SARIF + HTML reports:
 
 ```bash
-tmforge lint payments.tm7 --reportFolder ./findings
+tmforge analyze payments.tm7 --reportFolder ./findings
 ```
 
-See [Validation rules & CI](validation-rules.md) for the full rule list, suppressions, and gating.
+See [Analysis rules & CI](analysis-rules.md) for the full rule list, suppressions, and gating.
 
 ## 6. Report
 
@@ -139,7 +139,7 @@ docker run --rm -p 8080:8080 tmforge      # then open http://localhost:8080/
 ```
 
 In Studio you can drag stencils, draw flows, edit flow properties in the inspector, click
-**Validate** to see findings overlaid on the diagram, and **Export tmforge-json** to round-trip
+**Analyze** to see findings overlaid on the diagram, and **Export tmforge-json** to round-trip
 through the CLI. See the [Studio guide](studio-guide.md).
 
 ## A minimal CI gate
@@ -147,7 +147,7 @@ through the CLI. See the [Studio guide](studio-guide.md).
 ```bash
 # Exit 2 if findings at or above --max-severity are reported (default: error-severity only);
 # exit 1 on tool errors. Use --max-severity warning to also gate a build on warnings.
-tmforge lint payments.tm7 --max-severity warning --reportFolder "$CI_ARTIFACTS/threatmodel"
+tmforge analyze payments.tm7 --max-severity warning --reportFolder "$CI_ARTIFACTS/threatmodel"
 ```
 
 Full pipeline examples are in the [deployment guide](deployment.md#cicd).

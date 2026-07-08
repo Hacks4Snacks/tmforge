@@ -5,6 +5,7 @@ namespace ThreatModelForge.Formats.Tests
     using System.Text;
     using System.Text.Json;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
+    using ThreatModelForge.KnowledgeBase;
     using ThreatModelForge.Model;
 
     /// <summary>
@@ -203,14 +204,14 @@ namespace ThreatModelForge.Formats.Tests
         }
 
         /// <summary>
-        /// The per-model validation selection round-trips through the validation-aware Write overload
-        /// and <see cref="TmForgeJsonFormat.TryReadValidation"/>.
+        /// The per-model analysis selection round-trips through the analysis-aware Write overload
+        /// and <see cref="TmForgeJsonFormat.TryReadAnalysis"/>.
         /// </summary>
         [TestMethod]
-        public void ValidationRoundTrips()
+        public void AnalysisRoundTrips()
         {
             ThreatModel model = new ThreatModel();
-            TmForgeJsonValidation validation = new TmForgeJsonValidation
+            TmForgeJsonAnalysis analysis = new TmForgeJsonAnalysis
             {
                 DisabledPacks = new[] { "stride-completeness" },
                 DisabledRuleIds = new[] { "TM1002" },
@@ -219,13 +220,13 @@ namespace ThreatModelForge.Formats.Tests
             byte[] bytes;
             using (MemoryStream output = new MemoryStream())
             {
-                new TmForgeJsonFormat().Write(model, output, validation);
+                new TmForgeJsonFormat().Write(model, output, analysis);
                 bytes = output.ToArray();
             }
 
             using (MemoryStream input = new MemoryStream(bytes))
             {
-                bool hasSelection = TmForgeJsonFormat.TryReadValidation(
+                bool hasSelection = TmForgeJsonFormat.TryReadAnalysis(
                     input,
                     out IReadOnlyList<string> packs,
                     out IReadOnlyList<string> ruleIds);
@@ -239,10 +240,10 @@ namespace ThreatModelForge.Formats.Tests
         }
 
         /// <summary>
-        /// A document written without a validation selection reports none on read.
+        /// A document written without an analysis selection reports none on read.
         /// </summary>
         [TestMethod]
-        public void ValidationAbsentWhenNotWritten()
+        public void AnalysisAbsentWhenNotWritten()
         {
             ThreatModel model = new ThreatModel();
 
@@ -255,7 +256,7 @@ namespace ThreatModelForge.Formats.Tests
 
             using (MemoryStream input = new MemoryStream(bytes))
             {
-                bool hasSelection = TmForgeJsonFormat.TryReadValidation(
+                bool hasSelection = TmForgeJsonFormat.TryReadAnalysis(
                     input,
                     out IReadOnlyList<string> packs,
                     out IReadOnlyList<string> ruleIds);
@@ -263,6 +264,110 @@ namespace ThreatModelForge.Formats.Tests
                 Assert.IsFalse(hasSelection);
                 Assert.AreEqual(0, packs.Count);
                 Assert.AreEqual(0, ruleIds.Count);
+            }
+        }
+
+        /// <summary>
+        /// A tmforge-json document carrying a risk-acceptance triage overlay seeds the model's threat
+        /// register on read, so acceptance recorded in Studio survives an export to <c>.tm7</c> or a
+        /// CLI round-trip (the register natively round-trips in <c>.tm7</c>). The seeded threat carries
+        /// the accepted state, the justification, and the target/rule parsed from its register id.
+        /// </summary>
+        [TestMethod]
+        public void AcceptedTriageSeedsRegisterOnRead()
+        {
+            System.Guid target = System.Guid.NewGuid();
+            string threatId = target.ToString("N") + ":TM1013";
+            string json = "{\"schema\":\"tmforge-json\",\"version\":\"0.1\",\"elements\":[]," +
+                "\"flows\":[],\"threats\":[{\"id\":\"" + threatId +
+                "\",\"state\":\"Accepted\",\"justification\":\"Compensating control in place.\"}]}";
+
+            ThreatModel model;
+            using (MemoryStream input = new MemoryStream(Encoding.UTF8.GetBytes(json)))
+            {
+                model = new TmForgeJsonFormat().Read(input);
+            }
+
+            Assert.IsTrue(model.AllThreatsDictionary.TryGetValue(threatId, out Threat? threat));
+            Assert.AreEqual(ThreatState.NotApplicable, threat!.State);
+            Assert.AreEqual("Compensating control in place.", threat.StateInformation);
+            Assert.AreEqual("TM1013", threat.TypeId);
+            Assert.AreEqual(target, threat.SourceGuid);
+            Assert.AreEqual(threatId, threat.InteractionKey);
+        }
+
+        /// <summary>
+        /// An accepted threat in the model's register writes back as an <c>Accepted</c> triage entry
+        /// on the document, and reading that document restores the acceptance — the symmetric
+        /// round-trip that carries Studio acceptance across the wire and the CLI.
+        /// </summary>
+        [TestMethod]
+        public void AcceptedTriageRoundTrips()
+        {
+            System.Guid target = System.Guid.NewGuid();
+            string threatId = target.ToString("N") + ":TM1023";
+            ThreatModel source = new ThreatModel();
+            source.AllThreatsDictionary[threatId] = new Threat
+            {
+                Id = 1,
+                TypeId = "TM1023",
+                State = ThreatState.NotApplicable,
+                InteractionKey = threatId,
+                StateInformation = "Accepted by security review.",
+            };
+
+            byte[] bytes;
+            using (MemoryStream output = new MemoryStream())
+            {
+                new TmForgeJsonFormat().Write(source, output);
+                bytes = output.ToArray();
+            }
+
+            using (JsonDocument parsed = JsonDocument.Parse(bytes))
+            {
+                JsonElement threats = parsed.RootElement.GetProperty("threats");
+                Assert.AreEqual(1, threats.GetArrayLength());
+                Assert.AreEqual(threatId, threats[0].GetProperty("id").GetString());
+                Assert.AreEqual("Accepted", threats[0].GetProperty("state").GetString());
+                Assert.AreEqual("Accepted by security review.", threats[0].GetProperty("justification").GetString());
+            }
+
+            ThreatModel reread;
+            using (MemoryStream input = new MemoryStream(bytes))
+            {
+                reread = new TmForgeJsonFormat().Read(input);
+            }
+
+            Assert.IsTrue(reread.AllThreatsDictionary.TryGetValue(threatId, out Threat? threat));
+            Assert.AreEqual(ThreatState.NotApplicable, threat!.State);
+            Assert.AreEqual("Accepted by security review.", threat.StateInformation);
+        }
+
+        /// <summary>
+        /// A model with no accepted threats writes no <c>threats</c> overlay, keeping the wire shape
+        /// backward compatible for the common (untriaged) case.
+        /// </summary>
+        [TestMethod]
+        public void TriageAbsentWhenNothingAccepted()
+        {
+            TmForgeJsonFormat format = new TmForgeJsonFormat();
+
+            ThreatModel model;
+            using (MemoryStream input = new MemoryStream(Encoding.UTF8.GetBytes(SampleJson)))
+            {
+                model = format.Read(input);
+            }
+
+            string json;
+            using (MemoryStream output = new MemoryStream())
+            {
+                format.Write(model, output);
+                json = Encoding.UTF8.GetString(output.ToArray());
+            }
+
+            using (JsonDocument parsed = JsonDocument.Parse(json))
+            {
+                Assert.IsFalse(parsed.RootElement.TryGetProperty("threats", out _));
             }
         }
     }

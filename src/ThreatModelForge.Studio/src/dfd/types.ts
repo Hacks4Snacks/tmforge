@@ -3,6 +3,19 @@ import type { Node, Edge } from '@xyflow/react';
 /** The DFD element kinds this spike supports. Maps to `node.type` in React Flow. */
 export type DfdKind = 'process' | 'datastore' | 'external' | 'boundary';
 
+/**
+ * Normalizes the engine's structural-classification vocabulary to the Studio kind vocabulary. The
+ * engine's classifier (`ModelSnapshot.Classify`, the basis for the diff and three-way merge) labels
+ * a data store `store`, whereas the canvas, the `tmforge-json` element `kind`, and {@link DfdKind}
+ * call it `datastore`. This bridges that one naming seam so a conflict chip (and anything else that
+ * surfaces an engine-classified kind) shows and styles a single, consistent vocabulary rather than
+ * relying on a per-value CSS alias. Kinds without a mismatch pass through unchanged, including the
+ * edge kind `flow`, which has no {@link DfdKind} of its own.
+ */
+export function normalizeKind(engineKind: string): string {
+  return engineKind === 'store' ? 'datastore' : engineKind;
+}
+
 /** Node payload. Intersecting with Record keeps it assignable to React Flow's data constraint. */
 export type DfdNodeData = Record<string, unknown> & {
   label: string;
@@ -49,11 +62,11 @@ export interface TmForgeFlow {
 }
 
 /**
- * Per-model validation selection. It travels with the model (saved in the .tmforge.json file and
- * sent on validate) so the Studio and the CLI validate against the same set of rules. An absent or
+ * Per-model analysis selection. It travels with the model (saved in the .tmforge.json file and
+ * sent on analyze) so the Studio and the CLI analyze against the same set of rules. An absent or
  * empty selection runs every rule.
  */
-export interface TmForgeValidation {
+export interface TmForgeAnalysis {
   /** Rule pack ids to skip (for example, 'stride-completeness'). */
   disabledPacks?: string[];
   /** Individual rule ids to skip (for example, 'TM1002'). */
@@ -87,5 +100,20 @@ export interface TmForgeModel {
    */
   diagrams?: TmForgeDiagram[];
   /** Which rule packs or rules to skip when validating this model. */
-  validation?: TmForgeValidation;
+  analysis?: TmForgeAnalysis;
+  /**
+   * The threat triage overlay: the persisted lifecycle state (accepted risks + justifications) of
+   * generated threats, keyed by threat id. Absent or empty means every generated threat is open.
+   */
+  threats?: ThreatTriage[];
+}
+
+/** One generated threat's persisted triage state, carried on {@link TmForgeModel.threats}. */
+export interface ThreatTriage {
+  /** The threat's register id (`{targetGuid:ruleId}`) this state applies to. */
+  id: string;
+  /** The triage state: `Open` (default) or `Accepted`. */
+  state: 'Open' | 'Accepted';
+  /** The risk-acceptance justification, when accepted. */
+  justification?: string;
 }
