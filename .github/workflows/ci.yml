@@ -171,18 +171,18 @@ jobs:
       - name: Publish CLI
         run: dotnet publish src/ThreatModelForge.Cli/ThreatModelForge.Cli.csproj -c Release -o artifacts/cli
 
-      # Run the tool against the threat models the repo itself ships: proof the CLI loads and analyzes
-      # real .tm7 files, and the reference usage for the first-party action. These demo models are
-      # intentionally imperfect, so findings (exit 2) are expected and do not fail the job; only a
-      # model the tool cannot analyze at all (exit 1 / crash) is a failure.
-      - name: Analyze the repo's own threat models
+      # Run the tool against the sample threat models the repo ships under examples/: proof the CLI
+      # loads and analyzes real .tm7 files, and the reference usage for the first-party action.
+      # Findings are advisory (analyze exits 2 only when findings reach the error threshold); exit 0
+      # or 2 both pass — only a model the tool cannot analyze at all (exit 1 / crash) is a failure.
+      - name: Analyze the sample threat models
         run: |
           set -uo pipefail
-          shopt -s nullglob
+          shopt -s globstar nullglob
           mkdir -p artifacts/sarif
-          models=( *.tm7 )
+          models=( examples/**/*.tm7 )
           if [ ${#models[@]} -eq 0 ]; then
-            echo "::error::No sample .tm7 models found at the repo root to dogfood."
+            echo "::error::No sample .tm7 models found under examples/ to dogfood."
             exit 1
           fi
           rc=0
