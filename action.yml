@@ -1,0 +1,177 @@
+# First-party GitHub Action for Threat Model Forge.
+#
+# Analyzes .tm7 threat models in a repository, uploads the results to GitHub code scanning as SARIF,
+# and gates the build on the outcome. It runs the pinned tmforge container image (published to GHCR
+# by this repo), so a consumer needs a single `uses:` step instead of hand-rolling a curl/docker run.
+#
+# Example (.github/workflows/threat-model.yml):
+#
+#   name: Threat model
+#   on: [pull_request]
+#   permissions:
+#     contents: read
+#     security-events: write   # required to upload SARIF to code scanning
+#   jobs:
+#     analyze:
+#       runs-on: ubuntu-latest
+#       steps:
+#         - uses: actions/checkout@v4
+#         - uses: hacks4snacks/tmforge@v0.3        # pin the action ref
+#           with:
+#             version: '0.3'                        # pin the engine image tag too
+#             models: '**/*.tm7'
+#             max-severity: warning
+#
+# The action runs on Linux runners (it uses the published Linux container image).
+name: Threat Model Forge
+description: Analyze .tm7 threat models, upload SARIF to code scanning, and gate the build on findings.
+author: Threat Model Forge
+
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  models:
+    description: Glob of threat-model files to analyze, relative to the repository root.
+    required: false
+    default: "**/*.tm7"
+  image:
+    description: Container image that provides the tmforge CLI.
+    required: false
+    default: ghcr.io/hacks4snacks/tmforge-cli
+  version:
+    description: >-
+      Tag (or digest) of the tmforge image to run, e.g. '0.3', '0.3.1', or 'sha256:...'. Pin this to
+      a released version for reproducible gates rather than relying on the floating default.
+    required: false
+    default: latest
+  max-severity:
+    description: >-
+      Severity at or above which findings fail the gate. One of 'error' or 'warning'. Leave empty to
+      use the CLI default (error), so only errors gate unless you opt into warnings.
+    required: false
+    default: ""
+  fail-on-findings:
+    description: Fail the action when analysis reports gating findings (exit code 2). Set to 'false' to report without failing.
+    required: false
+    default: "true"
+  upload-sarif:
+    description: Upload the SARIF results to GitHub code scanning.
+    required: false
+    default: "true"
+  category:
+    description: Code-scanning category for the uploaded SARIF, so multiple analyses can coexist.
+    required: false
+    default: threat-model-forge
+  sarif-directory:
+    description: Directory (relative to the workspace) the per-model SARIF files are written to.
+    required: false
+    default: .tmforge-sarif
+
+outputs:
+  result:
+    description: "'pass' (no gating findings), 'fail' (gating findings), or 'error' (a model could not be analyzed)."
+    value: ${{ steps.analyze.outputs.result }}
+  exit-code:
+    description: "The worst tmforge analyze category across all models: 0 (clean), 2 (findings), or 1 (error)."
+    value: ${{ steps.analyze.outputs.exit-code }}
+  sarif-directory:
+    description: Directory the SARIF files were written to.
+    value: ${{ inputs.sarif-directory }}
+
+runs:
+  using: composite
+  steps:
+    - name: Analyze threat models
+      id: analyze
+      shell: bash
+      env:
+        TMF_IMAGE: ${{ inputs.image }}:${{ inputs.version }}
+        TMF_MODELS: ${{ inputs.models }}
+        TMF_MAX_SEVERITY: ${{ inputs.max-severity }}
+        TMF_SARIF_DIR: ${{ inputs.sarif-directory }}
+      run: |
+        set -uo pipefail
+        mkdir -p "$TMF_SARIF_DIR"
+
+        # Expand the glob (** needs globstar) relative to the workspace.
+        shopt -s globstar nullglob
+        models=( $TMF_MODELS )
+        if [ ${#models[@]} -eq 0 ]; then
+          echo "::warning::No threat models matched '$TMF_MODELS'."
+          {
+            echo "result=pass"
+            echo "exit-code=0"
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        sev_args=()
+        if [ -n "$TMF_MAX_SEVERITY" ]; then
+          sev_args=(--max-severity "$TMF_MAX_SEVERITY")
+        fi
+
+        echo "Pulling $TMF_IMAGE"
+        docker pull -q "$TMF_IMAGE"
+
+        had_error=0
+        had_findings=0
+        for model in "${models[@]}"; do
+          echo "::group::tmforge analyze $model"
+          code=0
+          # Mount the workspace so analyze can read the model and write its SARIF report beside it.
+          docker run --rm -v "$PWD":/work -w /work "$TMF_IMAGE" \
+            analyze "$model" --reportFolder "$TMF_SARIF_DIR" "${sev_args[@]}" || code=$?
+          echo "::endgroup::"
+          case "$code" in
+            0) echo "clean: $model" ;;
+            2) echo "findings: $model"; had_findings=1 ;;
+            *) echo "::error::tmforge could not analyze $model (exit $code)."; had_error=1 ;;
+          esac
+        done
+
+        # A hard error (could not analyze a model) outranks findings for the reported result.
+        if [ "$had_error" -eq 1 ]; then
+          result=error; exit_code=1
+        elif [ "$had_findings" -eq 1 ]; then
+          result=fail; exit_code=2
+        else
+          result=pass; exit_code=0
+        fi
+        {
+          echo "result=$result"
+          echo "exit-code=$exit_code"
+        } >> "$GITHUB_OUTPUT"
+        echo "Threat Model Forge result: $result (exit code $exit_code)"
+
+    - name: Upload SARIF to code scanning
+      # Runs even when analysis found issues, so results always reach the Security tab before the gate.
+      if: ${{ always() && inputs.upload-sarif == 'true' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif-directory }}
+        category: ${{ inputs.category }}
+
+    - name: Gate the build on the result
+      shell: bash
+      env:
+        RESULT: ${{ steps.analyze.outputs.result }}
+        FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
+      run: |
+        case "$RESULT" in
+          error)
+            echo "::error::One or more threat models could not be analyzed."
+            exit 1
+            ;;
+          fail)
+            if [ "$FAIL_ON_FINDINGS" = "true" ]; then
+              echo "::error::Threat model analysis reported gating findings. See the code scanning results."
+              exit 1
+            fi
+            echo "::warning::Threat model analysis reported findings (not gating: fail-on-findings=false)."
+            ;;
+          *)
+            echo "Threat model analysis passed."
+            ;;
+        esac

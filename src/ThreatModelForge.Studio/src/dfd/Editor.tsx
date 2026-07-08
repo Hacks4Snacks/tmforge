@@ -30,7 +30,9 @@ import { AnalysisSettings } from './AnalysisSettings';
 import { FALLBACK_PACKS, FALLBACK_STENCILS } from './stencils';
 import { createHttpEngine, loadWasmEngine, offlineEngine, probeEngine, type Finding, type FormatInfo, type IEngineClient, type PackInfo, type PropertyDescriptorInfo, type RuleInfo, type RulePackInfo, type StencilInfo, type Threat } from './engineClient';
 import { ThreatsPanel } from './ThreatsPanel';
+import { CanvasSearch, type SearchItem } from './CanvasSearch';
 import { DEFAULT_NODE_SIZE, modelFromPages, pagesFromModel, type PageGraph } from './mapping';
+import { cloneGraph, type Clipboard } from './clipboard';
 import { useUndoRedo } from './useUndoRedo';
 import { FlowEdge } from './edges/FlowEdge';
 import { PageTabs } from './PageTabs';
@@ -68,6 +70,10 @@ const THEME_KEY = 'tmforge.studio.theme';
 const RECENTS_KEY = 'tmforge.studio.recentStencils.v1';
 /** How many recently used stencils to remember. */
 const RECENTS_MAX = 6;
+/** Canvas grid pitch (px). Shared by the dotted background and snap-to-grid so they line up. */
+const GRID_SIZE = 16;
+/** Offset (px) applied to pasted/duplicated elements so a copy is visibly distinct from its source. */
+const PASTE_OFFSET = { x: GRID_SIZE * 2, y: GRID_SIZE * 2 };
 const PACKS_DISABLED_KEY = 'tmforge.studio.disabledPacks.v1';
 const FAVORITES_KEY = 'tmforge.studio.favoriteStencils.v1';
 
@@ -622,6 +628,53 @@ export function Editor() {
   const saveModelRef = useRef(saveModel);
   saveModelRef.current = saveModel;
 
+  // ---- clipboard: copy / paste / duplicate the selected nodes and the flows between them ----
+  const clipboardRef = useRef<Clipboard | null>(null);
+
+  const copySelection = useCallback(() => {
+    const selectedNodes = nodes.filter((n) => n.selected);
+    const selectedEdges = edges.filter((e) => e.selected);
+    if (selectedNodes.length === 0 && selectedEdges.length === 0) {
+      return;
+    }
+    clipboardRef.current = { nodes: selectedNodes, edges: selectedEdges };
+  }, [nodes, edges]);
+
+  // Drops a freshly-cloned graph onto the canvas: existing elements are deselected and the clones
+  // become the selection, so the copy is ready to nudge and a repeat paste offsets from this one.
+  const placeClone = useCallback(
+    (clone: Clipboard) => {
+      if (clone.nodes.length === 0 && clone.edges.length === 0) {
+        return;
+      }
+      takeSnapshot();
+      setNodes((nds) => [...nds.map((n) => (n.selected ? { ...n, selected: false } : n)), ...clone.nodes]);
+      setEdges((eds) => [...eds.map((e) => (e.selected ? { ...e, selected: false } : e)), ...clone.edges]);
+      setSelection({
+        node: clone.nodes[0]?.id ?? null,
+        edge: clone.nodes.length === 0 ? clone.edges[0]?.id ?? null : null,
+      });
+    },
+    [setNodes, setEdges, takeSnapshot],
+  );
+
+  const pasteClipboard = useCallback(() => {
+    const clip = clipboardRef.current;
+    if (clip) {
+      placeClone(cloneGraph(clip.nodes, clip.edges, PASTE_OFFSET));
+    }
+  }, [placeClone]);
+
+  const duplicateSelection = useCallback(() => {
+    const selectedNodes = nodes.filter((n) => n.selected);
+    const selectedEdges = edges.filter((e) => e.selected);
+    placeClone(cloneGraph(selectedNodes, selectedEdges, PASTE_OFFSET));
+  }, [nodes, edges, placeClone]);
+
+  // Latest clipboard actions for the global keydown handler, so it never re-subscribes on every edit.
+  const clipboardActionsRef = useRef({ copy: copySelection, paste: pasteClipboard, duplicate: duplicateSelection });
+  clipboardActionsRef.current = { copy: copySelection, paste: pasteClipboard, duplicate: duplicateSelection };
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       // Cmd/Ctrl+S saves — even while typing in a field — and never opens the browser's save dialog.
@@ -648,6 +701,14 @@ export function Editor() {
       } else if (event.key === 'y') {
         event.preventDefault();
         redo();
+      } else if (event.key === 'c' || event.key === 'C') {
+        clipboardActionsRef.current.copy();
+      } else if (event.key === 'v' || event.key === 'V') {
+        event.preventDefault();
+        clipboardActionsRef.current.paste();
+      } else if (event.key === 'd' || event.key === 'D') {
+        event.preventDefault();
+        clipboardActionsRef.current.duplicate();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -953,6 +1014,52 @@ export function Editor() {
     [elementPageIndex, activePageId, pages],
   );
 
+  // Every placed element and flow across all pages, for the canvas search box.
+  const searchItems = useMemo<SearchItem[]>(() => {
+    const items: SearchItem[] = [];
+    for (const page of allPages) {
+      for (const node of page.nodes) {
+        const label = typeof node.data.label === 'string' ? node.data.label : '';
+        items.push({ id: node.id, name: label || '(unnamed)', kind: (node.type as string) ?? 'process', pageId: page.id, pageName: page.name });
+      }
+      for (const edge of page.edges) {
+        const label = typeof edge.label === 'string' && edge.label ? edge.label : 'data flow';
+        items.push({ id: edge.id, name: label, kind: 'flow', pageId: page.id, pageName: page.name });
+      }
+    }
+    return items;
+  }, [allPages]);
+
+  // Jump to a searched element: switch to its page if needed, select it, and frame it in view.
+  const jumpToSearchItem = useCallback(
+    (item: SearchItem) => {
+      const focus = () => {
+        if (item.kind === 'flow') {
+          setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)));
+          setEdges((eds) => eds.map((e) => (e.selected !== (e.id === item.id) ? { ...e, selected: e.id === item.id } : e)));
+          setSelection({ node: null, edge: item.id });
+          const edge = allPages.find((p) => p.id === item.pageId)?.edges.find((e) => e.id === item.id);
+          const ends = [edge?.source, edge?.target].filter((id): id is string => Boolean(id)).map((id) => ({ id }));
+          if (ends.length > 0) {
+            fitView({ nodes: ends, padding: 0.5, duration: 400, maxZoom: 1.4 });
+          }
+        } else {
+          setEdges((eds) => eds.map((e) => (e.selected ? { ...e, selected: false } : e)));
+          setNodes((nds) => nds.map((n) => (n.selected !== (n.id === item.id) ? { ...n, selected: n.id === item.id } : n)));
+          setSelection({ node: item.id, edge: null });
+          fitView({ nodes: [{ id: item.id }], padding: 0.6, duration: 400, maxZoom: 1.4 });
+        }
+      };
+      if (item.pageId !== activePageId) {
+        switchPage(item.pageId);
+        window.setTimeout(focus, 80);
+      } else {
+        focus();
+      }
+    },
+    [allPages, activePageId, switchPage, setNodes, setEdges, fitView],
+  );
+
   const exportAs = useCallback(
     async (formatId: string) => {
       const format = formats.find((f) => f.id === formatId);
@@ -965,6 +1072,17 @@ export function Editor() {
     },
     [engine, currentModel, formats],
   );
+
+  // Download a self-contained HTML threat report from the engine. The offline client rejects with a
+  // hint to start the engine, which surfaces as a toast — the same seam Export/Analyze already use.
+  const downloadReport = useCallback(async () => {
+    try {
+      const blob = await engine.report(currentModel, 'html');
+      downloadBlob(blob, 'threat-model-report.html');
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error');
+    }
+  }, [engine, currentModel]);
 
   const loadModel = useCallback(
     (model: TmForgeModel) => {
@@ -1085,6 +1203,7 @@ export function Editor() {
         dirty={dirty}
         fileName={fileName}
         onAnalyze={runAnalyze}
+        onReport={downloadReport}
         onClear={clearAll}
         onFit={() => fitView({ padding: 0.25, maxZoom: 1.15, duration: 300 })}
         onUndo={undo}
@@ -1123,13 +1242,15 @@ export function Editor() {
             defaultEdgeOptions={defaultEdgeOptions}
             connectionMode={ConnectionMode.Loose}
             elevateNodesOnSelect={false}
+            snapToGrid
+            snapGrid={[GRID_SIZE, GRID_SIZE]}
             minZoom={0.2}
             maxZoom={2.5}
             colorMode={theme}
             fitView
             fitViewOptions={{ padding: 0.25, maxZoom: 1.15 }}
           >
-            <Background variant={BackgroundVariant.Dots} gap={16} size={1} color={theme === 'dark' ? '#26344c' : '#cbd5e1'} />
+            <Background variant={BackgroundVariant.Dots} gap={GRID_SIZE} size={1} color={theme === 'dark' ? '#26344c' : '#cbd5e1'} />
             <MiniMap
               pannable
               zoomable
@@ -1142,6 +1263,9 @@ export function Editor() {
               bgColor={theme === 'dark' ? '#0f1728' : '#f8fafc'}
             />
             <Controls />
+            <Panel position="top-left">
+              <CanvasSearch items={searchItems} onJump={jumpToSearchItem} />
+            </Panel>
             <Panel position="top-right">
                 <div className="val-panel">
                   <button

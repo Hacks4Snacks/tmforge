@@ -391,6 +391,86 @@
   border-color: var(--accent);
 }
 
+/* Canvas search (top-left): find and jump to any placed element or flow across all pages. */
+.canvas-search {
+  position: relative;
+  width: 220px;
+}
+
+.canvas-search-input {
+  font: inherit;
+  font-size: 13px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 10px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+}
+
+.canvas-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.canvas-search-results {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 260px;
+  overflow-y: auto;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.2);
+}
+
+.canvas-search-empty {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--muted, #64748b);
+}
+
+.canvas-search-item {
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--ink);
+  background: transparent;
+}
+
+.canvas-search-item:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.canvas-search-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.canvas-search-meta {
+  font-size: 11px;
+  color: var(--muted, #64748b);
+}
+
+.canvas-search-item:hover .canvas-search-meta {
+  color: rgba(255, 255, 255, 0.85);
+}
+
 .val-caret {
   display: inline-block;
   transition: transform 0.15s;

@@ -1,0 +1,93 @@
+{
+  "name": "Webshop — Threat Model Forge sample",
+  "boundaries": [
+    { "alias": "internet", "name": "Public Internet" },
+    { "alias": "vnet", "name": "Cloud VNet" }
+  ],
+  "elements": [
+    {
+      "alias": "customer",
+      "kind": "external",
+      "name": "Customer Browser",
+      "boundary": "internet",
+      "props": { "AuthenticatesItself": "Yes", "AuthenticationScheme": "OAuth" }
+    },
+    {
+      "alias": "web",
+      "kind": "process",
+      "name": "Web App",
+      "boundary": "vnet",
+      "props": {
+        "RunningAs": "Service Account",
+        "AuthenticationScheme": "OAuth",
+        "Isolation": "Container",
+        "SanitizesInput": "Yes",
+        "SanitizesOutput": "Yes"
+      }
+    },
+    {
+      "alias": "api",
+      "kind": "process",
+      "name": "Orders API",
+      "boundary": "vnet",
+      "props": {
+        "RunningAs": "Service Account",
+        "AuthenticationScheme": "RBAC",
+        "Isolation": "Container",
+        "SanitizesInput": "Yes",
+        "SanitizesOutput": "Yes"
+      }
+    },
+    {
+      "alias": "db",
+      "kind": "store",
+      "name": "Orders Database",
+      "boundary": "vnet",
+      "props": {
+        "Encrypted": "At-rest",
+        "Algorithm": "AES-GCM",
+        "AccessControl": "RBAC",
+        "Backup": "Yes",
+        "StoresLogData": "No"
+      }
+    },
+    {
+      "alias": "audit",
+      "kind": "store",
+      "name": "Audit Log",
+      "boundary": "vnet",
+      "props": {
+        "Encrypted": "At-rest",
+        "AccessControl": "RBAC",
+        "StoresLogData": "Yes",
+        "Backup": "Yes"
+      }
+    }
+  ],
+  "flows": [
+    {
+      "from": "customer",
+      "to": "web",
+      "name": "Browse & checkout",
+      "props": { "Protocol": "HTTPS", "Port": "443", "DataType": "Customer Content" }
+    },
+    {
+      "from": "web",
+      "to": "api",
+      "name": "Place order",
+      "props": { "Protocol": "HTTPS", "Port": "443", "DataType": "Customer Content" }
+    },
+    {
+      "from": "api",
+      "to": "db",
+      "name": "Read/write orders",
+      "props": { "Protocol": "TLS", "DataType": "Customer Content", "Algorithm": "AES-GCM" }
+    },
+    {
+      "from": "api",
+      "to": "audit",
+      "name": "Write audit events",
+      "props": { "Protocol": "TLS", "DataType": "System Metadata" }
+    }
+  ]
+}

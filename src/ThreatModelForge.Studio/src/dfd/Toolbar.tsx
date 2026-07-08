@@ -83,6 +83,8 @@ interface ToolbarProps {
   /** Name of the file the model is bound to (what Save overwrites), or null when unsaved. */
   fileName: string | null;
   onAnalyze: () => void;
+  /** Downloads a self-contained HTML threat report from the engine. */
+  onReport: () => void;
   onClear: () => void;
   onFit: () => void;
   onUndo: () => void;
@@ -143,6 +145,13 @@ export function Toolbar(props: ToolbarProps) {
         title="Analyze the model: generate the STRIDE threat register and check model hygiene"
       >
         Analyze
+      </button>
+      <button
+        className="btn"
+        onClick={props.onReport}
+        title="Download a self-contained HTML threat report"
+      >
+        Report
       </button>
 
       <span className="toolbar-spacer" />
