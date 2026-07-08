@@ -2,7 +2,10 @@ namespace ThreatModelForge.Cli
 {
     using System;
     using System.IO;
+    using ThreatModelForge.Analysis;
+    using ThreatModelForge.Editing;
     using ThreatModelForge.Formats;
+    using ThreatModelForge.KnowledgeBase;
     using ThreatModelForge.Model;
 
     /// <summary>
@@ -26,7 +29,7 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            CliArgs parsed = CliArgs.Parse(args, new[] { "to", "out" });
+            CliArgs parsed = CliArgs.Parse(args, new[] { "to", "out", "knowledge-base" });
             if (parsed.Help)
             {
                 PrintUsage();
@@ -77,6 +80,30 @@ namespace ThreatModelForge.Cli
 
             ThreatModel model = registry.Load(input!);
 
+            string? knowledgeBasePath = parsed.Get("knowledge-base");
+            if (!string.IsNullOrEmpty(knowledgeBasePath))
+            {
+                if (target is not Tm7Format)
+                {
+                    Console.Error.WriteLine("--knowledge-base can only be embedded when the target format is tm7.");
+                    return 1;
+                }
+
+                if (!File.Exists(knowledgeBasePath))
+                {
+                    Console.Error.WriteLine("Knowledge base not found: " + knowledgeBasePath);
+                    return 1;
+                }
+
+                model.KnowledgeBase = KnowledgeBaseData.Load(knowledgeBasePath!);
+            }
+            else if (target is Tm7Format && model.KnowledgeBase == null)
+            {
+                KnowledgeBaseData knowledgeBase = KnowledgeBaseCatalog.CreateDefault();
+                SchemaBackedProperties.Apply(model, knowledgeBase);
+                model.KnowledgeBase = knowledgeBase;
+            }
+
             string outputPath = !string.IsNullOrEmpty(output)
                 ? output!
                 : Path.ChangeExtension(input!, target.Extensions.Count > 0 ? target.Extensions[0] : ".out");
@@ -102,11 +129,15 @@ namespace ThreatModelForge.Cli
         {
             Console.Error.WriteLine("Threat Model Forge format converter.");
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  tmforge convert [--to <format>] [--out <path>] [--json] <input>");
+            Console.Error.WriteLine("  tmforge convert [--to <format>] [--out <path>] [--knowledge-base <file.tb7>] [--json] <input>");
             Console.Error.WriteLine();
             Console.Error.WriteLine("The target format is taken from --to, or inferred from the --out extension.");
             Console.Error.WriteLine("If --out is omitted, the input name is reused with the target extension.");
             Console.Error.WriteLine("Formats: tm7, tmforge-json, drawio, vsdx.");
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("A tm7 export embeds the Threat Model Forge knowledge base by default so the file opens");
+            Console.Error.WriteLine("in the Microsoft Threat Modeling Tool; use --knowledge-base <file.tb7> to embed a different");
+            Console.Error.WriteLine("one. A knowledge base already present in the source model is preserved.");
         }
     }
 }

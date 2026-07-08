@@ -13,6 +13,12 @@ namespace ThreatModelForge.Model
     [DataContract(Namespace = "http://schemas.datacontract.org/2004/07/ThreatModeling.Model")]
     public class ThreatModel
     {
+        // The Microsoft Threat Modeling Tool stamps every .tm7 with a document-format version (not an
+        // application version). Current MTMT releases write "4.3", and the tool refuses to open a file
+        // whose version it does not recognize, so freshly authored models are normalized to this value.
+        private const string Tm7DocumentVersion = "4.3";
+        private const string DrawingSurfaceTypeId = "DRAWINGSURFACE";
+
         private static readonly DataContractSerializer Serializer = CreateSerializer();
 
         private DrawingSurfaceModelList? drawingSurfaceList;
@@ -94,6 +100,7 @@ namespace ThreatModelForge.Model
         /// <param name="stream">The destination stream.</param>
         public void Save(Stream stream)
         {
+            this.EnsureToolScaffolding();
             Serializer.WriteObject(stream, this);
         }
 
@@ -112,6 +119,61 @@ namespace ThreatModelForge.Model
             };
 
             return new DataContractSerializer(typeof(ThreatModel), knownTypes);
+        }
+
+        private static void EnsureSurfaceName(DrawingSurfaceModel surface)
+        {
+            // The Microsoft Threat Modeling Tool binds a surface's displayed name to a "Name" display
+            // property, not to the serialized Header field. A freshly authored surface only has the
+            // Header, so mirror it into a Name property (matching how elements are named) — otherwise
+            // the tool shows the generic fallback "Diagram" for the page.
+            foreach (object property in surface.Properties)
+            {
+                if (property is StringDisplayAttribute named &&
+                    string.Equals(named.DisplayName, "Name", StringComparison.Ordinal))
+                {
+                    return;
+                }
+            }
+
+            surface.Properties.Add(new StringDisplayAttribute
+            {
+                Name = "Name",
+                DisplayName = "Name",
+                Value = surface.Header ?? string.Empty,
+            });
+        }
+
+        /// <summary>
+        /// Populates the document-level members that the Microsoft Threat Modeling Tool reads without
+        /// a null guard when it opens a <c>.tm7</c> file. Values already present (for example, from a
+        /// loaded file) are preserved; only members a freshly authored model leaves unset are filled,
+        /// so this is a no-op on the second and subsequent saves.
+        /// </summary>
+        private void EnsureToolScaffolding()
+        {
+            MetaInformation meta = this.MetaInformation ??= new MetaInformation();
+            meta.ThreatModelName ??= string.Empty;
+            meta.Owner ??= string.Empty;
+            meta.Contributors ??= string.Empty;
+            meta.Reviewer ??= string.Empty;
+            meta.HighLevelSystemDescription ??= string.Empty;
+            meta.Assumptions ??= string.Empty;
+            meta.ExternalDependencies ??= string.Empty;
+
+            this.Profile ??= new ProfileData { PromptedKb = new KbVersions() };
+
+            if (string.IsNullOrEmpty(this.Version) || this.Version == "1.0")
+            {
+                this.Version = Tm7DocumentVersion;
+            }
+
+            foreach (DrawingSurfaceModel surface in this.DrawingSurfaceList)
+            {
+                surface.TypeId ??= DrawingSurfaceTypeId;
+                surface.GenericTypeId ??= DrawingSurfaceTypeId;
+                EnsureSurfaceName(surface);
+            }
         }
     }
 }

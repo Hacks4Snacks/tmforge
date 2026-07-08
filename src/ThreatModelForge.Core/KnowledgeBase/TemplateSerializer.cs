@@ -288,8 +288,8 @@ namespace ThreatModelForge.KnowledgeBase
             XElement? filters = source.Element(Names.GenerationFilters);
             if (filters is not null)
             {
-                threatType.IncludeGenerationFilter = Text(filters, Names.Include);
-                threatType.ExcludeGenerationFilter = Text(filters, Names.Exclude);
+                threatType.GenerationFilters.Include = Text(filters, Names.Include) ?? string.Empty;
+                threatType.GenerationFilters.Exclude = Text(filters, Names.Exclude) ?? string.Empty;
             }
 
             ReadThreatMetaData(threatType.PropertiesMetaData, source.Element(Names.PropertiesMetaData));
@@ -459,8 +459,8 @@ namespace ThreatModelForge.KnowledgeBase
                     Names.ThreatType,
                     new XElement(
                         Names.GenerationFilters,
-                        new XElement(Names.Include, threatType.IncludeGenerationFilter ?? string.Empty),
-                        new XElement(Names.Exclude, threatType.ExcludeGenerationFilter ?? string.Empty)),
+                        new XElement(Names.Include, threatType.GenerationFilters.Include),
+                        new XElement(Names.Exclude, threatType.GenerationFilters.Exclude)),
                     new XElement(Names.Id, threatType.Id ?? string.Empty),
                     new XElement(Names.ShortTitle, threatType.ShortTitle ?? string.Empty),
                     new XElement(Names.Category, threatType.Category ?? string.Empty),

@@ -46,5 +46,61 @@ namespace ThreatModelForge.Editing.Tests
         {
             Assert.AreEqual(string.Empty, DiagramElementHelper.GetName(null!));
         }
+
+        /// <summary>
+        /// Verifies that a typed list (drop-down) property is surfaced by its display name, as though
+        /// it were a custom property, so a model imported from a typed <c>.tm7</c> feeds the rules.
+        /// </summary>
+        [TestMethod]
+        public void GetCustomPropertiesSurfacesTypedListProperty()
+        {
+            StencilRectangle element = new StencilRectangle { Guid = Guid.NewGuid() };
+            element.Properties.Add(new ListDisplayAttribute
+            {
+                Name = "Protocol",
+                DisplayName = "Protocol",
+                Value = new[] { "Select", "HTTPS", "HTTP" },
+                SelectedIndex = 1,
+            });
+
+            Assert.AreEqual("HTTPS", DiagramElementHelper.GetCustomProperties(element)["Protocol"]);
+        }
+
+        /// <summary>
+        /// Verifies that a typed list property left at the unset sentinel is treated as absent.
+        /// </summary>
+        [TestMethod]
+        public void GetCustomPropertiesOmitsUnsetTypedListProperty()
+        {
+            StencilRectangle element = new StencilRectangle { Guid = Guid.NewGuid() };
+            element.Properties.Add(new ListDisplayAttribute
+            {
+                Name = "Protocol",
+                DisplayName = "Protocol",
+                Value = new[] { "Select", "HTTPS", "HTTP" },
+                SelectedIndex = 0,
+            });
+
+            Assert.IsFalse(DiagramElementHelper.GetCustomProperties(element).ContainsKey("Protocol"));
+        }
+
+        /// <summary>
+        /// Verifies that a custom value takes precedence over a typed list value for the same key.
+        /// </summary>
+        [TestMethod]
+        public void GetCustomPropertiesPrefersCustomOverTypedForSameKey()
+        {
+            StencilRectangle element = new StencilRectangle { Guid = Guid.NewGuid() };
+            DiagramElementHelper.SetCustomProperty(element, "Protocol", "TLS");
+            element.Properties.Add(new ListDisplayAttribute
+            {
+                Name = "Protocol",
+                DisplayName = "Protocol",
+                Value = new[] { "Select", "HTTPS", "HTTP" },
+                SelectedIndex = 1,
+            });
+
+            Assert.AreEqual("TLS", DiagramElementHelper.GetCustomProperties(element)["Protocol"]);
+        }
     }
 }
