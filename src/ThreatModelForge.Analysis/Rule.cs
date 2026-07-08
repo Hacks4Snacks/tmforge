@@ -11,16 +11,36 @@ namespace ThreatModelForge.Analysis
     /// </summary>
     public abstract class Rule : IDisposable
     {
-        private readonly int ruleId;
+        private readonly string ruleId;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="Rule"/> class.
+        /// Initializes a new instance of the <see cref="Rule"/> class with a built-in numeric id,
+        /// surfaced as <c>TM&lt;id&gt;</c>. This is the convention for first-party rules.
+        /// </summary>
+        /// <param name="id">The unique numeric id of the rule; surfaced as <c>TM{id}</c>.</param>
+        /// <param name="defaultSeverity">The default severity for the rule.</param>
+        /// <param name="pack">The identifier of the rule pack this rule belongs to.</param>
+        protected Rule(int id, MessageSeverity defaultSeverity, string pack)
+            : this($"TM{id}", defaultSeverity, pack)
+        {
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="Rule"/> class with an explicit string id.
+        /// Third-party rule packs use this to declare their own id namespace (for example
+        /// <c>ACME001</c>) rather than the built-in <c>TM####</c> convention, so their ids do not
+        /// collide with first-party ids in SARIF, suppressions, or JSON output.
         /// </summary>
         /// <param name="id">The unique id of the rule.</param>
         /// <param name="defaultSeverity">The default severity for the rule.</param>
         /// <param name="pack">The identifier of the rule pack this rule belongs to.</param>
-        protected Rule(int id, MessageSeverity defaultSeverity, string pack)
+        protected Rule(string id, MessageSeverity defaultSeverity, string pack)
         {
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                throw new ArgumentException("Value cannot be null or whitespace.", nameof(id));
+            }
+
             this.ruleId = id;
             this.Severity = defaultSeverity;
             this.Pack = pack ?? throw new ArgumentNullException(nameof(pack));
@@ -40,13 +60,7 @@ namespace ThreatModelForge.Analysis
         /// <summary>
         /// Gets the rule id.
         /// </summary>
-        public string ID
-        {
-            get
-            {
-                return $"TM{this.ruleId}";
-            }
-        }
+        public string ID => this.ruleId;
 
         /// <summary>
         /// Gets the identifier of the rule pack this rule belongs to.

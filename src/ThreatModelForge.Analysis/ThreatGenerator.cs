@@ -4,7 +4,6 @@ namespace ThreatModelForge.Analysis
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
-    using System.Reflection;
     using ThreatModelForge.KnowledgeBase;
     using ThreatModelForge.Model;
     using ThreatModelForge.Model.Abstracts;
@@ -165,8 +164,7 @@ namespace ThreatModelForge.Analysis
 
         private static RuleSet LoadDefaultRuleSet()
         {
-            Assembly rules = Assembly.Load("ThreatModelForge.Analysis.Rules");
-            return RuleSet.LoadDefault(new[] { rules });
+            return AnalysisRuleSources.Create();
         }
 
         private static GeneratedThreat ToThreat(Message message, Rule rule, Entity target, StrideCategory category)

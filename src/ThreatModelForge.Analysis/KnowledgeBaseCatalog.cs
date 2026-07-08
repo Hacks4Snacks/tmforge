@@ -242,8 +242,7 @@ namespace ThreatModelForge.Analysis
 
         private static RuleSet LoadDefaultRuleSet()
         {
-            Assembly rules = Assembly.Load("ThreatModelForge.Analysis.Rules");
-            return RuleSet.LoadDefault(new[] { rules });
+            return AnalysisRuleSources.Create();
         }
 
         private readonly struct GenericMapping

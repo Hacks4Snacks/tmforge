@@ -66,6 +66,25 @@ namespace ThreatModelForge.Analysis.Tests
         }
 
         /// <summary>
+        /// Discovery is resilient to rule types that cannot be instantiated: an abstract rule subclass
+        /// (<see cref="AbstractRuleFixture"/>) and a rule without a public parameterless constructor
+        /// (<see cref="NoDefaultCtorRuleFixture"/>) are skipped and reported through diagnostics rather
+        /// than aborting the load, so the valid rules in the same assembly still load.
+        /// </summary>
+        [TestMethod]
+        public void LoadDefaultSkipsUninstantiableRules()
+        {
+            List<string> diagnostics = new List<string>();
+            using (RuleSet target = RuleSet.LoadDefault(new[] { this.GetType().Assembly }, diagnostics.Add))
+            {
+                Assert.IsTrue(target.Rules.Any(rule => string.Equals(rule.ID, "TM1234", StringComparison.Ordinal)));
+                Assert.IsTrue(target.Rules.Any(rule => string.Equals(rule.ID, "TM1235", StringComparison.Ordinal)));
+                Assert.IsFalse(target.Rules.Any(rule => rule is NoDefaultCtorRuleFixture));
+                Assert.IsTrue(diagnostics.Any(message => message.Contains("NoDefaultCtorRuleFixture")));
+            }
+        }
+
+        /// <summary>
         /// Unit test for the <see cref="RuleSet.Dispose()"/> method.
         /// </summary>
         [TestMethod]
