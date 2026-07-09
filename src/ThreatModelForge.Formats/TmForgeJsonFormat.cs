@@ -510,7 +510,14 @@ namespace ThreatModelForge.Formats
                 Guid guid = editor.AddElement(surface, kind, element.X, element.Y);
                 guid = PreserveId(surface.Borders, guid, element.Id);
                 editor.SetElementName(surface, guid, element.Name ?? string.Empty);
-                if (kind == StencilKind.TrustBoundary)
+                if (element.Width.HasValue && element.Height.HasValue)
+                {
+                    // Honor the authored size for every kind — AddElement only stamps the stencil's
+                    // default size, so without this a component (process, store, external) would shrink
+                    // to that default on the round trip instead of keeping the size the canvas gave it.
+                    editor.ResizeElement(surface, guid, element.X, element.Y, element.Width.Value, element.Height.Value);
+                }
+                else if (kind == StencilKind.TrustBoundary)
                 {
                     editor.ResizeElement(surface, guid, element.X, element.Y, element.Width ?? 260, element.Height ?? 180);
                 }

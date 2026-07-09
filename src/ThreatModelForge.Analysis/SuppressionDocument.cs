@@ -4,6 +4,7 @@ namespace ThreatModelForge.Analysis
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
+    using System.Runtime.InteropServices;
     using System.Text.Json;
 
     /// <summary>
@@ -11,6 +12,19 @@ namespace ThreatModelForge.Analysis
     /// </summary>
     public class SuppressionDocument
     {
+        /// <summary>
+        /// The comparison used to match a threat-model path against a declared suppression path.
+        /// Windows and macOS default to case-insensitive file systems, so paths are matched
+        /// case-insensitively there; every other platform (Linux and other Unix file systems) is
+        /// treated as case-sensitive so a suppression declared for <c>Model.tm7</c> is not applied
+        /// to a distinct <c>model.tm7</c>.
+        /// </summary>
+        private static readonly StringComparison PathComparison =
+            RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ||
+            RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+
         /// <summary>
         /// Gets or sets the set of file elements in this document.
         /// </summary>
@@ -79,10 +93,9 @@ namespace ThreatModelForge.Analysis
                 path = Path.GetFullPath(path);
             }
 
-            // NOTE: This will be incorrect on a case-sensitive FS.
             FileSuppressionElement file =
                 (this.Files ?? Array.Empty<FileSuppressionElement>())
-                .FirstOrDefault(e => string.Equals(e.File, path, StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(e => string.Equals(e.File, path, PathComparison));
             if (file == null)
             {
                 return Array.Empty<SuppressMessage>();
