@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.4.0...v0.5.0) (2026-07-09)
+
+
+### Features
+
+* boundary aware object sizing ([#29](https://github.com/Hacks4Snacks/tmforge/issues/29)) ([0404939](https://github.com/Hacks4Snacks/tmforge/commit/0404939b5ff56c2e1c663807576b83e431fd32e2))
+* manual threat authoring and editing ([#28](https://github.com/Hacks4Snacks/tmforge/issues/28)) ([4be2067](https://github.com/Hacks4Snacks/tmforge/commit/4be206707c40c5dad876ff68b69b277d91594070))
+* MCP server / AI-agent surface ([#25](https://github.com/Hacks4Snacks/tmforge/issues/25)) ([e3e4a1a](https://github.com/Hacks4Snacks/tmforge/commit/e3e4a1a0b193e935fe61036c79c45542ab138321))
+
+
+### Bug Fixes
+
+* add mising package ([#26](https://github.com/Hacks4Snacks/tmforge/issues/26)) ([b404bbd](https://github.com/Hacks4Snacks/tmforge/commit/b404bbda0b65df7ffd9903b2486dd169f8ea2d54))
+* correct Studio -&gt; MTMT .tm7 export and expand automated test coverage ([#30](https://github.com/Hacks4Snacks/tmforge/issues/30)) ([896e6ab](https://github.com/Hacks4Snacks/tmforge/commit/896e6ab525239c61fc59e5d8d29c63d9c6f71527))
+
 ## [0.4.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.3.2...v0.4.0) (2026-07-08)
 
 
