@@ -807,6 +807,12 @@
 
 .dfd-label {
   pointer-events: none;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  line-height: 1.2;
+  text-align: center;
 }
 
 .dfd-icon {
@@ -1494,12 +1500,14 @@ a.threat-ref:hover {
   border-color: var(--accent);
 }
 
-/* Faint leader from the flow's midpoint to a label that has been dragged aside. */
+/* Leader from the flow's midpoint to a label that has been moved aside — brightened so it is easy
+   to tell which label belongs to which line when parallel flows are separated. */
 .edge-leader {
   fill: none;
-  stroke: var(--border);
-  stroke-width: 1;
-  stroke-dasharray: 2 3;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+  opacity: 0.65;
   pointer-events: none;
 }
 

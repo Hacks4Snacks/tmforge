@@ -32,6 +32,7 @@ import { createHttpEngine, loadWasmEngine, offlineEngine, probeEngine, type Find
 import { ThreatsPanel, type NewThreatDraft, type ThreatEdit, type ThreatScopeOption } from './ThreatsPanel';
 import { CanvasSearch, type SearchItem } from './CanvasSearch';
 import { DEFAULT_NODE_SIZE, modelFromPages, pagesFromModel, type PageGraph } from './mapping';
+import { tidyGraph } from './autosize';
 import { cloneGraph, type Clipboard } from './clipboard';
 import { useUndoRedo } from './useUndoRedo';
 import { FlowEdge } from './edges/FlowEdge';
@@ -1176,7 +1177,14 @@ export function Editor() {
 
   const loadModel = useCallback(
     (model: TmForgeModel) => {
-      const nextPages = pagesFromModel(model);
+      // Auto-fit each page as it loads: grow shapes so a name never overruns its boundary and pull
+      // apart overlapping flow labels, so an imported (for example, CLI-authored) model is readable
+      // without manual clean-up. `grow` never shrinks a hand-tuned size, and labels already dragged
+      // aside are left as they are, so this is non-destructive.
+      const nextPages = pagesFromModel(model).map((p) => {
+        const tidied = tidyGraph(p.nodes, p.edges, 'grow');
+        return { ...p, nodes: tidied.nodes, edges: tidied.edges };
+      });
       const nextPacks = model.analysis?.disabledPacks ?? [];
       const nextRuleIds = model.analysis?.disabledRuleIds ?? [];
       const first = nextPages[0];
@@ -1270,6 +1278,20 @@ export function Editor() {
     reset();
   }, [setNodes, setEdges, reset]);
 
+  // Auto-layout the active page: fit every shape to its label (so a name can't overrun its boundary)
+  // and separate flow labels that overlap. One undo snapshot covers the whole tidy, then the view is
+  // re-framed. This is the on-demand form of the grow-only pass that runs when a model is loaded.
+  const tidyActivePage = useCallback(() => {
+    if (nodes.length === 0) {
+      return;
+    }
+    takeSnapshot();
+    const tidied = tidyGraph(nodes, edges, 'exact');
+    setNodes(tidied.nodes);
+    setEdges(tidied.edges);
+    window.setTimeout(() => fitView({ padding: 0.25, maxZoom: 1.15, duration: 300 }), 0);
+  }, [nodes, edges, setNodes, setEdges, takeSnapshot, fitView]);
+
   const actions = useMemo<DfdActions>(
     () => ({ beginEdit: takeSnapshot, renameNode, renameEdge, setEdgeLabelOffset }),
     [takeSnapshot, renameNode, renameEdge, setEdgeLabelOffset],
@@ -1296,6 +1318,7 @@ export function Editor() {
         onReport={downloadReport}
         onClear={clearAll}
         onFit={() => fitView({ padding: 0.25, maxZoom: 1.15, duration: 300 })}
+        onTidy={tidyActivePage}
         onUndo={undo}
         onRedo={redo}
         canUndo={canUndo}
