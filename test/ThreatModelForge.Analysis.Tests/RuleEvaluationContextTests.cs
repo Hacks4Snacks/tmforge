@@ -58,13 +58,12 @@ namespace ThreatModelForge.Analysis.Tests
         [TestMethod]
         public void ConstructorNegativeTest()
         {
-            RuleEvaluationContext? target = null;
             ThreatModel? model = null;
             MessageWriter? messageWriter = null;
 
             try
             {
-                target = new RuleEvaluationContext(model!, messageWriter!);
+                _ = new RuleEvaluationContext(model!, messageWriter!);
                 Assert.Fail("Expected exception.");
             }
             catch (ArgumentNullException ex)
@@ -74,7 +73,7 @@ namespace ThreatModelForge.Analysis.Tests
 
             try
             {
-                target = new RuleEvaluationContext(new ThreatModel(), messageWriter!);
+                _ = new RuleEvaluationContext(new ThreatModel(), messageWriter!);
                 Assert.Fail("Expected exception.");
             }
             catch (ArgumentNullException ex)

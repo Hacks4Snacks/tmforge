@@ -25,7 +25,7 @@ namespace ThreatModelForge.Analysis.Tests
             try
             {
                 MessageWriter? nullMessageWriter = null;
-                target = new SuppressedMessageWriter(nullMessageWriter!);
+                _ = new SuppressedMessageWriter(nullMessageWriter!);
                 Assert.Fail("Expected exception.");
             }
             catch (ArgumentNullException ex)

@@ -20,13 +20,13 @@ namespace ThreatModelForge.Cli.Tests
         private string WorkingDirectory { get; set; } = string.Empty;
 
         /// <summary>Gets the path of the model created by <see cref="NewModelWithFlow"/>.</summary>
-        private string ModelPath => Path.Combine(this.WorkingDirectory, "model.tm7");
+        private string ModelPath => Path.Join(this.WorkingDirectory, "model.tm7");
 
         /// <summary>Creates an isolated working directory for the test.</summary>
         [TestInitialize]
         public void Initialize()
         {
-            this.WorkingDirectory = Path.Combine(Path.GetTempPath(), "tmforge-threats-" + Guid.NewGuid().ToString("N"));
+            this.WorkingDirectory = Path.Join(Path.GetTempPath(), "tmforge-threats-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(this.WorkingDirectory);
         }
 
@@ -195,8 +195,8 @@ namespace ThreatModelForge.Cli.Tests
 
         private static (int Exit, string Stdout) Capture(Func<int> run)
         {
-            StringWriter outWriter = new StringWriter();
-            StringWriter errorWriter = new StringWriter();
+            using StringWriter outWriter = new StringWriter();
+            using StringWriter errorWriter = new StringWriter();
             TextWriter originalOut = Console.Out;
             TextWriter originalError = Console.Error;
             Console.SetOut(outWriter);
@@ -215,12 +215,10 @@ namespace ThreatModelForge.Cli.Tests
 
         private static bool HasRule(JsonElement data, string ruleId)
         {
-            foreach (JsonElement threat in data.GetProperty("threats").EnumerateArray())
+            foreach (JsonElement threat in data.GetProperty("threats").EnumerateArray()
+                .Where(threat => threat.GetProperty("ruleId").GetString() == ruleId))
             {
-                if (threat.GetProperty("ruleId").GetString() == ruleId)
-                {
-                    return true;
-                }
+                return true;
             }
 
             return false;

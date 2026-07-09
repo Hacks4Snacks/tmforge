@@ -56,15 +56,7 @@ namespace ThreatModelForge.Editing
         /// <returns>The matching stencil, or <see langword="null"/> when no stencil has that id.</returns>
         public static StencilDto? Find(string id)
         {
-            foreach (StencilDto candidate in All)
-            {
-                if (string.Equals(candidate.Id, id, StringComparison.OrdinalIgnoreCase))
-                {
-                    return candidate;
-                }
-            }
-
-            return null;
+            return All.FirstOrDefault(candidate => string.Equals(candidate.Id, id, StringComparison.OrdinalIgnoreCase));
         }
 
         /// <summary>Reads every embedded stencil pack and orders them for the palette.</summary>

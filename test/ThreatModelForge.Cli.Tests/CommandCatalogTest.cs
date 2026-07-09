@@ -79,7 +79,7 @@ namespace ThreatModelForge.Cli.Tests
 
         private static string CaptureOut(Func<int> run)
         {
-            StringWriter outWriter = new StringWriter();
+            using StringWriter outWriter = new StringWriter();
             TextWriter original = Console.Out;
             Console.SetOut(outWriter);
             try
@@ -95,7 +95,7 @@ namespace ThreatModelForge.Cli.Tests
 
         private static string CaptureError(Func<int> run)
         {
-            StringWriter errorWriter = new StringWriter();
+            using StringWriter errorWriter = new StringWriter();
             TextWriter original = Console.Error;
             Console.SetError(errorWriter);
             try

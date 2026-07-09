@@ -57,12 +57,9 @@ namespace ThreatModelForge.Cli
             Console.Error.WriteLine("Commands:");
 
             int width = 0;
-            foreach (CommandInfo command in CommandCatalog.Commands)
+            foreach (CommandInfo command in CommandCatalog.Commands.Where(command => command.Verb.Length > width))
             {
-                if (command.Verb.Length > width)
-                {
-                    width = command.Verb.Length;
-                }
+                width = command.Verb.Length;
             }
 
             foreach (CommandInfo command in CommandCatalog.Commands)

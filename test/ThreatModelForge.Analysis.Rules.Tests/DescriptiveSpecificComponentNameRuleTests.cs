@@ -100,19 +100,18 @@ namespace ThreatModelForge.Analysis.Rules.Tests
 
             // One component per default general-purpose stencil, each carrying the stencil's
             // default (type) name so every one is flagged by the rule.
-            foreach (string typeId in GeneralPurposeComponentSet.Default.TypeIds)
+            foreach (StencilRectangle component in GeneralPurposeComponentSet.Default.TypeIds.Select(typeId => new StencilRectangle
             {
-                StencilRectangle component = new StencilRectangle
+                Guid = Guid.NewGuid(),
+                TypeId = typeId,
+                GenericTypeId = "GE.P",
+                Properties =
                 {
-                    Guid = Guid.NewGuid(),
-                    TypeId = typeId,
-                    GenericTypeId = "GE.P",
-                    Properties =
-                    {
-                        new HeaderDisplayAttribute { Name = "Default Name", DisplayName = "Default Name" },
-                        new StringDisplayAttribute { Name = "Name", DisplayName = "Name", Value = "Default Name" },
-                    },
-                };
+                    new HeaderDisplayAttribute { Name = "Default Name", DisplayName = "Default Name" },
+                    new StringDisplayAttribute { Name = "Name", DisplayName = "Name", Value = "Default Name" },
+                },
+            }))
+            {
                 diagram.Borders.Add(component.Guid, component);
             }
 

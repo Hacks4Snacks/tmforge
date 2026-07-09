@@ -90,7 +90,7 @@
                 }
             }
 #pragma warning disable CA1031 // Do not catch general exception types
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OutOfMemoryException && ex is not StackOverflowException)
 #pragma warning restore CA1031 // Do not catch general exception types
             {
                 Console.Error.WriteLine(ex.ToString());
@@ -147,19 +147,19 @@
             };
 
             string? targetFileName = Path.GetFileNameWithoutExtension(report.SourcePath);
-            string jsonPath = Path.Combine(
+            string jsonPath = Path.Join(
                 reportFolderPath,
                 $"{targetFileName!}.json");
             string jsonString = JsonSerializer.Serialize(report, options);
             File.WriteAllText(jsonPath, jsonString);
 
-            string listingPath = Path.Combine(
+            string listingPath = Path.Join(
                 reportFolderPath,
                 $"{targetFileName!}.listing.json");
             string listingJsonString = JsonSerializer.Serialize(listing, options);
             File.WriteAllText(listingPath, listingJsonString);
 
-            string htmlPath = Path.Combine(
+            string htmlPath = Path.Join(
                 reportFolderPath,
                 $"{targetFileName!}.html");
             using (FindingsHtmlReportWriter writer = new FindingsHtmlReportWriter(htmlPath))
@@ -167,7 +167,7 @@
                 writer.Write(report);
             }
 
-            string sarifFilePath = Path.Combine(
+            string sarifFilePath = Path.Join(
                 reportFolderPath,
                 $"{targetFileName!}.sarif");
             using (SarifReportWriter writer = new SarifReportWriter(sarifFilePath))

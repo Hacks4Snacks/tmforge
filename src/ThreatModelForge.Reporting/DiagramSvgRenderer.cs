@@ -347,13 +347,11 @@ namespace ThreatModelForge.Reporting
 
         private static string GetElementName(Entity element)
         {
-            foreach (StringDisplayAttribute property in element.Properties.OfType<StringDisplayAttribute>())
+            foreach (StringDisplayAttribute property in element.Properties.OfType<StringDisplayAttribute>()
+                .Where(property => string.Equals(property.Name, "Name", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(property.DisplayName, "Name", StringComparison.OrdinalIgnoreCase)))
             {
-                if (string.Equals(property.Name, "Name", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(property.DisplayName, "Name", StringComparison.OrdinalIgnoreCase))
-                {
-                    return property.Value as string ?? string.Empty;
-                }
+                return property.Value as string ?? string.Empty;
             }
 
             return string.Empty;

@@ -97,7 +97,7 @@ namespace ThreatModelForge.Formats.Tests
         public void ReadThenWriteIsByteStable()
         {
             Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
-            string sourcePath = Path.Combine(this.TestContext!.DeploymentDirectory!, "SampleModel.tm7");
+            string sourcePath = Path.Join(this.TestContext!.DeploymentDirectory!, "SampleModel.tm7");
             Tm7Format format = new Tm7Format();
 
             byte[] first;

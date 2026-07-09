@@ -31,7 +31,7 @@ namespace ThreatModelForge.Cli.Tests
         [TestInitialize]
         public void Initialize()
         {
-            this.WorkingDirectory = Path.Combine(Path.GetTempPath(), "tmforge-manifest-" + Guid.NewGuid().ToString("N"));
+            this.WorkingDirectory = Path.Join(Path.GetTempPath(), "tmforge-manifest-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(this.WorkingDirectory);
         }
 
@@ -145,14 +145,12 @@ namespace ThreatModelForge.Cli.Tests
             Assert.AreEqual(2, root.GetProperty("flows").GetArrayLength());
 
             bool foundP1 = false;
-            foreach (JsonElement element in root.GetProperty("elements").EnumerateArray())
+            foreach (JsonElement element in root.GetProperty("elements").EnumerateArray()
+                .Where(element => element.GetProperty("alias").GetString() == "P1"))
             {
-                if (element.GetProperty("alias").GetString() == "P1")
-                {
-                    Assert.AreEqual("process", element.GetProperty("kind").GetString());
-                    Assert.AreEqual("TB", element.GetProperty("boundary").GetString());
-                    foundP1 = true;
-                }
+                Assert.AreEqual("process", element.GetProperty("kind").GetString());
+                Assert.AreEqual("TB", element.GetProperty("boundary").GetString());
+                foundP1 = true;
             }
 
             Assert.IsTrue(foundP1, "the exported manifest must preserve P1 with its boundary membership");
@@ -168,8 +166,8 @@ namespace ThreatModelForge.Cli.Tests
 
         private static (int Exit, string Stdout) Capture(Func<int> run)
         {
-            StringWriter outWriter = new StringWriter();
-            StringWriter errorWriter = new StringWriter();
+            using StringWriter outWriter = new StringWriter();
+            using StringWriter errorWriter = new StringWriter();
             TextWriter originalOut = Console.Out;
             TextWriter originalError = Console.Error;
             Console.SetOut(outWriter);
@@ -188,7 +186,7 @@ namespace ThreatModelForge.Cli.Tests
 
         private string WriteManifest(string json)
         {
-            string path = Path.Combine(this.WorkingDirectory, "model.json");
+            string path = Path.Join(this.WorkingDirectory, "model.json");
             File.WriteAllText(path, json);
             return path;
         }

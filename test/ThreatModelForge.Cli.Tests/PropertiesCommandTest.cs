@@ -51,13 +51,11 @@ namespace ThreatModelForge.Cli.Tests
             Assert.IsTrue(data.GetProperty("bases").GetArrayLength() > 0);
 
             bool foundChannel = false;
-            foreach (JsonElement descriptor in data.GetProperty("properties").EnumerateArray())
+            foreach (JsonElement descriptor in data.GetProperty("properties").EnumerateArray()
+                .Where(descriptor => descriptor.GetProperty("name").GetString() == "Channel"))
             {
-                if (descriptor.GetProperty("name").GetString() == "Channel")
-                {
-                    Assert.AreEqual("flow", descriptor.GetProperty("appliesTo").GetString());
-                    foundChannel = true;
-                }
+                Assert.AreEqual("flow", descriptor.GetProperty("appliesTo").GetString());
+                foundChannel = true;
             }
 
             Assert.IsTrue(foundChannel, "the schema must include the flow Channel property");
@@ -96,21 +94,17 @@ namespace ThreatModelForge.Cli.Tests
                 }
 
                 bool referencesWeakCipherRule = false;
-                foreach (JsonElement rule in descriptor.GetProperty("rules").EnumerateArray())
+                foreach (JsonElement rule in descriptor.GetProperty("rules").EnumerateArray()
+                    .Where(rule => rule.GetProperty("id").GetString() == "TM1025" && rule.GetProperty("severity").GetString() == "Warning"))
                 {
-                    if (rule.GetProperty("id").GetString() == "TM1025" && rule.GetProperty("severity").GetString() == "Warning")
-                    {
-                        referencesWeakCipherRule = true;
-                    }
+                    referencesWeakCipherRule = true;
                 }
 
                 bool flagsSecretbox = false;
-                foreach (JsonElement value in descriptor.GetProperty("flagged").EnumerateArray())
+                foreach (JsonElement value in descriptor.GetProperty("flagged").EnumerateArray()
+                    .Where(value => value.GetString() == "secretbox"))
                 {
-                    if (value.GetString() == "secretbox")
-                    {
-                        flagsSecretbox = true;
-                    }
+                    flagsSecretbox = true;
                 }
 
                 Assert.IsTrue(referencesWeakCipherRule, "Algorithm must reference TM1025 (Warning)");
@@ -150,16 +144,13 @@ namespace ThreatModelForge.Cli.Tests
             JsonElement explain = document.RootElement.GetProperty("data").GetProperty("explain");
 
             bool foundSchemeBinding = false;
-            foreach (JsonElement row in explain.EnumerateArray())
+            foreach (JsonElement row in explain.EnumerateArray()
+                .Where(row => row.GetProperty("property").GetString() == "AuthenticationScheme" && row.GetProperty("value").GetString() == "None"))
             {
-                if (row.GetProperty("property").GetString() == "AuthenticationScheme" &&
-                    row.GetProperty("value").GetString() == "None")
-                {
-                    Assert.AreEqual("external", row.GetProperty("appliesTo").GetString());
-                    Assert.AreEqual("TM1023", row.GetProperty("rule").GetString());
-                    Assert.AreEqual("Warning", row.GetProperty("severity").GetString());
-                    foundSchemeBinding = true;
-                }
+                Assert.AreEqual("external", row.GetProperty("appliesTo").GetString());
+                Assert.AreEqual("TM1023", row.GetProperty("rule").GetString());
+                Assert.AreEqual("Warning", row.GetProperty("severity").GetString());
+                foundSchemeBinding = true;
             }
 
             Assert.IsTrue(foundSchemeBinding, "explain must map external AuthenticationScheme=None to TM1023");
@@ -167,8 +158,8 @@ namespace ThreatModelForge.Cli.Tests
 
         private static (int Exit, string Stdout) Capture(Func<int> run)
         {
-            StringWriter outWriter = new StringWriter();
-            StringWriter errorWriter = new StringWriter();
+            using StringWriter outWriter = new StringWriter();
+            using StringWriter errorWriter = new StringWriter();
             TextWriter originalOut = Console.Out;
             TextWriter originalError = Console.Error;
             Console.SetOut(outWriter);

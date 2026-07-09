@@ -153,15 +153,8 @@ namespace ThreatModelForge.Analysis
         {
             Assembly assembly = typeof(KnowledgeBaseCatalog).Assembly;
             string suffix = ".Stencils." + name + ".png";
-            string? resource = null;
-            foreach (string candidate in assembly.GetManifestResourceNames())
-            {
-                if (candidate.EndsWith(suffix, StringComparison.Ordinal))
-                {
-                    resource = candidate;
-                    break;
-                }
-            }
+            string? resource = assembly.GetManifestResourceNames()
+                .FirstOrDefault(candidate => candidate.EndsWith(suffix, StringComparison.Ordinal));
 
             if (resource == null)
             {

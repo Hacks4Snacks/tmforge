@@ -29,7 +29,7 @@ namespace ThreatModelForge.Core.Tests
         public void LoadTest()
         {
             Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
-            string path = Path.Combine(this.TestContext!.DeploymentDirectory, "SampleModel.tm7");
+            string path = Path.Join(this.TestContext!.DeploymentDirectory, "SampleModel.tm7");
 
             ThreatModel actual = ThreatModel.Load(path);
             Assert.IsNotNull(actual);
@@ -59,7 +59,7 @@ namespace ThreatModelForge.Core.Tests
         public void SaveTest()
         {
             Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
-            string path = Path.Combine(
+            string path = Path.Join(
                 this.TestContext!.DeploymentDirectory,
                 $"{Guid.NewGuid()}.tm7");
             ThreatModel target = new ThreatModel();
@@ -90,18 +90,18 @@ namespace ThreatModelForge.Core.Tests
         public void RoundTripFidelityTest()
         {
             Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
-            string sourcePath = Path.Combine(this.TestContext!.DeploymentDirectory, "SampleModel.tm7");
+            string sourcePath = Path.Join(this.TestContext!.DeploymentDirectory, "SampleModel.tm7");
 
             // Load an engine-authored threat model fixture.
             ThreatModel original = ThreatModel.Load(sourcePath);
 
             // First round trip: save the loaded model, then reload it.
-            string pathA = Path.Combine(this.TestContext!.DeploymentDirectory, $"{Guid.NewGuid()}.tm7");
+            string pathA = Path.Join(this.TestContext!.DeploymentDirectory, $"{Guid.NewGuid()}.tm7");
             original.Save(pathA);
             ThreatModel reloaded = ThreatModel.Load(pathA);
 
             // Second round trip: save the reloaded model again.
-            string pathB = Path.Combine(this.TestContext!.DeploymentDirectory, $"{Guid.NewGuid()}.tm7");
+            string pathB = Path.Join(this.TestContext!.DeploymentDirectory, $"{Guid.NewGuid()}.tm7");
             reloaded.Save(pathB);
 
             try

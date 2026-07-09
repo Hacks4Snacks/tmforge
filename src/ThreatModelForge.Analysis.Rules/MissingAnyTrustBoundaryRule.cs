@@ -28,12 +28,9 @@ namespace ThreatModelForge.Analysis.Rules
                 throw new ArgumentNullException(nameof(context));
             }
 
-            foreach (DrawingSurfaceModel diagram in context.Model.DrawingSurfaceList)
+            foreach (DrawingSurfaceModel diagram in context.Model.DrawingSurfaceList.Where(diagram => diagram.TrustBoundaryBorders().Any() || diagram.TrustBoundaryLines().Any()))
             {
-                if (diagram.TrustBoundaryBorders().Any() || diagram.TrustBoundaryLines().Any())
-                {
-                    return;
-                }
+                return;
             }
 
             Message message = this.CreateMessage(

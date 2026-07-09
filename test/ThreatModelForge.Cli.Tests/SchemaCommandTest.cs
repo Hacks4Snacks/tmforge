@@ -41,13 +41,11 @@ namespace ThreatModelForge.Cli.Tests
             Assert.AreEqual(1, data.GetProperty("envelope").GetProperty("schemaVersion").GetInt32());
 
             bool foundAdd = false;
-            foreach (JsonElement entry in data.GetProperty("commands").EnumerateArray())
+            foreach (JsonElement entry in data.GetProperty("commands").EnumerateArray()
+                .Where(entry => entry.GetProperty("command").GetString() == "add"))
             {
-                if (entry.GetProperty("command").GetString() == "add")
-                {
-                    StringAssert.Contains(entry.GetProperty("data").GetString(), "id");
-                    foundAdd = true;
-                }
+                StringAssert.Contains(entry.GetProperty("data").GetString(), "id");
+                foundAdd = true;
             }
 
             Assert.IsTrue(foundAdd, "the catalog must document the add command's output");
@@ -55,8 +53,8 @@ namespace ThreatModelForge.Cli.Tests
 
         private static (int Exit, string Stdout) Capture(Func<int> run)
         {
-            StringWriter outWriter = new StringWriter();
-            StringWriter errorWriter = new StringWriter();
+            using StringWriter outWriter = new StringWriter();
+            using StringWriter errorWriter = new StringWriter();
             TextWriter originalOut = Console.Out;
             TextWriter originalError = Console.Error;
             Console.SetOut(outWriter);

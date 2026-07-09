@@ -25,7 +25,7 @@ namespace ThreatModelForge.Cli.Tests
         [TestInitialize]
         public void Initialize()
         {
-            this.WorkingDirectory = Path.Combine(Path.GetTempPath(), "tmforge-merge-" + Guid.NewGuid().ToString("N"));
+            this.WorkingDirectory = Path.Join(Path.GetTempPath(), "tmforge-merge-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(this.WorkingDirectory);
         }
 
@@ -50,7 +50,7 @@ namespace ThreatModelForge.Cli.Tests
             string basePath = this.Write("base.tm7", BuildBase(out Guid process, out Guid store, out _));
             string oursPath = this.Write("ours.tm7", Rename(this.Load(basePath), process, "API"));
             string theirsPath = this.Write("theirs.tm7", Rename(this.Load(basePath), store, "Warehouse"));
-            string mergedPath = Path.Combine(this.WorkingDirectory, "merged.tm7");
+            string mergedPath = Path.Join(this.WorkingDirectory, "merged.tm7");
 
             (int exit, _) = Capture(new[] { basePath, oursPath, theirsPath, "--output", mergedPath });
 
@@ -69,7 +69,7 @@ namespace ThreatModelForge.Cli.Tests
             string basePath = this.Write("base.tm7", BuildBase(out _, out _, out Guid flow));
             string oursPath = this.Write("ours.tm7", SetProperty(this.Load(basePath), flow, "Protocol", "HTTPS"));
             string theirsPath = this.Write("theirs.tm7", SetProperty(this.Load(basePath), flow, "Protocol", "mTLS"));
-            string mergedPath = Path.Combine(this.WorkingDirectory, "merged.tm7");
+            string mergedPath = Path.Join(this.WorkingDirectory, "merged.tm7");
 
             (int exit, string output) = Capture(new[] { basePath, oursPath, theirsPath, "--output", mergedPath, "--json" });
 
@@ -90,7 +90,7 @@ namespace ThreatModelForge.Cli.Tests
             string basePath = this.Write("base.tm7", BuildBase(out _, out _, out Guid flow));
             string oursPath = this.Write("ours.tm7", SetProperty(this.Load(basePath), flow, "Protocol", "HTTPS"));
             string theirsPath = this.Write("theirs.tm7", SetProperty(this.Load(basePath), flow, "Protocol", "mTLS"));
-            string mergedPath = Path.Combine(this.WorkingDirectory, "merged.tm7");
+            string mergedPath = Path.Join(this.WorkingDirectory, "merged.tm7");
 
             (int exit, _) = Capture(new[] { basePath, oursPath, theirsPath, "--output", mergedPath });
 
@@ -106,14 +106,14 @@ namespace ThreatModelForge.Cli.Tests
         {
             string basePath = this.Write("base.tm7", BuildBase(out _, out _, out _));
 
-            (int exit, _) = Capture(new[] { basePath, basePath, Path.Combine(this.WorkingDirectory, "missing.tm7") });
+            (int exit, _) = Capture(new[] { basePath, basePath, Path.Join(this.WorkingDirectory, "missing.tm7") });
 
             Assert.AreEqual(1, exit);
         }
 
         private static (int Exit, string Output) Capture(string[] args)
         {
-            StringWriter writer = new StringWriter();
+            using StringWriter writer = new StringWriter();
             TextWriter original = Console.Out;
             Console.SetOut(writer);
             try
@@ -186,7 +186,7 @@ namespace ThreatModelForge.Cli.Tests
 
         private string Write(string name, ThreatModel model)
         {
-            string path = Path.Combine(this.WorkingDirectory, name);
+            string path = Path.Join(this.WorkingDirectory, name);
             File.WriteAllBytes(path, new DiagramEditor(model).ToBytes());
             return path;
         }

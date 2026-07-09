@@ -161,21 +161,18 @@ namespace ThreatModelForge.Cli
 
         private static string? StencilLabel(ThreatModel model, Guid id)
         {
-            foreach (DrawingSurfaceModel diagram in model.DrawingSurfaceList)
+            Entity? element = model.DrawingSurfaceList
+                .Select(diagram => DiagramEditor.FindElement(diagram, id))
+                .FirstOrDefault(e => e != null);
+            if (element == null)
             {
-                Entity? element = DiagramEditor.FindElement(diagram, id);
-                if (element == null)
-                {
-                    continue;
-                }
-
-                IReadOnlyDictionary<string, string> properties = DiagramElementHelper.GetCustomProperties(element);
-                return properties.TryGetValue("StencilType", out string? stencilType)
-                    ? StencilCatalog.Find(stencilType)?.Label
-                    : null;
+                return null;
             }
 
-            return null;
+            IReadOnlyDictionary<string, string> properties = DiagramElementHelper.GetCustomProperties(element);
+            return properties.TryGetValue("StencilType", out string? stencilType)
+                ? StencilCatalog.Find(stencilType)?.Label
+                : null;
         }
 
         private static void BuildComponents(ThreatModel model, out string[] headers, out List<string[]> rows, out object items)

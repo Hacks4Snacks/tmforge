@@ -32,7 +32,7 @@ namespace ThreatModelForge.Formats.Tests
         [TestMethod]
         public void WritesValidVsdxFromTm7()
         {
-            string sourcePath = Path.Combine(this.TestContext!.DeploymentDirectory!, "SampleModel.tm7");
+            string sourcePath = Path.Join(this.TestContext!.DeploymentDirectory!, "SampleModel.tm7");
             ThreatModel model = ThreatModelFormatRegistry.CreateDefault().Load(sourcePath);
 
             byte[] vsdx;
@@ -50,14 +50,11 @@ namespace ThreatModelForge.Formats.Tests
             ZipArchiveEntry? page = zip.GetEntry("visio/pages/page1.xml");
             Assert.IsNotNull(page);
 
-            foreach (ZipArchiveEntry entry in zip.Entries)
+            foreach (ZipArchiveEntry entry in zip.Entries
+                .Where(entry => entry.FullName.EndsWith(".xml", StringComparison.Ordinal) || entry.FullName.EndsWith(".rels", StringComparison.Ordinal)))
             {
-                if (entry.FullName.EndsWith(".xml", StringComparison.Ordinal)
-                    || entry.FullName.EndsWith(".rels", StringComparison.Ordinal))
-                {
-                    using Stream partStream = entry.Open();
-                    XDocument.Load(partStream);
-                }
+                using Stream partStream = entry.Open();
+                XDocument.Load(partStream);
             }
 
             using Stream pageStream = page!.Open();
@@ -86,7 +83,7 @@ namespace ThreatModelForge.Formats.Tests
         [TestMethod]
         public void CanReadSniffsVsdxPackage()
         {
-            string sourcePath = Path.Combine(this.TestContext!.DeploymentDirectory!, "SampleModel.tm7");
+            string sourcePath = Path.Join(this.TestContext!.DeploymentDirectory!, "SampleModel.tm7");
             ThreatModel model = ThreatModelFormatRegistry.CreateDefault().Load(sourcePath);
 
             VisioFormat format = new VisioFormat();
@@ -112,7 +109,7 @@ namespace ThreatModelForge.Formats.Tests
         [TestMethod]
         public void RoundTripsStructureThroughModel()
         {
-            string sourcePath = Path.Combine(this.TestContext!.DeploymentDirectory!, "SampleModel.tm7");
+            string sourcePath = Path.Join(this.TestContext!.DeploymentDirectory!, "SampleModel.tm7");
             ThreatModel original = ThreatModelFormatRegistry.CreateDefault().Load(sourcePath);
 
             VisioFormat format = new VisioFormat();
@@ -159,13 +156,11 @@ namespace ThreatModelForge.Formats.Tests
                 Assert.IsNotNull(zip.GetEntry("visio/pages/page1.xml"), "expected page 1 part");
                 Assert.IsNotNull(zip.GetEntry("visio/pages/page2.xml"), "expected page 2 part");
 
-                foreach (ZipArchiveEntry entry in zip.Entries)
+                foreach (ZipArchiveEntry entry in zip.Entries
+                    .Where(entry => entry.FullName.EndsWith(".xml", StringComparison.Ordinal) || entry.FullName.EndsWith(".rels", StringComparison.Ordinal)))
                 {
-                    if (entry.FullName.EndsWith(".xml", StringComparison.Ordinal) || entry.FullName.EndsWith(".rels", StringComparison.Ordinal))
-                    {
-                        using Stream partStream = entry.Open();
-                        XDocument.Load(partStream);
-                    }
+                    using Stream partStream = entry.Open();
+                    XDocument.Load(partStream);
                 }
 
                 ZipArchiveEntry? pagesPart = zip.GetEntry("visio/pages/pages.xml");
@@ -179,8 +174,9 @@ namespace ThreatModelForge.Formats.Tests
                 ZipArchiveEntry? contentTypesPart = zip.GetEntry("[Content_Types].xml");
                 Assert.IsNotNull(contentTypesPart);
                 using (Stream contentTypesStream = contentTypesPart!.Open())
+                using (StreamReader contentTypesReader = new StreamReader(contentTypesStream))
                 {
-                    string contentTypes = new StreamReader(contentTypesStream).ReadToEnd();
+                    string contentTypes = contentTypesReader.ReadToEnd();
                     StringAssert.Contains(contentTypes, "/visio/pages/page2.xml", "content types should register page 2");
                 }
             }

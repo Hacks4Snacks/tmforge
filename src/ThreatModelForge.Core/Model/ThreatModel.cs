@@ -127,13 +127,10 @@ namespace ThreatModelForge.Model
             // property, not to the serialized Header field. A freshly authored surface only has the
             // Header, so mirror it into a Name property (matching how elements are named) — otherwise
             // the tool shows the generic fallback "Diagram" for the page.
-            foreach (object property in surface.Properties)
+            foreach (object property in surface.Properties.Where(property => property is StringDisplayAttribute named &&
+                string.Equals(named.DisplayName, "Name", StringComparison.Ordinal)))
             {
-                if (property is StringDisplayAttribute named &&
-                    string.Equals(named.DisplayName, "Name", StringComparison.Ordinal))
-                {
-                    return;
-                }
+                return;
             }
 
             surface.Properties.Add(new StringDisplayAttribute

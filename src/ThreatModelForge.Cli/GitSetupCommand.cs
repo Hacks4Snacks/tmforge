@@ -56,7 +56,7 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            string attributesPath = Path.Combine(gitDir.Trim(), "info", "attributes");
+            string attributesPath = Path.Join(gitDir.Trim(), "info", "attributes");
             bool added = EnsureMapping(attributesPath);
             Console.Error.WriteLine("Configured this repository: .tm7 files now use tmforge for 'git diff' and 'git merge'.");
             Console.Error.WriteLine(added
@@ -98,7 +98,7 @@ namespace ThreatModelForge.Cli
             }
 
             string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            string path = Path.Combine(home, ".config", "git", "attributes");
+            string path = Path.Join(home, ".config", "git", "attributes");
             SetConfig(global: true, "core.attributesFile", path);
             return path;
         }
@@ -108,7 +108,7 @@ namespace ThreatModelForge.Cli
             if (path == "~" || path.StartsWith("~/", StringComparison.Ordinal))
             {
                 string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                return path.Length == 1 ? home : Path.Combine(home, path.Substring(2));
+                return path.Length == 1 ? home : Path.Join(home, path.Substring(2));
             }
 
             return path;
@@ -124,13 +124,11 @@ namespace ThreatModelForge.Cli
 
             if (File.Exists(attributesPath))
             {
-                foreach (string line in File.ReadAllLines(attributesPath))
+                foreach (string trimmed in File.ReadAllLines(attributesPath)
+                    .Select(line => line.Trim())
+                    .Where(trimmed => trimmed.StartsWith("*.tm7", StringComparison.Ordinal) && trimmed.Contains("tmforge", StringComparison.Ordinal)))
                 {
-                    string trimmed = line.Trim();
-                    if (trimmed.StartsWith("*.tm7", StringComparison.Ordinal) && trimmed.Contains("tmforge", StringComparison.Ordinal))
-                    {
-                        return false; // Already mapped; leave any existing mapping untouched.
-                    }
+                    return false; // Already mapped; leave any existing mapping untouched.
                 }
             }
 

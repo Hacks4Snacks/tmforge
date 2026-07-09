@@ -435,13 +435,13 @@ namespace ThreatModelForge.Formats
         {
             double dx = tx - cx;
             double dy = ty - cy;
-            if (dx == 0 && dy == 0)
+            if (Math.Abs(dx) <= 0.0 && Math.Abs(dy) <= 0.0)
             {
                 return (cx, cy);
             }
 
-            double tX = dx != 0 ? (w / 2) / Math.Abs(dx) : double.PositiveInfinity;
-            double tY = dy != 0 ? (h / 2) / Math.Abs(dy) : double.PositiveInfinity;
+            double tX = Math.Abs(dx) > 0.0 ? (w / 2) / Math.Abs(dx) : double.PositiveInfinity;
+            double tY = Math.Abs(dy) > 0.0 ? (h / 2) / Math.Abs(dy) : double.PositiveInfinity;
             double t = Math.Min(tX, tY);
             double px = cx + (dx * t);
             double py = cy + (dy * t);
@@ -601,12 +601,12 @@ namespace ThreatModelForge.Formats
 
                 (double bx, double by) = Border(sx, sy, sw, sh, tx, ty, 0.04);
                 (double ex, double ey) = Border(tx, ty, tw, th, sx, sy, 0.06);
-                if (bow != 0)
+                if (Math.Abs(bow) > 0.0)
                 {
                     double dx = ex - bx;
                     double dy = ey - by;
                     double len = Math.Sqrt((dx * dx) + (dy * dy));
-                    if (len == 0)
+                    if (len <= 0.0)
                     {
                         len = 1.0;
                     }

@@ -29,7 +29,7 @@ namespace ThreatModelForge.Analysis.Reporting.Tests
         public void WriteSingleRuleSingleMessage()
         {
             Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
-            var docFilePath = Path.Combine(
+            var docFilePath = Path.Join(
                 this.TestContext!.DeploymentDirectory,
                 "Gateway.tm7");
             ModelReport report = CreateTestReport(docFilePath);
@@ -46,7 +46,7 @@ namespace ThreatModelForge.Analysis.Reporting.Tests
         public void WriteNullModelReport()
         {
             Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
-            var docFilePath = Path.Combine(
+            var docFilePath = Path.Join(
                 this.TestContext!.DeploymentDirectory, "Partner.tm7");
             ModelReport? report = null;
 
@@ -60,7 +60,7 @@ namespace ThreatModelForge.Analysis.Reporting.Tests
         public void WriteNoRule()
         {
             Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
-            var docFilePath = Path.Combine(
+            var docFilePath = Path.Join(
                 this.TestContext!.DeploymentDirectory, "Gateway.tm7");
             ModelReport report = CreateTestReport(docFilePath);
 
@@ -74,7 +74,7 @@ namespace ThreatModelForge.Analysis.Reporting.Tests
         public void WriteSingleRuleMultipleResults()
         {
             Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
-            var docFilePath = Path.Combine(
+            var docFilePath = Path.Join(
                 this.TestContext!.DeploymentDirectory,
                 "Subscriptions.tm7");
             ModelReport report = CreateTestReport(docFilePath);
@@ -91,7 +91,7 @@ namespace ThreatModelForge.Analysis.Reporting.Tests
         public void WriteSingleRuleZeroResults()
         {
             Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
-            var docFilePath = Path.Combine(
+            var docFilePath = Path.Join(
                 this.TestContext!.DeploymentDirectory,
                 "Orders.tm7");
             ModelReport report = CreateTestReport(docFilePath);
@@ -107,7 +107,7 @@ namespace ThreatModelForge.Analysis.Reporting.Tests
         public void WriteMultiRuleZeroResults()
         {
             Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
-            var docFilePath = Path.Combine(
+            var docFilePath = Path.Join(
                 this.TestContext!.DeploymentDirectory,
                 "Support Service.tm7");
             ModelReport report = CreateTestReport(docFilePath);
@@ -125,7 +125,7 @@ namespace ThreatModelForge.Analysis.Reporting.Tests
         public void WriteMultiRuleSingleResults()
         {
             Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
-            var docFilePath = Path.Combine(
+            var docFilePath = Path.Join(
                 this.TestContext!.DeploymentDirectory,
                 "Tenant.Profile.tm7");
             ModelReport report = CreateTestReport(docFilePath);
@@ -146,7 +146,7 @@ namespace ThreatModelForge.Analysis.Reporting.Tests
         public void WriteMultiRuleMultipleResults()
         {
             Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
-            var docFilePath = Path.Combine(
+            var docFilePath = Path.Join(
                 this.TestContext!.DeploymentDirectory,
                 "Gateway.tm7");
             ModelReport report = CreateTestReport(docFilePath);
@@ -167,7 +167,7 @@ namespace ThreatModelForge.Analysis.Reporting.Tests
         public void WriteSingeRuleMultipleResultsSuppressed()
         {
             Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
-            var docFilePath = Path.Combine(
+            var docFilePath = Path.Join(
                 this.TestContext!.DeploymentDirectory,
                 "Sync_Agent.tm7");
             ModelReport report = CreateTestReport(docFilePath);
@@ -184,7 +184,7 @@ namespace ThreatModelForge.Analysis.Reporting.Tests
         public void WriteSingeRuleMultipleResultsMixedSuppressed()
         {
             Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
-            var docFilePath = Path.Combine(
+            var docFilePath = Path.Join(
                 this.TestContext!.DeploymentDirectory,
                 "Catalog-1.tm7");
             ModelReport report = CreateTestReport(docFilePath);
@@ -202,7 +202,7 @@ namespace ThreatModelForge.Analysis.Reporting.Tests
         public void WriteMultiRuleMultipleResultsMixedSuppressed()
         {
             Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
-            var docFilePath = Path.Combine(
+            var docFilePath = Path.Join(
                 this.TestContext!.DeploymentDirectory,
                 "Journals.tm7");
             ModelReport report = CreateTestReport(docFilePath);

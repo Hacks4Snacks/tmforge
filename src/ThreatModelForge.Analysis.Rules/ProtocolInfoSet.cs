@@ -96,18 +96,15 @@ public class ProtocolInfoSet
             .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
             .Select(e => e.Trim())
             .Where(e => !string.IsNullOrEmpty(e));
-        foreach (var entry in entries)
-        {
-            var nameValuePair = entry
+        var nameValuePairs = entries
+            .Select(entry => entry
                 .Split(new char[] { ':' }, StringSplitOptions.RemoveEmptyEntries)
                 .Select(e => e.Trim())
                 .Where(e => !string.IsNullOrEmpty(e))
-                .ToArray();
-            if (nameValuePair.Length != 2)
-            {
-                continue;
-            }
-
+                .ToArray())
+            .Where(nameValuePair => nameValuePair.Length == 2);
+        foreach (var nameValuePair in nameValuePairs)
+        {
             string name = nameValuePair[0];
             if (!int.TryParse(nameValuePair[1], NumberStyles.None, CultureInfo.InvariantCulture, out int port))
             {

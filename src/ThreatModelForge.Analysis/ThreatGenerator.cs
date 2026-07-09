@@ -519,12 +519,9 @@ namespace ThreatModelForge.Analysis
         private static int NextThreatId(ThreatModel model)
         {
             int max = 0;
-            foreach (Threat threat in model.AllThreatsDictionary.Values)
+            foreach (Threat threat in model.AllThreatsDictionary.Values.Where(threat => threat.Id > max))
             {
-                if (threat.Id > max)
-                {
-                    max = threat.Id;
-                }
+                max = threat.Id;
             }
 
             return max + 1;

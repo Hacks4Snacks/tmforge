@@ -29,7 +29,7 @@ namespace ThreatModelForge.Cli.Tests
         [TestInitialize]
         public void Initialize()
         {
-            this.WorkingDirectory = Path.Combine(Path.GetTempPath(), "tmforge-list-" + Guid.NewGuid().ToString("N"));
+            this.WorkingDirectory = Path.Join(Path.GetTempPath(), "tmforge-list-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(this.WorkingDirectory);
         }
 
@@ -110,14 +110,14 @@ namespace ThreatModelForge.Cli.Tests
         [TestMethod]
         public void MissingInputReturnsError()
         {
-            (int exit, _) = Capture(new[] { "components", Path.Combine(this.WorkingDirectory, "does-not-exist.tm7") });
+            (int exit, _) = Capture(new[] { "components", Path.Join(this.WorkingDirectory, "does-not-exist.tm7") });
 
             Assert.AreEqual(1, exit);
         }
 
         private static (int Exit, string Output) Capture(string[] args)
         {
-            StringWriter writer = new StringWriter();
+            using StringWriter writer = new StringWriter();
             TextWriter original = Console.Out;
             Console.SetOut(writer);
             try
@@ -133,7 +133,7 @@ namespace ThreatModelForge.Cli.Tests
 
         private string WriteInput()
         {
-            string input = Path.Combine(this.WorkingDirectory, "model.tmforge.json");
+            string input = Path.Join(this.WorkingDirectory, "model.tmforge.json");
             File.WriteAllText(input, SampleJson);
             return input;
         }

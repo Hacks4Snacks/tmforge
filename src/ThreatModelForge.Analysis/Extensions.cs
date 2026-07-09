@@ -414,13 +414,11 @@ namespace ThreatModelForge.Analysis
 
             string propKey = $"{propertyName}:";
 
-            foreach (var property in entity.Properties.OfType<CustomStringDisplayAttribute>())
+            foreach (string propValue in entity.Properties.OfType<CustomStringDisplayAttribute>()
+                .Select(property => property.Value?.ToString() ?? string.Empty)
+                .Where(propValue => propValue.StartsWith(propKey, StringComparison.InvariantCultureIgnoreCase)))
             {
-                string propValue = property.Value?.ToString() ?? string.Empty;
-                if (propValue.StartsWith(propKey, StringComparison.InvariantCultureIgnoreCase))
-                {
-                    values.Add(propValue.Substring(propKey.Length));
-                }
+                values.Add(propValue.Substring(propKey.Length));
             }
 
             // Also read the property when it is stored as a typed list (drop-down) attribute — the form
@@ -475,7 +473,11 @@ namespace ThreatModelForge.Analysis
         /// </remarks>
         public static IEnumerable<string> TokenizeText(this string value)
         {
-            return TokenizeText(new StringReader(value));
+            using StringReader reader = new StringReader(value);
+            foreach (string token in TokenizeText(reader))
+            {
+                yield return token;
+            }
         }
 
         /// <summary>

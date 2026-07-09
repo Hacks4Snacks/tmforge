@@ -7,14 +7,6 @@ namespace ThreatModelForge.Analysis.Reporting
     /// </summary>
     public abstract class ReportWriter : IDisposable
     {
-        /// <summary>
-        /// Finalizes an instance of the <see cref="ReportWriter"/> class.
-        /// </summary>
-        ~ReportWriter()
-        {
-            this.Dispose(false);
-        }
-
         /// <inheritdoc/>
         public void Dispose()
         {

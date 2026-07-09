@@ -29,7 +29,7 @@ namespace ThreatModelForge.Cli.Tests
         [TestInitialize]
         public void Initialize()
         {
-            this.WorkingDirectory = Path.Combine(Path.GetTempPath(), "tmforge-convert-" + Guid.NewGuid().ToString("N"));
+            this.WorkingDirectory = Path.Join(Path.GetTempPath(), "tmforge-convert-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(this.WorkingDirectory);
         }
 
@@ -53,7 +53,7 @@ namespace ThreatModelForge.Cli.Tests
         public void ConvertsToDrawioFromOutputExtension()
         {
             string input = this.WriteInput();
-            string output = Path.Combine(this.WorkingDirectory, "model.drawio");
+            string output = Path.Join(this.WorkingDirectory, "model.drawio");
 
             int exit = ConvertCommand.Run(new[] { "--out", output, input });
 
@@ -69,7 +69,7 @@ namespace ThreatModelForge.Cli.Tests
         public void ConvertsToVsdxByTargetId()
         {
             string input = this.WriteInput();
-            string output = Path.Combine(this.WorkingDirectory, "model.vsdx");
+            string output = Path.Join(this.WorkingDirectory, "model.vsdx");
 
             int exit = ConvertCommand.Run(new[] { "--to", "vsdx", "--out", output, input });
 
@@ -84,7 +84,7 @@ namespace ThreatModelForge.Cli.Tests
         [TestMethod]
         public void MissingInputReturnsError()
         {
-            int exit = ConvertCommand.Run(new[] { "--to", "drawio", Path.Combine(this.WorkingDirectory, "does-not-exist.tm7") });
+            int exit = ConvertCommand.Run(new[] { "--to", "drawio", Path.Join(this.WorkingDirectory, "does-not-exist.tm7") });
 
             Assert.AreEqual(1, exit);
         }
@@ -109,9 +109,9 @@ namespace ThreatModelForge.Cli.Tests
         public void CanonicalGrammarWithJsonEmitsEnvelope()
         {
             string input = this.WriteInput();
-            string output = Path.Combine(this.WorkingDirectory, "model.drawio");
+            string output = Path.Join(this.WorkingDirectory, "model.drawio");
 
-            StringWriter writer = new StringWriter();
+            using StringWriter writer = new StringWriter();
             TextWriter original = Console.Out;
             Console.SetOut(writer);
             int exit;
@@ -133,7 +133,7 @@ namespace ThreatModelForge.Cli.Tests
 
         private string WriteInput()
         {
-            string input = Path.Combine(this.WorkingDirectory, "model.tmforge.json");
+            string input = Path.Join(this.WorkingDirectory, "model.tmforge.json");
             File.WriteAllText(input, SampleJson);
             return input;
         }

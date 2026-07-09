@@ -26,7 +26,7 @@ namespace ThreatModelForge.Analysis.Tests
         [TestMethod]
         public void GetSuppressionsMatchesExactPath()
         {
-            string path = Path.Combine(Path.GetTempPath(), "Model.tm7");
+            string path = Path.Join(Path.GetTempPath(), "Model.tm7");
             SuppressionDocument document = DocumentFor(path);
 
             SuppressMessage[] resolved = document.GetSuppressions(path).ToArray();
@@ -47,8 +47,8 @@ namespace ThreatModelForge.Analysis.Tests
         public void GetSuppressionsRespectsFileSystemCaseSensitivity()
         {
             string directory = Path.GetTempPath();
-            string declared = Path.Combine(directory, "Model.tm7");
-            string differentCase = Path.Combine(directory, "model.tm7");
+            string declared = Path.Join(directory, "Model.tm7");
+            string differentCase = Path.Join(directory, "model.tm7");
             SuppressionDocument document = DocumentFor(declared);
 
             int resolved = document.GetSuppressions(differentCase).Count();
@@ -63,10 +63,10 @@ namespace ThreatModelForge.Analysis.Tests
         [TestMethod]
         public void GetSuppressionsReturnsEmptyForUnknownPath()
         {
-            string declared = Path.Combine(Path.GetTempPath(), "Model.tm7");
+            string declared = Path.Join(Path.GetTempPath(), "Model.tm7");
             SuppressionDocument document = DocumentFor(declared);
 
-            string other = Path.Combine(Path.GetTempPath(), "Other.tm7");
+            string other = Path.Join(Path.GetTempPath(), "Other.tm7");
             Assert.AreEqual(0, document.GetSuppressions(other).Count());
         }
 
@@ -78,7 +78,7 @@ namespace ThreatModelForge.Analysis.Tests
         {
             SuppressionDocument document = new SuppressionDocument();
 
-            string path = Path.Combine(Path.GetTempPath(), "Model.tm7");
+            string path = Path.Join(Path.GetTempPath(), "Model.tm7");
             Assert.AreEqual(0, document.GetSuppressions(path).Count());
         }
 
@@ -90,11 +90,11 @@ namespace ThreatModelForge.Analysis.Tests
         [TestMethod]
         public void LoadResolvesRelativeFilePathsAgainstDocumentFolder()
         {
-            string directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            string directory = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
             try
             {
-                string documentPath = Path.Combine(directory, "suppressions.json");
+                string documentPath = Path.Join(directory, "suppressions.json");
                 string json =
                     "{\"files\":[{\"file\":\"webshop.tm7\",\"suppressions\":" +
                     "[{\"rule\":\"TM1000\",\"justification\":\"accepted\"}]}]}";
@@ -102,7 +102,7 @@ namespace ThreatModelForge.Analysis.Tests
 
                 SuppressionDocument document = SuppressionDocument.Load(documentPath);
 
-                string modelPath = Path.Combine(directory, "webshop.tm7");
+                string modelPath = Path.Join(directory, "webshop.tm7");
                 SuppressMessage[] resolved = document.GetSuppressions(modelPath).ToArray();
 
                 Assert.AreEqual(1, resolved.Length);

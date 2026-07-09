@@ -55,12 +55,9 @@ namespace ThreatModelForge.Analysis.Rules
         /// <returns>The human-readable display name for the pack.</returns>
         public static string DisplayName(string packId)
         {
-            foreach (KeyValuePair<string, string> pack in OrderedPacks)
+            foreach (KeyValuePair<string, string> pack in OrderedPacks.Where(pack => string.Equals(pack.Key, packId, StringComparison.Ordinal)))
             {
-                if (string.Equals(pack.Key, packId, StringComparison.Ordinal))
-                {
-                    return pack.Value;
-                }
+                return pack.Value;
             }
 
             return packId;

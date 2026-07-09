@@ -83,17 +83,10 @@ namespace ThreatModelForge.Editing
                 throw new ArgumentNullException(nameof(diagram));
             }
 
-            foreach (Guid key in diagram.Borders.Keys)
-            {
-                if (diagram.Borders[key] is DrawingElement element && !(element is BorderBoundary)
-                    && x >= element.Left && x <= element.Left + element.Width
-                    && y >= element.Top && y <= element.Top + element.Height)
-                {
-                    return key;
-                }
-            }
-
-            return Guid.Empty;
+            return diagram.Borders.Keys.FirstOrDefault(key =>
+                diagram.Borders[key] is DrawingElement element && !(element is BorderBoundary)
+                && x >= element.Left && x <= element.Left + element.Width
+                && y >= element.Top && y <= element.Top + element.Height);
         }
 
         /// <summary>
@@ -122,15 +115,15 @@ namespace ThreatModelForge.Editing
             int centerY = element.Top + (element.Height / 2);
             double deltaX = fromX - centerX;
             double deltaY = fromY - centerY;
-            if (deltaX == 0 && deltaY == 0)
+            if (Math.Abs(deltaX) <= 0.0 && Math.Abs(deltaY) <= 0.0)
             {
                 return (centerX, centerY);
             }
 
             double halfWidth = Math.Max(1, element.Width / 2.0);
             double halfHeight = Math.Max(1, element.Height / 2.0);
-            double scaleX = deltaX != 0 ? halfWidth / Math.Abs(deltaX) : double.MaxValue;
-            double scaleY = deltaY != 0 ? halfHeight / Math.Abs(deltaY) : double.MaxValue;
+            double scaleX = Math.Abs(deltaX) > 0.0 ? halfWidth / Math.Abs(deltaX) : double.MaxValue;
+            double scaleY = Math.Abs(deltaY) > 0.0 ? halfHeight / Math.Abs(deltaY) : double.MaxValue;
             double scale = Math.Min(scaleX, scaleY);
             return (centerX + (int)Math.Round(deltaX * scale), centerY + (int)Math.Round(deltaY * scale));
         }

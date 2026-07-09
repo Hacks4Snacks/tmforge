@@ -107,7 +107,7 @@ namespace ThreatModelForge.Analysis.Rules.Tests
 
         private static MockMessageWriter Evaluate(string specJson, ThreatModel model)
         {
-            string path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".tmrules.json");
+            string path = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".tmrules.json");
             File.WriteAllText(path, specJson);
             try
             {

@@ -90,7 +90,7 @@ namespace ThreatModelForge.Analysis.Rules.Tests
 
         private static string WriteSpec(string json)
         {
-            string path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".tmrules.json");
+            string path = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".tmrules.json");
             File.WriteAllText(path, json);
             return path;
         }

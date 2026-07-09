@@ -46,12 +46,9 @@ namespace ThreatModelForge.Cli
         /// <param name="values">The values to add.</param>
         public void AddFlagged(IEnumerable<string> values)
         {
-            foreach (string value in values)
+            foreach (string value in values.Where(value => !this.flagged.Contains(value, StringComparer.OrdinalIgnoreCase)))
             {
-                if (!this.flagged.Contains(value, StringComparer.OrdinalIgnoreCase))
-                {
-                    this.flagged.Add(value);
-                }
+                this.flagged.Add(value);
             }
         }
 
