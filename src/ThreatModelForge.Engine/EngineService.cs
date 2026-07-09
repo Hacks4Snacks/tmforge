@@ -10,6 +10,7 @@ namespace ThreatModelForge.Engine
     using ThreatModelForge.Analysis.Rules;
     using ThreatModelForge.Editing;
     using ThreatModelForge.Formats;
+    using ThreatModelForge.KnowledgeBase;
     using ThreatModelForge.Model;
     using ThreatModelForge.Reporting;
 
@@ -191,7 +192,7 @@ namespace ThreatModelForge.Engine
             List<ThreatDto> result = new List<ThreatDto>();
             try
             {
-                ThreatModel model = BuildModel(dto, out _);
+                ThreatModel model = BuildModel(dto, out Dictionary<string, List<string>> nameToIds);
                 using (RuleSet ruleSet = LoadRuleSet())
                 {
                     if (dto.Analysis != null)
@@ -200,26 +201,32 @@ namespace ThreatModelForge.Engine
                     }
 
                     GenerationResult generation = ThreatGenerator.Generate(model, ruleSet);
-                    Dictionary<string, ThreatStateDto> triage = BuildTriage(dto.Threats);
+                    Dictionary<string, ThreatStateDto> overlay = BuildTriage(dto.Threats);
+                    HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     foreach (GeneratedThreat threat in generation.Threats)
                     {
-                        triage.TryGetValue(threat.Id, out ThreatStateDto? state);
+                        overlay.TryGetValue(threat.Id, out ThreatStateDto? edit);
+                        seen.Add(threat.Id);
                         result.Add(new ThreatDto
                         {
                             Id = threat.Id,
                             RuleId = threat.RuleId,
                             Category = threat.Category.ToString(),
-                            Title = threat.Title,
-                            Mitigation = threat.Mitigation,
+                            Title = string.IsNullOrEmpty(edit?.Title) ? threat.Title : edit!.Title!,
+                            Mitigation = string.IsNullOrEmpty(edit?.Mitigation) ? threat.Mitigation : edit!.Mitigation,
+                            Description = edit?.Description,
                             Severity = threat.Severity,
-                            Priority = threat.Priority,
+                            Priority = string.IsNullOrEmpty(edit?.Priority) ? threat.Priority : edit!.Priority,
                             References = threat.References.Select(r => r.Id).ToList(),
                             ElementIds = BuildElementIds(threat),
                             Interaction = threat.InteractionString,
-                            State = NormalizeState(state?.State),
-                            Justification = state?.Justification,
+                            State = NormalizeState(edit?.State),
+                            Justification = edit?.Justification,
+                            Manual = false,
                         });
                     }
+
+                    AppendManualThreats(result, dto.Threats, seen, nameToIds);
                 }
             }
 #pragma warning disable CA1031 // Do not catch general exception types
@@ -419,8 +426,79 @@ namespace ThreatModelForge.Engine
             return map;
         }
 
-        private static string NormalizeState(string? state)
-            => string.Equals(state, "Accepted", StringComparison.OrdinalIgnoreCase) ? "Accepted" : "Open";
+        private static string NormalizeState(string? state) => ThreatStateWire.Canonical(state);
+
+        private static void AppendManualThreats(
+            List<ThreatDto> result,
+            IReadOnlyList<ThreatStateDto>? overlay,
+            HashSet<string> seen,
+            Dictionary<string, List<string>> nameToIds)
+        {
+            if (overlay == null)
+            {
+                return;
+            }
+
+            Dictionary<string, string> idToName = InvertNames(nameToIds);
+            foreach (ThreatStateDto entry in overlay)
+            {
+                if (entry.Manual != true || string.IsNullOrEmpty(entry.Id) || !seen.Add(entry.Id))
+                {
+                    continue;
+                }
+
+                IReadOnlyList<string> ids = entry.ElementIds ?? Array.Empty<string>();
+                result.Add(new ThreatDto
+                {
+                    Id = entry.Id,
+                    RuleId = string.Empty,
+                    Category = entry.Category ?? string.Empty,
+                    Title = entry.Title ?? string.Empty,
+                    Mitigation = entry.Mitigation,
+                    Description = entry.Description,
+                    Severity = "warning",
+                    Priority = string.IsNullOrEmpty(entry.Priority) ? "Medium" : entry.Priority!,
+                    References = Array.Empty<string>(),
+                    ElementIds = ids,
+                    Interaction = DescribeScope(ids, idToName),
+                    State = NormalizeState(entry.State),
+                    Justification = entry.Justification,
+                    Manual = true,
+                });
+            }
+        }
+
+        private static Dictionary<string, string> InvertNames(Dictionary<string, List<string>> nameToIds)
+        {
+            Dictionary<string, string> idToName = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, List<string>> pair in nameToIds)
+            {
+                foreach (string id in pair.Value)
+                {
+                    idToName[id] = pair.Key;
+                }
+            }
+
+            return idToName;
+        }
+
+        private static string DescribeScope(IReadOnlyList<string> ids, Dictionary<string, string> idToName)
+        {
+            if (ids.Count == 0)
+            {
+                return "Model-wide";
+            }
+
+            if (ids.Count == 1)
+            {
+                return NameFor(ids[0], idToName);
+            }
+
+            return NameFor(ids[0], idToName) + " -> " + NameFor(ids[1], idToName);
+        }
+
+        private static string NameFor(string id, Dictionary<string, string> idToName)
+            => idToName.TryGetValue(id, out string? name) ? name : id;
 
         /// <summary>
         /// Builds the model for a register-bearing export (for example, <c>.tm7</c>), materializing the
@@ -437,10 +515,19 @@ namespace ThreatModelForge.Engine
         {
             ThreatModel model = BuildModel(dto, out _);
 
-            // Rebuild the register from the rules (titled and categorized) rather than the sparse,
-            // accepted-only seed the wire read produced, then re-apply acceptance so accepted risks keep
-            // their state and justification on top of the freshly generated threats.
-            model.AllThreatsDictionary.Clear();
+            // BuildModel (through the tmforge-json read) has seeded the durable overlay: manually
+            // authored threats in full, plus edited rule threats as sparse patches. Drop the sparse
+            // patches so the rules regenerate those threats with their full title and category, but keep
+            // the manual threats (which no rule produces), then re-apply the author's edits on top so a
+            // lossless export carries a complete, titled register with the author's state and edits.
+            List<string> ruleSeeded = model.AllThreatsDictionary.Keys
+                .Where(key => !ThreatStateWire.IsManualKey(key))
+                .ToList();
+            foreach (string key in ruleSeeded)
+            {
+                model.AllThreatsDictionary.Remove(key);
+            }
+
             using (RuleSet ruleSet = LoadRuleSet())
             {
                 if (dto.Analysis != null)
@@ -452,16 +539,58 @@ namespace ThreatModelForge.Engine
                 ThreatGenerator.Apply(model, generation);
             }
 
-            foreach (ThreatStateDto state in dto.Threats ?? Array.Empty<ThreatStateDto>())
-            {
-                if (!string.IsNullOrEmpty(state.Id) &&
-                    string.Equals(state.State, "Accepted", StringComparison.OrdinalIgnoreCase))
-                {
-                    ThreatGenerator.Accept(model, state.Id, state.Justification ?? string.Empty);
-                }
-            }
-
+            ApplyOverlayEdits(model, dto.Threats);
             return model;
+        }
+
+        /// <summary>
+        /// Re-applies the author overlay to the freshly generated register: for each edited rule threat
+        /// it layers the author's state, justification, priority, title, description, and mitigation on
+        /// top of the rule-generated threat. Manual threats are already materialized by the tmforge-json
+        /// read and are left untouched here.
+        /// </summary>
+        /// <param name="model">The model whose register is edited.</param>
+        /// <param name="overlay">The author overlay from the document.</param>
+        private static void ApplyOverlayEdits(ThreatModel model, IReadOnlyList<ThreatStateDto>? overlay)
+        {
+            foreach (ThreatStateDto entry in overlay ?? Array.Empty<ThreatStateDto>())
+            {
+                if (string.IsNullOrEmpty(entry.Id) ||
+                    entry.Manual == true ||
+                    !model.AllThreatsDictionary.TryGetValue(entry.Id, out Threat? threat))
+                {
+                    continue;
+                }
+
+                threat.State = ThreatStateWire.Parse(entry.State);
+                if (!string.IsNullOrEmpty(entry.Justification))
+                {
+                    threat.StateInformation = entry.Justification;
+                }
+
+                if (!string.IsNullOrEmpty(entry.Priority))
+                {
+                    threat.Priority = entry.Priority;
+                }
+
+                if (!string.IsNullOrEmpty(entry.Title))
+                {
+                    threat.Title = entry.Title;
+                }
+
+                if (!string.IsNullOrEmpty(entry.Description))
+                {
+                    threat.UserThreatDescription = entry.Description;
+                }
+
+                if (!string.IsNullOrEmpty(entry.Mitigation))
+                {
+                    threat.Properties ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    threat.Properties["Mitigation"] = entry.Mitigation!;
+                }
+
+                threat.ModifiedAt = DateTime.UtcNow;
+            }
         }
 
         private static ThreatModel BuildModel(TmForgeModelDto dto, out Dictionary<string, List<string>> nameToIds)

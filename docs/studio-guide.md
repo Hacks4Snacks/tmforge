@@ -94,6 +94,30 @@ If the engine is offline, Studio falls back to an offline stub so the canvas kee
 it to a running API to get the real rule set. See [Analysis rules & CI](analysis-rules.md) for
 what the rules check.
 
+## Authoring & editing threats
+
+**Analyze** also returns the model's **STRIDE threat register** — the threat-bearing findings framed as
+threats, grouped by category. Each threat is **editable inline**: click **Edit** to set its
+
+- **state** — Open, Needs investigation, Mitigated, or Accepted (accepting reveals a justification field);
+- **priority** — High / Medium / Low;
+- **description** and **mitigation** notes.
+
+Click **+ Add threat** to author a **manual threat** the rules do not detect: give it a title, a STRIDE
+category, and a scope — a specific element or flow, or model-wide. Manual threats are badged **Manual**
+and can be **deleted**; rule-derived threats cannot.
+
+Your edits and manual threats are **persisted on the model** and round-trip through `tmforge-json` into
+the `.tm7` register (see [Formats](formats.md#tmforge-json-canonical-wire-model)), so a threat you accept
+or author survives an export and opens in the Microsoft Threat Modeling Tool. The register itself is
+regenerated from the rules on demand — only your author-owned overlay (edits and manual threats) is
+stored on the wire.
+
+> **Editing a rule threat relies on stable element ids.** A rule threat's edit is keyed by the id of the
+> element it targets. Studio nodes keep stable ids, so edits persist across re-analysis; if you delete
+> and recreate the underlying element (giving it a new id), its rule threat is a fresh threat and the
+> earlier edit no longer applies. Manual threats are keyed independently and are unaffected.
+
 ## Importing and exporting
 
 Studio round-trips through the canonical **`tmforge-json`** wire model:

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Finding, Threat } from './engineClient';
+import type { ThreatLifecycleState } from './types';
 
 /** STRIDE categories in canonical display order (matches the engine's `StrideCategory`). */
 const STRIDE_ORDER: readonly string[] = [
@@ -38,8 +39,228 @@ function referenceUrl(id: string): string | undefined {
   return undefined;
 }
 
+/** One element or flow a manually-authored threat can be scoped to. */
+export interface ThreatScopeOption {
+  /** The element or flow id. */
+  id: string;
+  /** The display label (name and kind). */
+  label: string;
+}
+
+/** An author edit to a threat's owned fields. `state` is always carried; the rest are sparse. */
+export interface ThreatEdit {
+  state: ThreatLifecycleState;
+  priority?: string;
+  description?: string;
+  mitigation?: string;
+  justification?: string;
+}
+
+/** A manually-authored threat the user is creating. */
+export interface NewThreatDraft {
+  title: string;
+  category: string;
+  /** The scoped element or flow id, or the empty string for a model-wide threat. */
+  scopeId: string;
+  priority?: string;
+  description?: string;
+  mitigation?: string;
+}
+
+/** Lifecycle states offered in the editor, in workflow order. */
+const STATE_OPTIONS: readonly { value: ThreatLifecycleState; label: string }[] = [
+  { value: 'Open', label: 'Open' },
+  { value: 'NeedsInvestigation', label: 'Needs investigation' },
+  { value: 'Mitigated', label: 'Mitigated' },
+  { value: 'Accepted', label: 'Accepted' },
+];
+
+/** Priorities offered in the editor. */
+const PRIORITY_OPTIONS: readonly string[] = ['High', 'Medium', 'Low'];
+
+/** The short badge shown for a non-open state (open threats show no badge). */
+const STATE_BADGE: Record<string, string> = {
+  NeedsInvestigation: 'Investigating',
+  Mitigated: 'Mitigated',
+  Accepted: 'Accepted',
+};
+
+/**
+ * A manual threat has no rule severity, so its leading badge reflects the author's priority instead.
+ * This maps that priority onto the shared severity colour scale (High -> error, Low -> info, else warning).
+ */
+function severityClassForPriority(priority: string | undefined): string {
+  switch (priority) {
+    case 'High':
+      return 'error';
+    case 'Low':
+      return 'info';
+    default:
+      return 'warning';
+  }
+}
+
+/** The inline editor for a single threat's author-owned fields. */
+function ThreatEditor({ threat, onSave, onCancel }: { threat: Threat; onSave: (edit: ThreatEdit) => void; onCancel: () => void }) {
+  const [state, setState] = useState<ThreatLifecycleState>(threat.state);
+  const [priority, setPriority] = useState(threat.priority ?? 'Medium');
+  const [description, setDescription] = useState(threat.description ?? '');
+  const [mitigation, setMitigation] = useState(threat.mitigation ?? '');
+  const [justification, setJustification] = useState(threat.justification ?? '');
+
+  function save() {
+    const edit: ThreatEdit = { state };
+    if (priority !== (threat.priority ?? 'Medium')) {
+      edit.priority = priority;
+    }
+    if (description !== (threat.description ?? '')) {
+      edit.description = description;
+    }
+    if (mitigation !== (threat.mitigation ?? '')) {
+      edit.mitigation = mitigation;
+    }
+    if (justification !== (threat.justification ?? '')) {
+      edit.justification = justification;
+    }
+    onSave(edit);
+  }
+
+  return (
+    <form className="threat-accept threat-edit" onSubmit={(event) => { event.preventDefault(); save(); }}>
+      <label className="inspector-field">
+        <span>State</span>
+        <select value={state} onChange={(event) => setState(event.target.value as ThreatLifecycleState)}>
+          {STATE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="inspector-field">
+        <span>Priority</span>
+        <select value={priority} onChange={(event) => setPriority(event.target.value)}>
+          {PRIORITY_OPTIONS.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="inspector-field">
+        <span>Description</span>
+        <textarea className="threat-accept-input" value={description} onChange={(event) => setDescription(event.target.value)} />
+      </label>
+      <label className="inspector-field">
+        <span>Mitigation</span>
+        <textarea className="threat-accept-input" value={mitigation} onChange={(event) => setMitigation(event.target.value)} />
+      </label>
+      {state === 'Accepted' ? (
+        <label className="inspector-field">
+          <span>Justification</span>
+          <textarea
+            className="threat-accept-input"
+            placeholder="Why is this risk accepted?"
+            value={justification}
+            onChange={(event) => setJustification(event.target.value)}
+          />
+        </label>
+      ) : null}
+      <div className="threat-accept-buttons">
+        <button type="submit" className="btn btn-primary">
+          Save
+        </button>
+        <button type="button" className="btn" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** The form for authoring a new manual threat. */
+function AddThreatForm({ scopeOptions, onAdd, onCancel }: { scopeOptions: ThreatScopeOption[]; onAdd: (draft: NewThreatDraft) => void; onCancel: () => void }) {
+  const [title, setTitle] = useState('');
+  const [category, setCategory] = useState<string>('Spoofing');
+  const [scopeId, setScopeId] = useState('');
+  const [priority, setPriority] = useState('Medium');
+  const [description, setDescription] = useState('');
+  const [mitigation, setMitigation] = useState('');
+
+  function add() {
+    const trimmed = title.trim();
+    if (!trimmed) {
+      return;
+    }
+    const draft: NewThreatDraft = { title: trimmed, category, scopeId, priority };
+    if (description.trim()) {
+      draft.description = description.trim();
+    }
+    if (mitigation.trim()) {
+      draft.mitigation = mitigation.trim();
+    }
+    onAdd(draft);
+  }
+
+  return (
+    <form className="threat-accept threat-edit" onSubmit={(event) => { event.preventDefault(); add(); }}>
+      <label className="inspector-field">
+        <span>Title</span>
+        <input value={title} autoFocus placeholder="Threat statement" onChange={(event) => setTitle(event.target.value)} />
+      </label>
+      <label className="inspector-field">
+        <span>Category</span>
+        <select value={category} onChange={(event) => setCategory(event.target.value)}>
+          {STRIDE_ORDER.map((option) => (
+            <option key={option} value={option}>
+              {STRIDE_LABEL[option] ?? option}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="inspector-field">
+        <span>Scope</span>
+        <select value={scopeId} onChange={(event) => setScopeId(event.target.value)}>
+          <option value="">Model-wide</option>
+          {scopeOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="inspector-field">
+        <span>Priority</span>
+        <select value={priority} onChange={(event) => setPriority(event.target.value)}>
+          {PRIORITY_OPTIONS.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="inspector-field">
+        <span>Description</span>
+        <textarea className="threat-accept-input" value={description} onChange={(event) => setDescription(event.target.value)} />
+      </label>
+      <label className="inspector-field">
+        <span>Mitigation</span>
+        <textarea className="threat-accept-input" value={mitigation} onChange={(event) => setMitigation(event.target.value)} />
+      </label>
+      <div className="threat-accept-buttons">
+        <button type="submit" className="btn btn-primary" disabled={!title.trim()}>
+          Add threat
+        </button>
+        <button type="button" className="btn" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export interface ThreatsPanelProps {
-  /** The generated STRIDE threat register for the current model (open + accepted). */
+  /** The generated STRIDE threat register for the current model (rule-derived + manual). */
   threats: Threat[];
   /** Non-threat hygiene findings (structural / naming rules), shown in a trailing section. */
   findings: Finding[];
@@ -47,21 +268,35 @@ export interface ThreatsPanelProps {
   onSelect: (elementIds: string[]) => void;
   /** Returns the name of the page an item's elements live on, when it is not the active page. */
   offPageLabel: (elementIds: string[]) => string | undefined;
-  /** Accepts a threat's risk with a justification (moves it to the Accepted state). */
-  onAccept: (threat: Threat, justification: string) => void;
-  /** Reverts an accepted threat back to open. */
-  onUndoAccept: (threat: Threat) => void;
+  /** Applies an author edit (state / priority / mitigation / description / justification) to a threat. */
+  onEditThreat: (threat: Threat, edit: ThreatEdit) => void;
+  /** Creates a manually-authored threat. */
+  onAddThreat: (draft: NewThreatDraft) => void;
+  /** Deletes a manually-authored threat (rule threats cannot be deleted). */
+  onDeleteThreat: (threat: Threat) => void;
+  /** The elements and flows a manual threat can be scoped to. */
+  scopeOptions: ThreatScopeOption[];
 }
 
 /**
  * The Studio analysis panel: one place for the model's analysis. It leads with the STRIDE threat
- * register (grouped by category, each threat acceptable inline with a justification) and trails with
- * any non-threat hygiene findings. Threats and findings are the same detection — a threat is a
- * threat-bearing finding with a lifecycle — so they share one box rather than two near-identical ones.
+ * register (grouped by category, each threat editable inline — author its state, priority, mitigation,
+ * and description, or create a threat by hand) and trails with any non-threat hygiene findings.
+ * Threats and findings are the same detection — a threat is a threat-bearing finding with a lifecycle
+ * — so they share one box rather than two near-identical ones.
  */
-export function ThreatsPanel({ threats, findings, onSelect, offPageLabel, onAccept, onUndoAccept }: ThreatsPanelProps) {
-  const [acceptingId, setAcceptingId] = useState<string | null>(null);
-  const [justification, setJustification] = useState('');
+export function ThreatsPanel({
+  threats,
+  findings,
+  onSelect,
+  offPageLabel,
+  onEditThreat,
+  onAddThreat,
+  onDeleteThreat,
+  scopeOptions,
+}: ThreatsPanelProps) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const byCategory = new Map<string, Threat[]>();
   for (const threat of threats) {
@@ -74,25 +309,37 @@ export function ThreatsPanel({ threats, findings, onSelect, offPageLabel, onAcce
   const unknown = [...byCategory.keys()].filter((category) => !STRIDE_ORDER.includes(category)).sort();
   const ordered = [...known, ...unknown];
 
-  const acceptedCount = threats.filter((threat) => threat.state === 'Accepted').length;
-  const openCount = threats.length - acceptedCount;
-
-  function confirmAccept(threat: Threat) {
-    const reason = justification.trim();
-    if (!reason) {
-      return;
-    }
-    onAccept(threat, reason);
-    setAcceptingId(null);
-    setJustification('');
-  }
+  const openCount = threats.filter((threat) => threat.state === 'Open').length;
+  const triagedCount = threats.length - openCount;
 
   return (
     <div className="threats">
-      <h3>
-        {openCount} open threat{openCount === 1 ? '' : 's'}
-        {acceptedCount > 0 ? <span className="threats-accepted-count"> · {acceptedCount} accepted</span> : null}
-      </h3>
+      <div className="threats-head">
+        <h3>
+          {openCount} open threat{openCount === 1 ? '' : 's'}
+          {triagedCount > 0 ? <span className="threats-accepted-count"> · {triagedCount} triaged</span> : null}
+        </h3>
+        <button
+          type="button"
+          className="threat-action"
+          onClick={() => {
+            setEditingId(null);
+            setAdding((value) => !value);
+          }}
+        >
+          {adding ? 'Close' : '+ Add threat'}
+        </button>
+      </div>
+      {adding ? (
+        <AddThreatForm
+          scopeOptions={scopeOptions}
+          onAdd={(draft) => {
+            onAddThreat(draft);
+            setAdding(false);
+          }}
+          onCancel={() => setAdding(false)}
+        />
+      ) : null}
       {ordered.map((category) => {
         const items = byCategory.get(category) ?? [];
         return (
@@ -103,10 +350,14 @@ export function ThreatsPanel({ threats, findings, onSelect, offPageLabel, onAcce
             </div>
             {items.map((threat) => {
               const offPage = offPageLabel(threat.elementIds);
-              const accepted = threat.state === 'Accepted';
-              const isAccepting = acceptingId === threat.id;
+              const triaged = threat.state !== 'Open';
+              const isEditing = editingId === threat.id;
+              const badge = STATE_BADGE[threat.state];
+              // A manual threat carries no rule severity, so its badge shows the author's priority.
+              const severityClass = threat.manual ? severityClassForPriority(threat.priority) : threat.severity;
+              const severityLabel = threat.manual ? threat.priority ?? 'Medium' : threat.severity;
               return (
-                <div key={threat.id} className={accepted ? 'threat threat-accepted' : 'threat'}>
+                <div key={threat.id} className={triaged ? 'threat threat-accepted' : 'threat'}>
                   <div className="threat-row">
                     <div
                       className="threat-head"
@@ -121,14 +372,23 @@ export function ThreatsPanel({ threats, findings, onSelect, offPageLabel, onAcce
                         }
                       }}
                     >
-                      <span className={`sev sev-${threat.severity}`}>{threat.severity}</span>
+                      <span className={`sev sev-${severityClass}`} title={threat.manual ? 'Priority' : 'Severity'}>{severityLabel}</span>
                       <div className="threat-body">
                         <div className="threat-title">
                           {threat.ruleId ? <code className="rule-id">{threat.ruleId}</code> : null} {threat.title}
-                          {accepted ? <span className="threat-badge">Accepted</span> : null}
+                          {threat.manual ? <span className="threat-badge threat-badge-manual">Manual</span> : null}
+                          {badge ? <span className="threat-badge">{badge}</span> : null}
                           {offPage ? <span className="finding-page">{offPage}</span> : null}
                         </div>
                         <div className="threat-meta">
+                          {!threat.manual ? (
+                            <span
+                              className={`threat-priority sev-${severityClassForPriority(threat.priority)}`}
+                              title="Priority"
+                            >
+                              Priority: {threat.priority ?? 'Medium'}
+                            </span>
+                          ) : null}
                           {threat.interaction ? <span className="threat-scope">{threat.interaction}</span> : null}
                           {threat.references.map((reference) => {
                             const url = referenceUrl(reference);
@@ -150,59 +410,42 @@ export function ThreatsPanel({ threats, findings, onSelect, offPageLabel, onAcce
                             );
                           })}
                         </div>
-                        {accepted && threat.justification ? (
+                        {threat.description ? <div className="threat-desc">{threat.description}</div> : null}
+                        {threat.state === 'Accepted' && threat.justification ? (
                           <div className="threat-justification">“{threat.justification}”</div>
                         ) : null}
                       </div>
                     </div>
                     <div className="threat-actions">
-                      {accepted ? (
-                        <button type="button" className="threat-action" onClick={() => onUndoAccept(threat)}>
-                          Undo
-                        </button>
-                      ) : !isAccepting ? (
+                      {!isEditing ? (
                         <button
                           type="button"
                           className="threat-action"
                           onClick={() => {
-                            setAcceptingId(threat.id);
-                            setJustification('');
+                            setAdding(false);
+                            setEditingId(threat.id);
                           }}
                         >
-                          Accept
+                          Edit
+                        </button>
+                      ) : null}
+                      {threat.manual ? (
+                        <button type="button" className="threat-action" onClick={() => onDeleteThreat(threat)}>
+                          Delete
                         </button>
                       ) : null}
                     </div>
                   </div>
-                  {isAccepting ? (
-                    <form
-                      className="threat-accept"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        confirmAccept(threat);
+                  {isEditing ? (
+                    <ThreatEditor
+                      key={threat.id}
+                      threat={threat}
+                      onSave={(edit) => {
+                        onEditThreat(threat, edit);
+                        setEditingId(null);
                       }}
-                    >
-                      <textarea
-                        className="threat-accept-input"
-                        placeholder="Why is this risk accepted? (required)"
-                        value={justification}
-                        autoFocus
-                        onChange={(event) => setJustification(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Escape') {
-                            setAcceptingId(null);
-                          }
-                        }}
-                      />
-                      <div className="threat-accept-buttons">
-                        <button type="submit" className="btn btn-primary" disabled={!justification.trim()}>
-                          Accept risk
-                        </button>
-                        <button type="button" className="btn" onClick={() => setAcceptingId(null)}>
-                          Cancel
-                        </button>
-                      </div>
-                    </form>
+                      onCancel={() => setEditingId(null)}
+                    />
                   ) : null}
                 </div>
               );

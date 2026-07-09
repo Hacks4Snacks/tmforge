@@ -1,7 +1,7 @@
 import createClient, { type Client } from 'openapi-fetch';
 import { FALLBACK_PACKS, FALLBACK_STENCILS } from './stencils';
 import { normalizeKind } from './types';
-import type { DfdKind, TmForgeModel } from './types';
+import type { DfdKind, ThreatLifecycleState, TmForgeModel } from './types';
 import type { components, paths } from './engine/schema';
 
 export type Severity = 'info' | 'warning' | 'error';
@@ -40,10 +40,14 @@ export interface Threat {
   elementIds: string[];
   /** Human-readable scope (`source -> target` for a flow, else the element name). */
   interaction: string;
-  /** Triage state: `Open` (default) or `Accepted`. */
-  state: 'Open' | 'Accepted';
-  /** The risk-acceptance justification, when accepted. */
+  /** The lifecycle state (`Open`, `NeedsInvestigation`, `Mitigated`, or `Accepted`). */
+  state: ThreatLifecycleState;
+  /** The risk-acceptance justification or state note, when set. */
   justification?: string;
+  /** The author-set description, when set. */
+  description?: string;
+  /** True when the threat was authored by hand (not projected from a rule). */
+  manual?: boolean;
 }
 
 /** A single point a three-way merge could not reconcile automatically (the merge kept `ours`). */
@@ -369,9 +373,23 @@ function toThreat(dto: components['schemas']['ThreatDto']): Threat {
     references: dto.references ?? [],
     elementIds: dto.elementIds ?? [],
     interaction: dto.interaction ?? '',
-    state: dto.state === 'Accepted' ? 'Accepted' : 'Open',
+    state: normalizeThreatState(dto.state),
     justification: dto.justification ?? undefined,
+    description: dto.description ?? undefined,
+    manual: dto.manual ?? false,
   };
+}
+
+/** Coerces the wire state string onto the UI's lifecycle union (defaulting to `Open`). */
+function normalizeThreatState(state: string | undefined): ThreatLifecycleState {
+  switch (state) {
+    case 'NeedsInvestigation':
+    case 'Mitigated':
+    case 'Accepted':
+      return state;
+    default:
+      return 'Open';
+  }
 }
 
 class OfflineEngineClient implements IEngineClient {

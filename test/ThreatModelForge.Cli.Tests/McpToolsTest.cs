@@ -133,5 +133,81 @@ namespace ThreatModelForge.Cli.Tests
             CollectionAssert.Contains(assignments, "Protocol=HTTPS");
             CollectionAssert.Contains(assignments, "Port=443");
         }
+
+        /// <summary>
+        /// Verifies that <c>add_threat</c> records a manually-authored threat on the model's overlay.
+        /// </summary>
+        [TestMethod]
+        public void AddThreat_CreatesManualOverlayEntry()
+        {
+            AuthoringResultDto result = McpAuthoringTools.AddThreat(
+                model: null,
+                title: "Config is world-writable",
+                category: "Tampering",
+                scope: "22222222-2222-4222-8222-222222222222",
+                priority: "High");
+
+            Assert.IsTrue(result.Success, result.Error);
+            Assert.IsTrue(result.Id!.StartsWith("manual:", StringComparison.Ordinal));
+            ThreatStateDto entry = result.Model!.Threats!.Single();
+            Assert.IsTrue(entry.Manual == true);
+            Assert.AreEqual("Tampering", entry.Category);
+            Assert.AreEqual("Config is world-writable", entry.Title);
+            Assert.AreEqual("22222222-2222-4222-8222-222222222222", entry.ElementIds!.Single());
+        }
+
+        /// <summary>
+        /// Verifies that <c>edit_threat</c> records a rule-threat edit that the projection then applies.
+        /// </summary>
+        [TestMethod]
+        public void EditThreat_RecordsEditAndProjectsIt()
+        {
+            TmForgeModelDto model = ModelWithSpoofingThreat();
+            ThreatDto spoof = EngineService.GenerateThreats(model).First(threat => threat.RuleId == "TM1023");
+
+            AuthoringResultDto result = McpAuthoringTools.EditThreat(model, spoof.Id, state: "Mitigated", priority: "Low");
+
+            Assert.IsTrue(result.Success, result.Error);
+            ThreatDto after = EngineService.GenerateThreats(result.Model!).First(threat => threat.Id == spoof.Id);
+            Assert.AreEqual("Mitigated", after.State);
+            Assert.AreEqual("Low", after.Priority);
+        }
+
+        /// <summary>
+        /// Verifies that <c>remove_threat</c> deletes a manually-authored threat's overlay entry.
+        /// </summary>
+        [TestMethod]
+        public void RemoveThreat_DeletesManualOverlayEntry()
+        {
+            AuthoringResultDto added = McpAuthoringTools.AddThreat(model: null, title: "X", category: "Repudiation");
+            Assert.IsTrue(added.Success, added.Error);
+            string id = added.Id!;
+
+            AuthoringResultDto removed = McpAuthoringTools.RemoveThreat(added.Model!, id);
+
+            Assert.IsTrue(removed.Success, removed.Error);
+            Assert.IsNull(removed.Model!.Threats);
+            Assert.AreEqual(id, removed.Removed!.Single());
+        }
+
+        private static TmForgeModelDto ModelWithSpoofingThreat()
+        {
+            const string externalId = "11111111-1111-4111-8111-111111111111";
+            const string processId = "22222222-2222-4222-8222-222222222222";
+            return new TmForgeModelDto
+            {
+                Schema = "tmforge-json",
+                Version = "0.1",
+                Elements = new[]
+                {
+                    new TmForgeElementDto { Id = externalId, Kind = "external", Name = "Client", X = 40, Y = 40 },
+                    new TmForgeElementDto { Id = processId, Kind = "process", Name = "Gateway", X = 220, Y = 40 },
+                },
+                Flows = new[]
+                {
+                    new TmForgeFlowDto { Id = "33333333-3333-4333-8333-333333333333", Source = externalId, Target = processId, Name = "request" },
+                },
+            };
+        }
     }
 }

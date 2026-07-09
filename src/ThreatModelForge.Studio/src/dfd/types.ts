@@ -108,12 +108,33 @@ export interface TmForgeModel {
   threats?: ThreatTriage[];
 }
 
-/** One generated threat's persisted triage state, carried on {@link TmForgeModel.threats}. */
+/**
+ * One threat's persisted, author-owned state, carried on {@link TmForgeModel.threats}. Rule-derived
+ * threats only need an entry once edited (the rest of the register regenerates from the rules); a
+ * manually-authored threat sets `manual` and is keyed `manual:{guid}`.
+ */
 export interface ThreatTriage {
-  /** The threat's register id (`{targetGuid:ruleId}`) this state applies to. */
+  /** The threat's register id (`{targetGuid:ruleId}`, or `manual:{guid}` for a manual threat). */
   id: string;
-  /** The triage state: `Open` (default) or `Accepted`. */
-  state: 'Open' | 'Accepted';
-  /** The risk-acceptance justification, when accepted. */
+  /** The lifecycle state. */
+  state: ThreatLifecycleState;
+  /** The risk-acceptance justification or state note. */
   justification?: string;
+  /** True when this is a manually-authored threat (not projected from a rule). */
+  manual?: boolean;
+  /** The STRIDE category, for a manual threat. */
+  category?: string;
+  /** The author-set title (or the manual threat's title). */
+  title?: string;
+  /** The author-set description. */
+  description?: string;
+  /** The author-set mitigation. */
+  mitigation?: string;
+  /** The author-set priority (`High` / `Medium` / `Low`). */
+  priority?: string;
+  /** Element ids a manual threat is scoped to (source[, target, flow]); empty means model-wide. */
+  elementIds?: string[];
 }
+
+/** The persisted lifecycle state of a threat. `Open` / `Accepted` are retained for back-compatibility. */
+export type ThreatLifecycleState = 'Open' | 'NeedsInvestigation' | 'Mitigated' | 'Accepted';

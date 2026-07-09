@@ -113,6 +113,86 @@ namespace ThreatModelForge.Cli.Tests
             Assert.AreEqual(1, exit);
         }
 
+        /// <summary>Adding a manual threat persists it into the register keyed <c>manual:{guid}</c>.</summary>
+        [TestMethod]
+        public void ThreatsAddCreatesManualThreat()
+        {
+            string path = this.NewModelWithFlow();
+
+            (int exit, string stdout) = Capture(() => ThreatsCommand.Run(new[]
+            {
+                path, "--add", "--title", "Admin actions are not logged", "--category", "Repudiation", "--priority", "High", "--json",
+            }));
+
+            Assert.AreEqual(0, exit);
+            JsonElement data = JsonDocument.Parse(stdout).RootElement.GetProperty("data");
+            string id = data.GetProperty("id").GetString() ?? string.Empty;
+            Assert.IsTrue(id.StartsWith("manual:", StringComparison.Ordinal));
+            Assert.AreEqual("Repudiation", data.GetProperty("category").GetString());
+
+            (ThreatModel model, _) = CliModelLoader.Load(path);
+            Assert.IsTrue(model.AllThreatsDictionary.TryGetValue(id, out Threat? threat));
+            Assert.AreEqual("Admin actions are not logged", threat!.Title);
+            Assert.AreEqual("Repudiation", threat.UserThreatCategory);
+            Assert.IsNull(threat.TypeId);
+            Assert.AreEqual("High", threat.Priority);
+        }
+
+        /// <summary>Editing a rule threat changes its state, priority, and description in the register.</summary>
+        [TestMethod]
+        public void ThreatsEditChangesRuleThreatState()
+        {
+            string path = this.NewModelWithFlow();
+            (_, string writeOut) = Capture(() => ThreatsCommand.Run(new[] { path, "--write", "--json" }));
+            string id = JsonDocument.Parse(writeOut).RootElement.GetProperty("data")
+                .GetProperty("threats").EnumerateArray().First().GetProperty("id").GetString() ?? string.Empty;
+
+            (int exit, _) = Capture(() => ThreatsCommand.Run(new[]
+            {
+                path, "--edit", id, "--state", "Mitigated", "--priority", "Low", "--description", "Handled by the mesh.",
+            }));
+
+            Assert.AreEqual(0, exit);
+            (ThreatModel model, _) = CliModelLoader.Load(path);
+            Assert.IsTrue(model.AllThreatsDictionary.TryGetValue(id, out Threat? threat));
+            Assert.AreEqual(ThreatState.Mitigated, threat!.State);
+            Assert.AreEqual("Low", threat.Priority);
+            Assert.AreEqual("Handled by the mesh.", threat.UserThreatDescription);
+        }
+
+        /// <summary>Removing a manual threat deletes it from the register.</summary>
+        [TestMethod]
+        public void ThreatsRemoveDeletesManualThreat()
+        {
+            string path = this.NewModelWithFlow();
+            (int addExit, string addOut) = Capture(() => ThreatsCommand.Run(new[]
+            {
+                path, "--add", "--title", "Hand-authored", "--category", "Tampering", "--json",
+            }));
+            Assert.AreEqual(0, addExit);
+            string id = JsonDocument.Parse(addOut).RootElement.GetProperty("data").GetProperty("id").GetString() ?? string.Empty;
+
+            (int exit, _) = Capture(() => ThreatsCommand.Run(new[] { path, "--remove", id }));
+
+            Assert.AreEqual(0, exit);
+            (ThreatModel model, _) = CliModelLoader.Load(path);
+            Assert.IsFalse(model.AllThreatsDictionary.ContainsKey(id));
+        }
+
+        /// <summary>A rule threat cannot be removed — it regenerates from the rules.</summary>
+        [TestMethod]
+        public void ThreatsRemoveRuleThreatIsRejected()
+        {
+            string path = this.NewModelWithFlow();
+            (_, string writeOut) = Capture(() => ThreatsCommand.Run(new[] { path, "--write", "--json" }));
+            string id = JsonDocument.Parse(writeOut).RootElement.GetProperty("data")
+                .GetProperty("threats").EnumerateArray().First().GetProperty("id").GetString() ?? string.Empty;
+
+            (int exit, _) = Capture(() => ThreatsCommand.Run(new[] { path, "--remove", id }));
+
+            Assert.AreEqual(1, exit);
+        }
+
         private static (int Exit, string Stdout) Capture(Func<int> run)
         {
             StringWriter outWriter = new StringWriter();

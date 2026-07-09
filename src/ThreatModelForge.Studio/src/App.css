@@ -800,7 +800,7 @@
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25), 0 8px 20px rgba(15, 23, 42, 0.12);
 }
 
-.dfd-node.flagged {
+.react-flow__node.flagged .dfd-node {
   border-color: #f59e0b;
   box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.3);
 }
@@ -861,7 +861,7 @@
 }
 
 .dfd-datastore.selected,
-.dfd-datastore.flagged {
+.react-flow__node.flagged .dfd-datastore {
   box-shadow: none;
 }
 
@@ -1179,6 +1179,28 @@
   font-weight: 400;
 }
 
+.threats-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.threat-edit .inspector-field {
+  margin-bottom: 8px;
+}
+
+.threat-desc {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.threat-badge-manual {
+  color: #6d28d9;
+  background: #f5f3ff;
+}
+
 .threat-body {
   display: flex;
   flex-direction: column;
@@ -1196,6 +1218,29 @@
 .threat-scope {
   color: var(--muted);
   font-size: 11px;
+}
+
+.threat-priority {
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 0 5px;
+  white-space: nowrap;
+}
+
+.threat-priority.sev-error {
+  color: #b91c1c;
+  background: #fef2f2;
+}
+
+.threat-priority.sev-warning {
+  color: #b45309;
+  background: #fff7ed;
+}
+
+.threat-priority.sev-info {
+  color: #1d4ed8;
+  background: #eff6ff;
 }
 
 .threat-ref {

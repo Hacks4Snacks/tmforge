@@ -162,6 +162,226 @@ namespace ThreatModelForge.Analysis
             return true;
         }
 
+        /// <summary>
+        /// Adds a manually-authored threat to the model's register — a threat the rules do not detect.
+        /// It is keyed with a stable <c>manual:{guid}</c> id (so rule generation never collides with or
+        /// overwrites it), scoped to the given element/flow ids, and carries the author's category,
+        /// title, state, priority, description, and mitigation.
+        /// </summary>
+        /// <param name="model">The model to add the threat to.</param>
+        /// <param name="category">The STRIDE category.</param>
+        /// <param name="title">The threat statement.</param>
+        /// <param name="elementIds">The element/flow ids the threat is scoped to (source, then optional target and flow); empty for a model-wide threat.</param>
+        /// <param name="state">The initial lifecycle state.</param>
+        /// <param name="priority">The priority, or <see langword="null"/> for the default.</param>
+        /// <param name="description">The description, or <see langword="null"/>.</param>
+        /// <param name="mitigation">The mitigation, or <see langword="null"/>.</param>
+        /// <returns>The created threat.</returns>
+        public static Threat AddManual(
+            ThreatModel model,
+            string category,
+            string title,
+            IReadOnlyList<string>? elementIds,
+            ThreatState state,
+            string? priority,
+            string? description,
+            string? mitigation)
+        {
+            if (model == null)
+            {
+                throw new ArgumentNullException(nameof(model));
+            }
+
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                throw new ArgumentException("A threat title is required.", nameof(title));
+            }
+
+            (Guid source, Guid target, Guid flow) = ResolveScope(elementIds);
+            string key = "manual:" + Guid.NewGuid().ToString("N");
+            Threat threat = new Threat
+            {
+                Id = NextThreatId(model),
+                TypeId = null,
+                SourceGuid = source,
+                TargetGuid = target,
+                FlowGuid = flow,
+                DrawingSurfaceGuid = FirstSurfaceGuid(model),
+                State = state,
+                InteractionKey = key,
+                Title = title,
+                Priority = string.IsNullOrWhiteSpace(priority) ? "Medium" : priority,
+                UserThreatCategory = string.IsNullOrWhiteSpace(category) ? null : category,
+                UserThreatDescription = string.IsNullOrWhiteSpace(description) ? null : description,
+                Wide = source == Guid.Empty && target == Guid.Empty && flow == Guid.Empty,
+                ModifiedAt = DateTime.UtcNow,
+            };
+            if (!string.IsNullOrWhiteSpace(mitigation))
+            {
+                threat.Properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Mitigation"] = mitigation!,
+                };
+            }
+
+            model.AllThreatsDictionary[key] = threat;
+            model.ThreatGenerationEnabled = true;
+            return threat;
+        }
+
+        /// <summary>
+        /// Edits a threat's author-owned fields in place: its lifecycle state, priority, description,
+        /// mitigation, and state note. Only the non-null arguments are applied. Works on both
+        /// rule-derived and manually-authored threats found in the register.
+        /// </summary>
+        /// <param name="model">The model containing the threat.</param>
+        /// <param name="threatId">The threat's register key, interaction key, or numeric id.</param>
+        /// <param name="state">The new lifecycle state, or <see langword="null"/> to leave it unchanged.</param>
+        /// <param name="priority">The new priority, or <see langword="null"/> to leave it unchanged.</param>
+        /// <param name="description">The new description, or <see langword="null"/> to leave it unchanged (empty clears it).</param>
+        /// <param name="mitigation">The new mitigation, or <see langword="null"/> to leave it unchanged (empty clears it).</param>
+        /// <param name="note">The new state note / justification, or <see langword="null"/> to leave it unchanged.</param>
+        /// <returns><see langword="true"/> if a matching threat was found and edited; otherwise <see langword="false"/>.</returns>
+        public static bool Edit(
+            ThreatModel model,
+            string threatId,
+            ThreatState? state,
+            string? priority,
+            string? description,
+            string? mitigation,
+            string? note)
+        {
+            if (model == null)
+            {
+                throw new ArgumentNullException(nameof(model));
+            }
+
+            if (string.IsNullOrWhiteSpace(threatId))
+            {
+                throw new ArgumentException("Value cannot be null or empty.", nameof(threatId));
+            }
+
+            Threat? threat = FindThreat(model, threatId);
+            if (threat == null)
+            {
+                return false;
+            }
+
+            if (state.HasValue)
+            {
+                threat.State = state.Value;
+            }
+
+            if (!string.IsNullOrWhiteSpace(priority))
+            {
+                threat.Priority = priority;
+            }
+
+            if (description != null)
+            {
+                threat.UserThreatDescription = description.Length == 0 ? null : description;
+            }
+
+            if (mitigation != null)
+            {
+                threat.Properties ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (mitigation.Length == 0)
+                {
+                    threat.Properties.Remove("Mitigation");
+                }
+                else
+                {
+                    threat.Properties["Mitigation"] = mitigation;
+                }
+            }
+
+            if (note != null)
+            {
+                threat.StateInformation = note;
+            }
+
+            threat.ModifiedAt = DateTime.UtcNow;
+            return true;
+        }
+
+        /// <summary>
+        /// Removes a manually-authored threat from the register. Rule-derived threats regenerate from
+        /// the rules and cannot be removed (accept or edit them instead).
+        /// </summary>
+        /// <param name="model">The model containing the threat.</param>
+        /// <param name="threatId">The threat's register key, interaction key, or numeric id.</param>
+        /// <returns><see langword="true"/> if a manual threat was found and removed; otherwise <see langword="false"/>.</returns>
+        public static bool Remove(ThreatModel model, string threatId)
+        {
+            if (model == null)
+            {
+                throw new ArgumentNullException(nameof(model));
+            }
+
+            if (string.IsNullOrWhiteSpace(threatId))
+            {
+                throw new ArgumentException("Value cannot be null or empty.", nameof(threatId));
+            }
+
+            foreach (KeyValuePair<string, Threat> pair in model.AllThreatsDictionary)
+            {
+                string interaction = string.IsNullOrEmpty(pair.Value.InteractionKey) ? pair.Key : pair.Value.InteractionKey!;
+                bool manual = interaction.StartsWith("manual:", StringComparison.OrdinalIgnoreCase);
+                bool matches =
+                    string.Equals(pair.Key, threatId, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(interaction, threatId, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(pair.Value.Id.ToString(CultureInfo.InvariantCulture), threatId, StringComparison.Ordinal);
+                if (matches)
+                {
+                    if (!manual)
+                    {
+                        return false;
+                    }
+
+                    model.AllThreatsDictionary.Remove(pair.Key);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static (Guid Source, Guid Target, Guid Flow) ResolveScope(IReadOnlyList<string>? elementIds)
+        {
+            Guid source = Guid.Empty;
+            Guid target = Guid.Empty;
+            Guid flow = Guid.Empty;
+            if (elementIds != null)
+            {
+                if (elementIds.Count > 0)
+                {
+                    Guid.TryParse(elementIds[0], out source);
+                }
+
+                if (elementIds.Count > 1)
+                {
+                    Guid.TryParse(elementIds[1], out target);
+                }
+
+                if (elementIds.Count > 2)
+                {
+                    Guid.TryParse(elementIds[2], out flow);
+                }
+            }
+
+            return (source, target, flow);
+        }
+
+        private static Guid FirstSurfaceGuid(ThreatModel model)
+        {
+            foreach (DrawingSurfaceModel surface in model.DrawingSurfaceList)
+            {
+                return surface.Guid;
+            }
+
+            return Guid.Empty;
+        }
+
         private static RuleSet LoadDefaultRuleSet()
         {
             return AnalysisRuleSources.Create();
