@@ -121,9 +121,8 @@ namespace ThreatModelForge.Cli
 
             Dictionary<string, string> variables = new Dictionary<string, string>(
                 StringComparer.OrdinalIgnoreCase);
-            foreach (string define in parsed.Defines)
+            foreach (string[] parts in parsed.Defines.Select(define => define.Split('=', StringSplitOptions.None)))
             {
-                string[] parts = define.Split('=', StringSplitOptions.None);
                 if (parts.Length != 2)
                 {
                     return false;

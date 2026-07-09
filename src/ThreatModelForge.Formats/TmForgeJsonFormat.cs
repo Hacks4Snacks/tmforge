@@ -532,7 +532,9 @@ namespace ThreatModelForge.Formats
 
             foreach (TmForgeJsonFlow flow in flows ?? Array.Empty<TmForgeJsonFlow>())
             {
-                if (idMap.TryGetValue(flow.Source, out Guid source) && idMap.TryGetValue(flow.Target, out Guid target))
+                bool hasSource = idMap.TryGetValue(flow.Source, out Guid source);
+                bool hasTarget = idMap.TryGetValue(flow.Target, out Guid target);
+                if (hasSource && hasTarget)
                 {
                     Guid connector = editor.AddConnector(surface, source, target);
                     connector = PreserveId(surface.Lines, connector, flow.Id);

@@ -49,15 +49,6 @@ namespace ThreatModelForge.Analysis
         }
 
         /// <summary>
-        /// Finalizes an instance of the <see cref="Rule"/> class.
-        /// </summary>
-        ~Rule()
-        {
-            // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
-            this.Dispose(disposing: false);
-        }
-
-        /// <summary>
         /// Gets the rule id.
         /// </summary>
         public string ID => this.ruleId;

@@ -70,12 +70,13 @@ namespace ThreatModelForge.Analysis
                 doc = new SuppressionDocument();
             }
 
-            foreach (FileSuppressionElement element in doc!.Files ?? Array.Empty<FileSuppressionElement>())
+            IEnumerable<FileSuppressionElement> declaredFiles = doc!.Files ?? Array.Empty<FileSuppressionElement>();
+            foreach (FileSuppressionElement element in declaredFiles.Where(element => !Path.IsPathRooted(element.File)))
             {
-                if (!Path.IsPathRooted(element.File))
-                {
-                    element.File = Path.Combine(folder, element.File);
-                }
+                element.File = folder.Length == 0
+                    ? element.File
+                    : folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                        + Path.DirectorySeparatorChar + element.File;
             }
 
             return doc;

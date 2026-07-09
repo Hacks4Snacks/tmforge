@@ -24,7 +24,7 @@ namespace ThreatModelForge.Cli.Tests
         [TestInitialize]
         public void Initialize()
         {
-            this.WorkingDirectory = Path.Combine(Path.GetTempPath(), "tmforge-diff-" + Guid.NewGuid().ToString("N"));
+            this.WorkingDirectory = Path.Join(Path.GetTempPath(), "tmforge-diff-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(this.WorkingDirectory);
         }
 
@@ -47,7 +47,7 @@ namespace ThreatModelForge.Cli.Tests
         public void IdenticalModelsReportNoDifferences()
         {
             string basePath = this.Write("base.tm7", BuildBase(out _));
-            string revisedPath = Path.Combine(this.WorkingDirectory, "revised.tm7");
+            string revisedPath = Path.Join(this.WorkingDirectory, "revised.tm7");
             File.Copy(basePath, revisedPath);
 
             (int exit, string output) = Capture(new[] { basePath, revisedPath });
@@ -104,7 +104,7 @@ namespace ThreatModelForge.Cli.Tests
         {
             string basePath = this.Write("base.tm7", BuildBase(out _));
 
-            (int exit, _) = Capture(new[] { basePath, Path.Combine(this.WorkingDirectory, "does-not-exist.tm7") });
+            (int exit, _) = Capture(new[] { basePath, Path.Join(this.WorkingDirectory, "does-not-exist.tm7") });
 
             Assert.AreEqual(1, exit);
         }
@@ -147,7 +147,7 @@ namespace ThreatModelForge.Cli.Tests
 
         private static (int Exit, string Output) Capture(string[] args)
         {
-            StringWriter writer = new StringWriter();
+            using StringWriter writer = new StringWriter();
             TextWriter original = Console.Out;
             Console.SetOut(writer);
             try
@@ -194,7 +194,7 @@ namespace ThreatModelForge.Cli.Tests
 
         private string Write(string name, ThreatModel model)
         {
-            string path = Path.Combine(this.WorkingDirectory, name);
+            string path = Path.Join(this.WorkingDirectory, name);
             File.WriteAllBytes(path, new DiagramEditor(model).ToBytes());
             return path;
         }

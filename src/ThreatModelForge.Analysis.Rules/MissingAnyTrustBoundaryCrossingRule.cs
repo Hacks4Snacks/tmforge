@@ -31,12 +31,9 @@ namespace ThreatModelForge.Analysis.Rules
 
             foreach (DrawingSurfaceModel diagram in context.Model.DrawingSurfaceList)
             {
-                foreach (Connector c in diagram.Lines.Values.OfType<Connector>())
+                foreach (Connector c in diagram.Lines.Values.OfType<Connector>().Where(c => diagram.TrustBoundaryCrossings(c).Any()))
                 {
-                    if (diagram.TrustBoundaryCrossings(c).Any())
-                    {
-                        return;
-                    }
+                    return;
                 }
             }
 

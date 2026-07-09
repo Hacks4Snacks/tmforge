@@ -44,13 +44,10 @@ namespace ThreatModelForge.Cli
             string outputPath = parsed.Get("output") ?? oursPath;
             string displayPath = positionals.Count > 3 ? positionals[3] : outputPath;
 
-            foreach (string path in new[] { basePath, oursPath, theirsPath })
+            foreach (string path in new[] { basePath, oursPath, theirsPath }.Where(path => !File.Exists(path)))
             {
-                if (!File.Exists(path))
-                {
-                    Console.Error.WriteLine("File not found: " + path);
-                    return 1;
-                }
+                Console.Error.WriteLine("File not found: " + path);
+                return 1;
             }
 
             (ThreatModel baseModel, _) = CliModelLoader.Load(basePath);

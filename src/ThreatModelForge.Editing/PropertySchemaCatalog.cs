@@ -30,16 +30,9 @@ namespace ThreatModelForge.Editing
         /// <returns>The matching descriptors, or an empty list when none apply.</returns>
         public static IReadOnlyList<PropertyDescriptor> For(string appliesTo)
         {
-            List<PropertyDescriptor> matches = new List<PropertyDescriptor>();
-            foreach (PropertyDescriptor descriptor in Descriptors)
-            {
-                if (string.Equals(descriptor.AppliesTo, appliesTo, StringComparison.OrdinalIgnoreCase))
-                {
-                    matches.Add(descriptor);
-                }
-            }
-
-            return matches;
+            return Descriptors
+                .Where(descriptor => string.Equals(descriptor.AppliesTo, appliesTo, StringComparison.OrdinalIgnoreCase))
+                .ToList();
         }
 
         /// <summary>
@@ -57,15 +50,8 @@ namespace ThreatModelForge.Editing
         {
             canonicalValue = value;
             IReadOnlyList<PropertyDescriptor> descriptors = For(appliesTo);
-            PropertyDescriptor? descriptor = null;
-            foreach (PropertyDescriptor candidate in descriptors)
-            {
-                if (string.Equals(candidate.Name, name, StringComparison.OrdinalIgnoreCase))
-                {
-                    descriptor = candidate;
-                    break;
-                }
-            }
+            PropertyDescriptor? descriptor = descriptors
+                .FirstOrDefault(candidate => string.Equals(candidate.Name, name, StringComparison.OrdinalIgnoreCase));
 
             if (descriptor is null)
             {
@@ -90,13 +76,10 @@ namespace ThreatModelForge.Editing
                 return null;
             }
 
-            foreach (string allowed in descriptor.Values)
+            foreach (string allowed in descriptor.Values.Where(allowed => string.Equals(allowed, value, StringComparison.OrdinalIgnoreCase)))
             {
-                if (string.Equals(allowed, value, StringComparison.OrdinalIgnoreCase))
-                {
-                    canonicalValue = allowed;
-                    return null;
-                }
+                canonicalValue = allowed;
+                return null;
             }
 
             return new PropertySchemaIssue

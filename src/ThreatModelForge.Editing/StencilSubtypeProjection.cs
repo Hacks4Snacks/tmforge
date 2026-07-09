@@ -38,12 +38,9 @@ namespace ThreatModelForge.Editing
             }
 
             Dictionary<string, string> subtypeIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (ElementType standard in knowledgeBase.StandardElements)
+            foreach (ElementType standard in knowledgeBase.StandardElements.Where(standard => !string.IsNullOrEmpty(standard.Id)))
             {
-                if (!string.IsNullOrEmpty(standard.Id))
-                {
-                    subtypeIds[standard.Id!] = standard.Id!;
-                }
+                subtypeIds[standard.Id!] = standard.Id!;
             }
 
             if (subtypeIds.Count == 0)

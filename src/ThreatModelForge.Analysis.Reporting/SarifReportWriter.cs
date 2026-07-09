@@ -89,7 +89,7 @@ namespace ThreatModelForge.Analysis.Reporting
             {
                 foreach (var ruleReport in modelReport.RuleReports.Where(r => r.Messages.Any() || r.SuppressedMessages.Any()))
                 {
-                    ReportingDescriptor rule = this.ExtractRule(ruleReport);
+                    _ = this.ExtractRule(ruleReport);
                     this.PersistResults(sarifLogger, this.ExtractResults(ruleReport));
                 }
 

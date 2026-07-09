@@ -25,7 +25,7 @@ namespace ThreatModelForge.Cli.Tests
         /// <summary>
         /// Gets the path of the model file created by <see cref="NewModel"/>.
         /// </summary>
-        private string ModelPath => Path.Combine(this.WorkingDirectory, "model.tm7");
+        private string ModelPath => Path.Join(this.WorkingDirectory, "model.tm7");
 
         /// <summary>
         /// Creates an isolated working directory for the test.
@@ -33,7 +33,7 @@ namespace ThreatModelForge.Cli.Tests
         [TestInitialize]
         public void Initialize()
         {
-            this.WorkingDirectory = Path.Combine(Path.GetTempPath(), "tmforge-set-" + Guid.NewGuid().ToString("N"));
+            this.WorkingDirectory = Path.Join(Path.GetTempPath(), "tmforge-set-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(this.WorkingDirectory);
         }
 
@@ -132,8 +132,8 @@ namespace ThreatModelForge.Cli.Tests
 
         private static (int Exit, string Stdout) Capture(Func<int> run)
         {
-            StringWriter outWriter = new StringWriter();
-            StringWriter errorWriter = new StringWriter();
+            using StringWriter outWriter = new StringWriter();
+            using StringWriter errorWriter = new StringWriter();
             TextWriter originalOut = Console.Out;
             TextWriter originalError = Console.Error;
             Console.SetOut(outWriter);

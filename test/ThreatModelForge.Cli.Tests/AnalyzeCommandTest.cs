@@ -37,7 +37,7 @@ namespace ThreatModelForge.Cli.Tests
         [TestInitialize]
         public void Initialize()
         {
-            this.WorkingDirectory = Path.Combine(Path.GetTempPath(), "tmforge-analyze-" + Guid.NewGuid().ToString("N"));
+            this.WorkingDirectory = Path.Join(Path.GetTempPath(), "tmforge-analyze-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(this.WorkingDirectory);
         }
 
@@ -90,7 +90,7 @@ namespace ThreatModelForge.Cli.Tests
         [TestMethod]
         public void MissingInputReturnsError()
         {
-            (int exit, _) = Run(new[] { Path.Combine(this.WorkingDirectory, "does-not-exist.tm7") });
+            (int exit, _) = Run(new[] { Path.Join(this.WorkingDirectory, "does-not-exist.tm7") });
 
             Assert.AreEqual(1, exit);
         }
@@ -102,7 +102,7 @@ namespace ThreatModelForge.Cli.Tests
         [TestMethod]
         public void ModelBorneSelectionDisablesRules()
         {
-            string input = Path.Combine(this.WorkingDirectory, "model.tmforge.json");
+            string input = Path.Join(this.WorkingDirectory, "model.tmforge.json");
             File.WriteAllText(input, SampleJsonAllPacksDisabled);
 
             (int exit, _) = Run(new[] { input });
@@ -112,8 +112,8 @@ namespace ThreatModelForge.Cli.Tests
 
         private static (int Exit, string Stdout) Run(string[] args)
         {
-            StringWriter outWriter = new StringWriter();
-            StringWriter errorWriter = new StringWriter();
+            using StringWriter outWriter = new StringWriter();
+            using StringWriter errorWriter = new StringWriter();
             TextWriter originalOut = Console.Out;
             TextWriter originalError = Console.Error;
             Console.SetOut(outWriter);
@@ -132,7 +132,7 @@ namespace ThreatModelForge.Cli.Tests
 
         private string WriteInput()
         {
-            string input = Path.Combine(this.WorkingDirectory, "model.tmforge.json");
+            string input = Path.Join(this.WorkingDirectory, "model.tmforge.json");
             File.WriteAllText(input, SampleJson);
             return input;
         }

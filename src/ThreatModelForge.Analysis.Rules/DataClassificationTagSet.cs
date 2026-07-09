@@ -107,15 +107,11 @@ namespace ThreatModelForge.Analysis.Rules
                 return true;
             }
 
-            foreach (Entity note in diagram.Borders.Values.OfType<Entity>().Where(e => e.IsTextAnnotation()))
-            {
-                if (this.TryGetTagFromText(note.Name() ?? string.Empty, DefaultTypePropertyName, out tag))
-                {
-                    return true;
-                }
-            }
-
-            return false;
+            tag = diagram.Borders.Values.OfType<Entity>()
+                .Where(e => e.IsTextAnnotation())
+                .Select(note => this.TryGetTagFromText(note.Name() ?? string.Empty, DefaultTypePropertyName, out string? t) ? t : null)
+                .FirstOrDefault(t => t != null);
+            return tag != null;
         }
 
         /// <summary>
@@ -151,26 +147,23 @@ namespace ThreatModelForge.Analysis.Rules
 
                 string sep = tokens[i + 1];
                 string value = tokens[i + 2];
-                if (sep.Length == 1)
+                if (sep.Length == 1 && (sep[0] == ':' || sep[0] == '='))
                 {
-                    if (sep[0] == ':' || sep[0] == '=')
+                    if (!string.Equals(value, "(", StringComparison.InvariantCultureIgnoreCase))
                     {
-                        if (!string.Equals(value, "(", StringComparison.InvariantCultureIgnoreCase))
-                        {
-                            tag = value;
-                            return true;
-                        }
-
-                        i++;
-                        List<string> result = new ();
-                        while (i < tokens.Count && !string.Equals(tokens[i], ")", StringComparison.InvariantCultureIgnoreCase))
-                        {
-                            result.Add(tokens[i++]);
-                        }
-
-                        tag = string.Join(" ", result);
+                        tag = value;
                         return true;
                     }
+
+                    i++;
+                    List<string> result = new ();
+                    while (i < tokens.Count && !string.Equals(tokens[i], ")", StringComparison.InvariantCultureIgnoreCase))
+                    {
+                        result.Add(tokens[i++]);
+                    }
+
+                    tag = string.Join(" ", result);
+                    return true;
                 }
             }
 
@@ -195,17 +188,8 @@ namespace ThreatModelForge.Analysis.Rules
                 return true;
             }
 
-            foreach (string tagToMatch in this.Tags)
-            {
-                if ((text ?? string.Empty).Contains(tagToMatch))
-                {
-                    tag = tagToMatch;
-                    return true;
-                }
-            }
-
-            tag = null;
-            return false;
+            tag = this.Tags.FirstOrDefault(tagToMatch => (text ?? string.Empty).Contains(tagToMatch));
+            return tag != null;
         }
     }
 }

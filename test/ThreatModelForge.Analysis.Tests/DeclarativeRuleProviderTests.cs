@@ -23,7 +23,7 @@ namespace ThreatModelForge.Analysis.Tests
         [TestInitialize]
         public void Initialize()
         {
-            this.WorkingDirectory = Path.Combine(Path.GetTempPath(), "tmforge-rules-" + Guid.NewGuid().ToString("N"));
+            this.WorkingDirectory = Path.Join(Path.GetTempPath(), "tmforge-rules-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(this.WorkingDirectory);
         }
 
@@ -147,7 +147,7 @@ namespace ThreatModelForge.Analysis.Tests
 
         private string WriteSpec(string json)
         {
-            string path = Path.Combine(this.WorkingDirectory, Guid.NewGuid().ToString("N") + ".tmrules.json");
+            string path = Path.Join(this.WorkingDirectory, Guid.NewGuid().ToString("N") + ".tmrules.json");
             File.WriteAllText(path, json);
             return path;
         }

@@ -124,13 +124,10 @@ namespace ThreatModelForge.Analysis
                     return false;
                 }
 
-                foreach (Entity entity in AllEntities(this.ResolvedModel))
+                foreach (Entity entity in AllEntities(this.ResolvedModel).Where(entity => IsEntityMatch(entity, this.Target!)))
                 {
-                    if (IsEntityMatch(entity, this.Target!))
-                    {
-                        this.ResolvedEntity = entity;
-                        break;
-                    }
+                    this.ResolvedEntity = entity;
+                    break;
                 }
 
                 if (this.ResolvedEntity == null)
@@ -188,13 +185,11 @@ namespace ThreatModelForge.Analysis
 
             string? name = entity.Name();
             string? headerName = entity.HeaderName();
-            if (!string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(headerName))
+            if (!string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(headerName) &&
+                targetUpper.Contains(name!.ToUpperInvariant()) &&
+                targetUpper.Contains(headerName!.ToUpperInvariant()))
             {
-                if (targetUpper.Contains(name!.ToUpperInvariant()) &&
-                    targetUpper.Contains(headerName!.ToUpperInvariant()))
-                {
-                    return true;
-                }
+                return true;
             }
 
             return false;

@@ -473,13 +473,11 @@ namespace ThreatModelForge.Formats
 
         private static string GetElementName(Entity element)
         {
-            foreach (StringDisplayAttribute property in element.Properties.OfType<StringDisplayAttribute>())
+            foreach (StringDisplayAttribute property in element.Properties.OfType<StringDisplayAttribute>()
+                .Where(property => string.Equals(property.Name, "Name", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(property.DisplayName, "Name", StringComparison.OrdinalIgnoreCase)))
             {
-                if (string.Equals(property.Name, "Name", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(property.DisplayName, "Name", StringComparison.OrdinalIgnoreCase))
-                {
-                    return property.Value as string ?? string.Empty;
-                }
+                return property.Value as string ?? string.Empty;
             }
 
             return string.Empty;
@@ -614,12 +612,9 @@ namespace ThreatModelForge.Formats
 
         private static bool ContainsAny(string signal, IReadOnlyList<string> keywords)
         {
-            foreach (string keyword in keywords)
+            foreach (string keyword in keywords.Where(keyword => signal.IndexOf(keyword, StringComparison.Ordinal) >= 0))
             {
-                if (signal.IndexOf(keyword, StringComparison.Ordinal) >= 0)
-                {
-                    return true;
-                }
+                return true;
             }
 
             return false;

@@ -98,14 +98,9 @@ namespace ThreatModelForge.Engine
                 return true;
             }
 
-            List<DrawingSurfaceModel> matches = new List<DrawingSurfaceModel>();
-            foreach (DrawingSurfaceModel surface in list)
-            {
-                if (string.Equals(surface.Header, pageSpec, StringComparison.OrdinalIgnoreCase))
-                {
-                    matches.Add(surface);
-                }
-            }
+            List<DrawingSurfaceModel> matches = list
+                .Where(surface => string.Equals(surface.Header, pageSpec, StringComparison.OrdinalIgnoreCase))
+                .ToList();
 
             if (matches.Count == 0)
             {
@@ -133,15 +128,8 @@ namespace ThreatModelForge.Engine
         /// <returns>The containing diagram, or <see langword="null"/>.</returns>
         public static DrawingSurfaceModel? FindDiagramContaining(ThreatModel model, Guid id)
         {
-            foreach (DrawingSurfaceModel surface in model.DrawingSurfaceList)
-            {
-                if (DiagramEditor.FindElement(surface, id) != null)
-                {
-                    return surface;
-                }
-            }
-
-            return null;
+            return model.DrawingSurfaceList
+                .FirstOrDefault(surface => DiagramEditor.FindElement(surface, id) != null);
         }
 
         /// <summary>
@@ -560,7 +548,7 @@ namespace ThreatModelForge.Engine
 
             string fullPath = Path.GetFullPath(path);
             string directory = Path.GetDirectoryName(fullPath) ?? ".";
-            string temp = Path.Combine(directory, "." + Path.GetFileName(fullPath) + "." + Guid.NewGuid().ToString("N") + ".tmp");
+            string temp = Path.Join(directory, "." + Path.GetFileName(fullPath) + "." + Guid.NewGuid().ToString("N") + ".tmp");
             try
             {
                 using (FileStream stream = File.Create(temp))

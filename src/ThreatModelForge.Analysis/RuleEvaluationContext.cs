@@ -102,12 +102,9 @@ namespace ThreatModelForge.Analysis
                 throw new ArgumentNullException(nameof(ruleSet));
             }
 
-            foreach (SuppressMessage item in items)
+            foreach (SuppressMessage item in items.Where(item => item.TryResolve(ruleSet, this.Model, this.Writer)))
             {
-                if (item.TryResolve(ruleSet, this.Model, this.Writer))
-                {
-                    this.Suppressions.Add(item);
-                }
+                this.Suppressions.Add(item);
             }
         }
 
@@ -201,12 +198,9 @@ namespace ThreatModelForge.Analysis
             IEnumerable<Message> source,
             Collection<RuleReportMessage> target)
         {
-            foreach (Message message in source)
+            foreach (Message message in source.Where(message => string.Equals(message.Source?.ID, rule.ID, StringComparison.Ordinal)))
             {
-                if (string.Equals(message.Source?.ID, rule.ID, StringComparison.Ordinal))
-                {
-                    target.Add(RuleReportMessage.FromMessage(message));
-                }
+                target.Add(RuleReportMessage.FromMessage(message));
             }
         }
 

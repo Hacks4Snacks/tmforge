@@ -285,13 +285,10 @@ namespace ThreatModelForge.Editing
             foreach (DrawingSurfaceModel surface in model.DrawingSurfaceList)
             {
                 string diagramName = string.IsNullOrEmpty(surface.Header) ? "Diagram" : surface.Header!;
-                foreach (KeyValuePair<Guid, object> pair in surface.Lines)
+                foreach (Connector connector in surface.Lines.Values.OfType<Connector>())
                 {
-                    if (pair.Value is Connector connector)
-                    {
-                        CheckEndpoint(connector, connector.SourceGuid, ModelSnapshot.SourceKey, present, diagramName, conflicts);
-                        CheckEndpoint(connector, connector.TargetGuid, ModelSnapshot.TargetKey, present, diagramName, conflicts);
-                    }
+                    CheckEndpoint(connector, connector.SourceGuid, ModelSnapshot.SourceKey, present, diagramName, conflicts);
+                    CheckEndpoint(connector, connector.TargetGuid, ModelSnapshot.TargetKey, present, diagramName, conflicts);
                 }
             }
         }
@@ -315,12 +312,10 @@ namespace ThreatModelForge.Editing
 
         private static void CollectIds(IDictionary<Guid, object> elements, HashSet<Guid> present)
         {
-            foreach (KeyValuePair<Guid, object> pair in elements)
+            foreach (KeyValuePair<Guid, object> pair in elements.Where(pair => pair.Value is Entity))
             {
-                if (pair.Value is Entity entity)
-                {
-                    present.Add(entity.Guid != Guid.Empty ? entity.Guid : pair.Key);
-                }
+                Entity entity = (Entity)pair.Value;
+                present.Add(entity.Guid != Guid.Empty ? entity.Guid : pair.Key);
             }
         }
 
@@ -395,12 +390,9 @@ namespace ThreatModelForge.Editing
                 return false;
             }
 
-            foreach (KeyValuePair<string, string> pair in left.Attributes)
+            foreach (KeyValuePair<string, string> pair in left.Attributes.Where(pair => !right.Attributes.TryGetValue(pair.Key, out string? other) || !string.Equals(pair.Value, other, StringComparison.Ordinal)))
             {
-                if (!right.Attributes.TryGetValue(pair.Key, out string? other) || !string.Equals(pair.Value, other, StringComparison.Ordinal))
-                {
-                    return false;
-                }
+                return false;
             }
 
             return true;
@@ -442,13 +434,11 @@ namespace ThreatModelForge.Editing
 
         private static void IndexInto(IDictionary<Guid, object> elements, DrawingSurfaceModel surface, bool isLine, Dictionary<Guid, ElementRef> map)
         {
-            foreach (KeyValuePair<Guid, object> pair in elements)
+            foreach (KeyValuePair<Guid, object> pair in elements.Where(pair => pair.Value is Entity))
             {
-                if (pair.Value is Entity entity)
-                {
-                    Guid id = entity.Guid != Guid.Empty ? entity.Guid : pair.Key;
-                    map[id] = new ElementRef { Key = pair.Key, Entity = entity, Surface = surface, IsLine = isLine };
-                }
+                Entity entity = (Entity)pair.Value;
+                Guid id = entity.Guid != Guid.Empty ? entity.Guid : pair.Key;
+                map[id] = new ElementRef { Key = pair.Key, Entity = entity, Surface = surface, IsLine = isLine };
             }
         }
 

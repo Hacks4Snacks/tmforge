@@ -24,7 +24,7 @@ namespace ThreatModelForge.Analysis.Tests
         public void LoadTest()
         {
             Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
-            string path = System.IO.Path.Combine(
+            string path = System.IO.Path.Join(
                 this.TestContext!.DeploymentDirectory,
                 "Test.ruleset");
             RuleSetXml target = RuleSetXml.Load(path);

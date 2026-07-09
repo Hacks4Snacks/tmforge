@@ -54,15 +54,7 @@ namespace ThreatModelForge.Formats
                 throw new ArgumentException("Value cannot be null or empty.", nameof(id));
             }
 
-            foreach (IThreatModelFormat format in this.formats)
-            {
-                if (string.Equals(format.Id, id, StringComparison.OrdinalIgnoreCase))
-                {
-                    return format;
-                }
-            }
-
-            return null;
+            return this.formats.FirstOrDefault(format => string.Equals(format.Id, id, StringComparison.OrdinalIgnoreCase));
         }
 
         /// <summary>
@@ -87,12 +79,9 @@ namespace ThreatModelForge.Formats
 
             foreach (IThreatModelFormat format in this.formats)
             {
-                foreach (string candidate in format.Extensions)
+                foreach (string candidate in format.Extensions.Where(candidate => string.Equals(candidate, extension, StringComparison.OrdinalIgnoreCase)))
                 {
-                    if (string.Equals(candidate, extension, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return format;
-                    }
+                    return format;
                 }
             }
 
@@ -112,15 +101,7 @@ namespace ThreatModelForge.Formats
                 throw new ArgumentNullException(nameof(stream));
             }
 
-            foreach (IThreatModelFormat format in this.formats)
-            {
-                if (format.Capabilities.CanRead && format.CanRead(stream))
-                {
-                    return format;
-                }
-            }
-
-            return null;
+            return this.formats.FirstOrDefault(format => format.Capabilities.CanRead && format.CanRead(stream));
         }
 
         /// <summary>
@@ -156,16 +137,9 @@ namespace ThreatModelForge.Formats
 
             using (FileStream stream = File.OpenRead(path))
             {
-                IThreatModelFormat? format = null;
-                if (!string.IsNullOrEmpty(formatId))
-                {
-                    format = this.FindById(formatId!)
-                        ?? throw new NotSupportedException($"No threat model format with id '{formatId}'.");
-                }
-                else
-                {
-                    format = this.FindByExtension(path);
-                }
+                IThreatModelFormat? format = !string.IsNullOrEmpty(formatId)
+                    ? this.FindById(formatId!) ?? throw new NotSupportedException($"No threat model format with id '{formatId}'.")
+                    : this.FindByExtension(path);
 
                 if (format == null || !format.Capabilities.CanRead)
                 {
@@ -192,18 +166,11 @@ namespace ThreatModelForge.Formats
                 throw new ArgumentNullException(nameof(stream));
             }
 
-            IThreatModelFormat format;
-            if (!string.IsNullOrEmpty(formatId))
-            {
-                format = this.FindById(formatId!)
-                    ?? throw new NotSupportedException($"No threat model format with id '{formatId}'.");
-            }
-            else
-            {
-                format = this.Sniff(stream)
+            IThreatModelFormat format = !string.IsNullOrEmpty(formatId)
+                ? this.FindById(formatId!) ?? throw new NotSupportedException($"No threat model format with id '{formatId}'.")
+                : this.Sniff(stream)
                     ?? throw new NotSupportedException(
                         "Could not determine a readable threat model format from the stream content. Specify a format id.");
-            }
 
             return format.Read(stream);
         }

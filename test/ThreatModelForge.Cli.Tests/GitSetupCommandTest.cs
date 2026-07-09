@@ -41,7 +41,7 @@ namespace ThreatModelForge.Cli.Tests
 
         private static (int Exit, string Output) Capture(string[] args)
         {
-            StringWriter writer = new StringWriter();
+            using StringWriter writer = new StringWriter();
             TextWriter original = Console.Out;
             Console.SetOut(writer);
             try

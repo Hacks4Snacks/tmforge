@@ -26,29 +26,26 @@ namespace ThreatModelForge.Analysis.Rules
             _ = context ?? throw new ArgumentNullException(nameof(context));
             foreach (DrawingSurfaceModel diagram in context.Model.DrawingSurfaceList)
             {
-                foreach (Entity c in diagram.Components())
+                foreach (Entity c in diagram.Components().Where(c => c.IsGenericComponent()))
                 {
-                    if (c.IsGenericComponent())
+                    string? name = c.Name();
+                    string? headerName = c.HeaderName();
+                    if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(headerName))
                     {
-                        string? name = c.Name();
-                        string? headerName = c.HeaderName();
-                        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(headerName))
-                        {
-                            continue;
-                        }
+                        continue;
+                    }
 
-                        if (string.Equals(headerName!.Trim(), name!.Trim(), StringComparison.OrdinalIgnoreCase))
-                        {
-                            string text = string.Format(
-                                System.Globalization.CultureInfo.CurrentCulture,
-                                Properties.Resources.GenericComponentNameShouldNotMatchTypeNameMessageText,
-                                GetEntityDisplayText(c));
-                            Message m = this.CreateMessage(
-                                c,
-                                diagram,
-                                text);
-                            context.Writer.Write(m);
-                        }
+                    if (string.Equals(headerName!.Trim(), name!.Trim(), StringComparison.OrdinalIgnoreCase))
+                    {
+                        string text = string.Format(
+                            System.Globalization.CultureInfo.CurrentCulture,
+                            Properties.Resources.GenericComponentNameShouldNotMatchTypeNameMessageText,
+                            GetEntityDisplayText(c));
+                        Message m = this.CreateMessage(
+                            c,
+                            diagram,
+                            text);
+                        context.Writer.Write(m);
                     }
                 }
             }

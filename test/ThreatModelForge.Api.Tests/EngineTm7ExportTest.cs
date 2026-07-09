@@ -165,7 +165,8 @@ namespace ThreatModelForge.Api.Tests
             {
                 foreach (XElement coordinate in surface.Descendants().Where(e => names.Contains(e.Name.LocalName)))
                 {
-                    if (int.TryParse(coordinate.Value, out int value))
+                    bool parsed = int.TryParse(coordinate.Value, out int value);
+                    if (parsed)
                     {
                         yield return value;
                     }

@@ -40,12 +40,9 @@ namespace ThreatModelForge.Editing
             List<ElementChange> removed = new List<ElementChange>();
             List<ElementChange> modified = new List<ElementChange>();
 
-            foreach (KeyValuePair<Guid, ElementDescriptor> entry in after)
+            foreach (KeyValuePair<Guid, ElementDescriptor> entry in after.Where(entry => !before.ContainsKey(entry.Key)))
             {
-                if (!before.ContainsKey(entry.Key))
-                {
-                    added.Add(ToChange(entry.Value, ChangeKind.Added, Array.Empty<PropertyChange>()));
-                }
+                added.Add(ToChange(entry.Value, ChangeKind.Added, Array.Empty<PropertyChange>()));
             }
 
             foreach (KeyValuePair<Guid, ElementDescriptor> entry in before)

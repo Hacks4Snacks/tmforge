@@ -28,7 +28,7 @@ namespace ThreatModelForge.Formats.Tests
         [TestMethod]
         public void WritesWellFormedMxGraphFromTm7()
         {
-            string sourcePath = Path.Combine(this.TestContext!.DeploymentDirectory!, "SampleModel.tm7");
+            string sourcePath = Path.Join(this.TestContext!.DeploymentDirectory!, "SampleModel.tm7");
             ThreatModel model = ThreatModelFormatRegistry.CreateDefault().Load(sourcePath);
 
             DrawIoFormat format = new DrawIoFormat();
@@ -100,7 +100,7 @@ namespace ThreatModelForge.Formats.Tests
         [TestMethod]
         public void RoundTripsStructureThroughModel()
         {
-            string sourcePath = Path.Combine(this.TestContext!.DeploymentDirectory!, "SampleModel.tm7");
+            string sourcePath = Path.Join(this.TestContext!.DeploymentDirectory!, "SampleModel.tm7");
             ThreatModel original = ThreatModelFormatRegistry.CreateDefault().Load(sourcePath);
 
             DrawIoFormat format = new DrawIoFormat();

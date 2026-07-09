@@ -119,7 +119,7 @@ namespace ThreatModelForge.Formats.Tests
         public void LoadFromPathResolvesByExtension()
         {
             Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
-            string sourcePath = Path.Combine(this.TestContext!.DeploymentDirectory!, "SampleModel.tm7");
+            string sourcePath = Path.Join(this.TestContext!.DeploymentDirectory!, "SampleModel.tm7");
             ThreatModelFormatRegistry registry = ThreatModelFormatRegistry.CreateDefault();
 
             ThreatModel model = registry.Load(sourcePath);
@@ -136,7 +136,7 @@ namespace ThreatModelForge.Formats.Tests
         public void SaveResolvesByExtensionAndRoundTrips()
         {
             ThreatModelFormatRegistry registry = ThreatModelFormatRegistry.CreateDefault();
-            string path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.tm7");
+            string path = Path.Join(Path.GetTempPath(), $"{Guid.NewGuid()}.tm7");
 
             try
             {

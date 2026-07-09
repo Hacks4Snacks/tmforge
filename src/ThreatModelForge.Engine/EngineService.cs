@@ -107,7 +107,8 @@ namespace ThreatModelForge.Engine
             List<RulePackDto> result = new List<RulePackDto>();
             foreach (KeyValuePair<string, string> pack in RulePackCatalog.Ordered)
             {
-                if (counts.TryGetValue(pack.Key, out int known))
+                bool found = counts.TryGetValue(pack.Key, out int known);
+                if (found)
                 {
                     result.Add(new RulePackDto { Id = pack.Key, Name = pack.Value, Count = known });
                     counts.Remove(pack.Key);
@@ -165,7 +166,7 @@ namespace ThreatModelForge.Engine
                 }
             }
 #pragma warning disable CA1031 // Do not catch general exception types
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OutOfMemoryException && ex is not StackOverflowException)
 #pragma warning restore CA1031 // Do not catch general exception types
             {
                 findings.Add(new FindingDto
@@ -230,7 +231,7 @@ namespace ThreatModelForge.Engine
                 }
             }
 #pragma warning disable CA1031 // Do not catch general exception types
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OutOfMemoryException && ex is not StackOverflowException)
 #pragma warning restore CA1031 // Do not catch general exception types
             {
                 result.Add(new ThreatDto
@@ -425,12 +426,9 @@ namespace ThreatModelForge.Engine
             Dictionary<string, ThreatStateDto> map = new Dictionary<string, ThreatStateDto>(StringComparer.OrdinalIgnoreCase);
             if (states != null)
             {
-                foreach (ThreatStateDto state in states)
+                foreach (ThreatStateDto state in states.Where(state => !string.IsNullOrEmpty(state.Id)))
                 {
-                    if (!string.IsNullOrEmpty(state.Id))
-                    {
-                        map[state.Id] = state;
-                    }
+                    map[state.Id!] = state;
                 }
             }
 
@@ -689,12 +687,9 @@ namespace ThreatModelForge.Engine
             // "Edge [HTTPS request of unknown type and ID=...]"), so fall back to a contains match
             // so the canvas can still highlight the offending element.
             List<string> matches = new List<string>();
-            foreach (KeyValuePair<string, List<string>> pair in nameToIds)
+            foreach (KeyValuePair<string, List<string>> pair in nameToIds.Where(pair => pair.Key.Length > 0 && entity!.IndexOf(pair.Key, StringComparison.Ordinal) >= 0))
             {
-                if (pair.Key.Length > 0 && entity!.IndexOf(pair.Key, StringComparison.Ordinal) >= 0)
-                {
-                    matches.AddRange(pair.Value);
-                }
+                matches.AddRange(pair.Value);
             }
 
             return matches;

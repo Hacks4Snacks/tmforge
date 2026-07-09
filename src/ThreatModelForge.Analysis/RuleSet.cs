@@ -161,12 +161,9 @@ namespace ThreatModelForge.Analysis
         /// <param name="context">The evaluation context.</param>
         public void Evaluate(RuleEvaluationContext context)
         {
-            foreach (Rule rule in this.Rules)
+            foreach (Rule rule in this.Rules.Where(rule => !rule.Disabled))
             {
-                if (!rule.Disabled)
-                {
-                    rule.Evaluate(context);
-                }
+                rule.Evaluate(context);
             }
         }
 
@@ -189,12 +186,9 @@ namespace ThreatModelForge.Analysis
                 return;
             }
 
-            foreach (Rule rule in this.Rules)
+            foreach (Rule rule in this.Rules.Where(rule => packs.Contains(rule.Pack) || ids.Contains(rule.ID)))
             {
-                if (packs.Contains(rule.Pack) || ids.Contains(rule.ID))
-                {
-                    rule.Disabled = true;
-                }
+                rule.Disabled = true;
             }
         }
 

@@ -21,8 +21,8 @@ namespace ThreatModelForge.Analysis.Rules.Tests
             IReadOnlyDictionary<string, ProtocolInfo> protocols = ProtocolInfoSet.Default.Protocols;
             foreach (string name in new[] { "TLS", "mTLS", "gRPC", "AMQP", "SQL" })
             {
-                Assert.IsTrue(protocols.ContainsKey(name), $"the default protocol set should include {name}");
-                Assert.IsTrue(protocols[name].DefaultPort > 0, $"{name} should infer a default port");
+                Assert.IsTrue(protocols.TryGetValue(name, out ProtocolInfo? info), $"the default protocol set should include {name}");
+                Assert.IsTrue(info!.DefaultPort > 0, $"{name} should infer a default port");
             }
         }
 
@@ -39,8 +39,8 @@ namespace ThreatModelForge.Analysis.Rules.Tests
 
             ProtocolInfoSet set = ProtocolInfoSet.FromContext(context);
 
-            Assert.IsTrue(set.Protocols.ContainsKey("CoAP"), "the custom protocol should be added");
-            Assert.AreEqual(5683, set.Protocols["CoAP"].DefaultPort);
+            Assert.IsTrue(set.Protocols.TryGetValue("CoAP", out ProtocolInfo? coap), "the custom protocol should be added");
+            Assert.AreEqual(5683, coap!.DefaultPort);
             Assert.IsTrue(set.Protocols.ContainsKey("HTTPS"), "built-in defaults should be retained after the merge");
             Assert.IsTrue(set.Protocols.ContainsKey("gRPC"), "built-in defaults should be retained after the merge");
         }

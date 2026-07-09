@@ -76,7 +76,7 @@ namespace ThreatModelForge.Analysis.Tests
             try
             {
                 Entity? nullEntity = null;
-                actual = TestRule.AccessGetEntityDisplayText(nullEntity!);
+                _ = TestRule.AccessGetEntityDisplayText(nullEntity!);
                 Assert.Fail("Expected exception.");
             }
             catch (ArgumentNullException ex)

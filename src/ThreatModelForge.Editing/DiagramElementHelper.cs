@@ -29,15 +29,9 @@ namespace ThreatModelForge.Editing
                 return string.Empty;
             }
 
-            foreach (StringDisplayAttribute property in element.Properties.OfType<StringDisplayAttribute>())
-            {
-                if (IsNameProperty(property))
-                {
-                    return property.Value as string ?? string.Empty;
-                }
-            }
-
-            return string.Empty;
+            StringDisplayAttribute? nameProperty = element.Properties.OfType<StringDisplayAttribute>()
+                .FirstOrDefault(IsNameProperty);
+            return nameProperty?.Value as string ?? string.Empty;
         }
 
         /// <summary>
@@ -52,13 +46,12 @@ namespace ThreatModelForge.Editing
                 throw new ArgumentNullException(nameof(element));
             }
 
-            foreach (StringDisplayAttribute property in element.Properties.OfType<StringDisplayAttribute>())
+            StringDisplayAttribute? existing = element.Properties.OfType<StringDisplayAttribute>()
+                .FirstOrDefault(IsNameProperty);
+            if (existing != null)
             {
-                if (IsNameProperty(property))
-                {
-                    property.Value = name;
-                    return;
-                }
+                existing.Value = name;
+                return;
             }
 
             element.Properties.Add(new StringDisplayAttribute { Name = NamePropertyName, DisplayName = NamePropertyName, Value = name });
@@ -117,9 +110,9 @@ namespace ThreatModelForge.Editing
                 return result;
             }
 
-            foreach (CustomStringDisplayAttribute property in element.Properties.OfType<CustomStringDisplayAttribute>())
+            foreach (string current in element.Properties.OfType<CustomStringDisplayAttribute>()
+                .Select(property => property.Value as string ?? string.Empty))
             {
-                string current = property.Value as string ?? string.Empty;
                 int separator = current.IndexOf(':');
                 if (separator > 0)
                 {

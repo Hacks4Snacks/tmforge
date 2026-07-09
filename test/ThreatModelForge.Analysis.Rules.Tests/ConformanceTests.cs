@@ -158,12 +158,10 @@ namespace ThreatModelForge.Analysis.Rules.Tests
                         continue;
                     }
 
-                    foreach (string flagged in binding.FlaggedValues)
+                    foreach (string flagged in binding.FlaggedValues
+                        .Where(flagged => !descriptor.Values.Contains(flagged, StringComparer.OrdinalIgnoreCase)))
                     {
-                        if (!descriptor.Values.Contains(flagged, StringComparer.OrdinalIgnoreCase))
-                        {
-                            errors.AppendLine(CultureInfo.InvariantCulture, $"{rule.GetType().Name} flags '{binding.AppliesTo}/{binding.PropertyName}={flagged}', which is not an allowed value.");
-                        }
+                        errors.AppendLine(CultureInfo.InvariantCulture, $"{rule.GetType().Name} flags '{binding.AppliesTo}/{binding.PropertyName}={flagged}', which is not an allowed value.");
                     }
                 }
             }

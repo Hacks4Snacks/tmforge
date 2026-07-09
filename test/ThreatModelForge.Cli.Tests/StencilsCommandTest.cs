@@ -51,13 +51,11 @@ namespace ThreatModelForge.Cli.Tests
             Assert.IsTrue(data.GetProperty("packs").GetArrayLength() > 0);
 
             bool foundAzureSql = false;
-            foreach (JsonElement stencil in data.GetProperty("stencils").EnumerateArray())
+            foreach (JsonElement stencil in data.GetProperty("stencils").EnumerateArray()
+                .Where(stencil => stencil.GetProperty("id").GetString() == "azure-sql"))
             {
-                if (stencil.GetProperty("id").GetString() == "azure-sql")
-                {
-                    Assert.AreEqual("datastore", stencil.GetProperty("base").GetString());
-                    foundAzureSql = true;
-                }
+                Assert.AreEqual("datastore", stencil.GetProperty("base").GetString());
+                foundAzureSql = true;
             }
 
             Assert.IsTrue(foundAzureSql, "the catalog must include the azure-sql stencil");
@@ -76,8 +74,8 @@ namespace ThreatModelForge.Cli.Tests
 
         private static (int Exit, string Stdout) Capture(Func<int> run)
         {
-            StringWriter outWriter = new StringWriter();
-            StringWriter errorWriter = new StringWriter();
+            using StringWriter outWriter = new StringWriter();
+            using StringWriter errorWriter = new StringWriter();
             TextWriter originalOut = Console.Out;
             TextWriter originalError = Console.Error;
             Console.SetOut(outWriter);

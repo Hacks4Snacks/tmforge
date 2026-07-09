@@ -74,13 +74,10 @@ namespace ThreatModelForge.Engine
             HashSet<Guid> aliasIds = new HashSet<Guid>();
 
             Dictionary<string, int> memberCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            foreach (ManifestElement element in elements)
+            foreach (ManifestElement element in elements.Where(element => !string.IsNullOrEmpty(element.Boundary)))
             {
-                if (!string.IsNullOrEmpty(element.Boundary))
-                {
-                    memberCounts.TryGetValue(element.Boundary!, out int count);
-                    memberCounts[element.Boundary!] = count + 1;
-                }
+                memberCounts.TryGetValue(element.Boundary!, out int count);
+                memberCounts[element.Boundary!] = count + 1;
             }
 
             Dictionary<string, BoundaryBox> boxes = new Dictionary<string, BoundaryBox>(StringComparer.OrdinalIgnoreCase);

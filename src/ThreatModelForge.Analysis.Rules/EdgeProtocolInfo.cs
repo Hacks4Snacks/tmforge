@@ -92,12 +92,10 @@ namespace ThreatModelForge.Analysis.Rules
             _ = infoSet ?? throw new ArgumentNullException(nameof(infoSet));
 
             string? headerName = edge.HeaderName();
-            if (!string.IsNullOrWhiteSpace(headerName))
+            if (!string.IsNullOrWhiteSpace(headerName)
+                && infoSet.Protocols.TryGetValue(headerName!, out var stencilProto))
             {
-                if (infoSet.Protocols.TryGetValue(headerName!, out var proto))
-                {
-                    return new EdgeProtocolInfo(edge, proto, EdgeProtocolSpecificationMethod.ByStencilType);
-                }
+                return new EdgeProtocolInfo(edge, stencilProto, EdgeProtocolSpecificationMethod.ByStencilType);
             }
 
             if (TryGetProtocol(edge, out string? protoAttrib))
@@ -152,13 +150,11 @@ namespace ThreatModelForge.Analysis.Rules
             else
             {
                 // see if a known protocol is mentioned free form.
-                foreach (var protoName in infoSet.Protocols.Keys)
+                string? mentioned = infoSet.Protocols.Keys
+                    .FirstOrDefault(protoName => tokens.Contains(protoName, StringComparer.OrdinalIgnoreCase));
+                if (mentioned != null)
                 {
-                    if (tokens.Contains(protoName, StringComparer.OrdinalIgnoreCase))
-                    {
-                        info = infoSet.Protocols[protoName];
-                        break;
-                    }
+                    info = infoSet.Protocols[mentioned];
                 }
             }
 
@@ -186,13 +182,11 @@ namespace ThreatModelForge.Analysis.Rules
             out int? value)
         {
             value = null;
-            if (TryGetExplicitPropertyValueFromText(text, PortCustomAttributeName, out string? valueString))
+            if (TryGetExplicitPropertyValueFromText(text, PortCustomAttributeName, out string? valueString)
+                && int.TryParse(valueString!, NumberStyles.None, CultureInfo.InvariantCulture, out int val))
             {
-                if (int.TryParse(valueString!, NumberStyles.None, CultureInfo.InvariantCulture, out int val))
-                {
-                    value = val;
-                    return true;
-                }
+                value = val;
+                return true;
             }
 
             return false;
@@ -230,13 +224,11 @@ namespace ThreatModelForge.Analysis.Rules
 
         private static bool TryGetPort(Connector edge, out int? port)
         {
-            if (edge.TryGetCustomPropertyValue(PortCustomAttributeName, out string? portString))
+            if (edge.TryGetCustomPropertyValue(PortCustomAttributeName, out string? portString)
+                && int.TryParse(portString, NumberStyles.None, CultureInfo.InvariantCulture, out int portVal))
             {
-                if (int.TryParse(portString, NumberStyles.None, CultureInfo.InvariantCulture, out int portVal))
-                {
-                    port = portVal;
-                    return true;
-                }
+                port = portVal;
+                return true;
             }
 
             port = null;

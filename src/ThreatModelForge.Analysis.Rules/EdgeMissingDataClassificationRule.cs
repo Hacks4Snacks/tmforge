@@ -48,20 +48,17 @@ namespace ThreatModelForge.Analysis.Rules
                 }
 
                 // Otherwise, check each edge for a classification.
-                foreach (Connector c in diagram.Lines.Values.OfType<Connector>())
+                foreach (Connector c in diagram.Lines.Values.OfType<Connector>().Where(c => !tagSet.TryGetTag(c, out string? _)))
                 {
-                    if (!tagSet.TryGetTag(c, out string? _))
-                    {
-                        string text = string.Format(
-                            System.Globalization.CultureInfo.CurrentCulture,
-                            Properties.Resources.EdgeMissingDataClassificationMessageText,
-                            GetEntityDisplayText(c));
-                        Message m = this.CreateMessage(
-                            c,
-                            diagram,
-                            text);
-                        context.Writer.Write(m);
-                    }
+                    string text = string.Format(
+                        System.Globalization.CultureInfo.CurrentCulture,
+                        Properties.Resources.EdgeMissingDataClassificationMessageText,
+                        GetEntityDisplayText(c));
+                    Message m = this.CreateMessage(
+                        c,
+                        diagram,
+                        text);
+                    context.Writer.Write(m);
                 }
             }
         }

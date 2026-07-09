@@ -34,7 +34,7 @@ namespace ThreatModelForge.Analysis.Reporting.Tests
         {
             const string docFileName = "GatewayModel.tm7";
             Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
-            string docFilePath = Path.Combine(
+            string docFilePath = Path.Join(
                 this.TestContext!.DeploymentDirectory,
                 docFileName);
 

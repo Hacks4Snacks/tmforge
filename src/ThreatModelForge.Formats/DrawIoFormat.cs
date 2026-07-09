@@ -99,11 +99,11 @@ namespace ThreatModelForge.Formats
                 throw new ArgumentNullException(nameof(stream));
             }
 
-            XDocument document;
-            using (XmlReader xmlReader = XmlReader.Create(stream, new XmlReaderSettings { CloseInput = false }))
-            {
-                document = XDocument.Load(xmlReader);
-            }
+            // XDocument.Load(Stream) applies the framework's hardened reader settings (DtdProcessing.Prohibit,
+            // bounded entity expansion, no XmlResolver), mitigating XXE and entity-expansion attacks from
+            // untrusted input. PreserveWhitespace matches the previous reader; the caller-owned stream is not
+            // closed by XDocument.Load(Stream).
+            XDocument document = XDocument.Load(stream, LoadOptions.PreserveWhitespace);
 
             List<XElement> pages = document.Descendants().Where(e => e.Name.LocalName == "diagram").ToList();
             if (pages.Count == 0)
@@ -311,13 +311,11 @@ namespace ThreatModelForge.Formats
 
         private static string GetElementName(Entity element)
         {
-            foreach (StringDisplayAttribute property in element.Properties.OfType<StringDisplayAttribute>())
+            foreach (StringDisplayAttribute property in element.Properties.OfType<StringDisplayAttribute>()
+                .Where(property => string.Equals(property.Name, "Name", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(property.DisplayName, "Name", StringComparison.OrdinalIgnoreCase)))
             {
-                if (string.Equals(property.Name, "Name", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(property.DisplayName, "Name", StringComparison.OrdinalIgnoreCase))
-                {
-                    return property.Value as string ?? string.Empty;
-                }
+                return property.Value as string ?? string.Empty;
             }
 
             return string.Empty;

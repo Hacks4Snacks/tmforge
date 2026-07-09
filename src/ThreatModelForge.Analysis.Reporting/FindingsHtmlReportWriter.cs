@@ -119,8 +119,8 @@ namespace ThreatModelForge.Analysis.Reporting
                     RuleID = r.ID,
                     HelpUri = r.HelpUri,
                     Severity = r.Severity,
-                    Diagram = m.Diagram != null ?
-                        report.DiagramSummaries.FirstOrDefault(e => e.ID == m.Diagram.Value) :
+                    Diagram = m.Diagram is Guid diagramId ?
+                        report.DiagramSummaries.FirstOrDefault(e => e.ID == diagramId) :
                         null,
                     Entity = m.Entity,
                     Text = m.Text,

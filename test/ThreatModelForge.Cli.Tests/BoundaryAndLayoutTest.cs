@@ -27,7 +27,7 @@ namespace ThreatModelForge.Cli.Tests
         [TestInitialize]
         public void Initialize()
         {
-            this.WorkingDirectory = Path.Combine(Path.GetTempPath(), "tmforge-boundary-" + Guid.NewGuid().ToString("N"));
+            this.WorkingDirectory = Path.Join(Path.GetTempPath(), "tmforge-boundary-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(this.WorkingDirectory);
         }
 
@@ -118,12 +118,10 @@ namespace ThreatModelForge.Cli.Tests
 
         private static DrawingElement FindByName(DrawingSurfaceModel diagram, string name)
         {
-            foreach (DrawingElement element in diagram.Borders.Values.OfType<DrawingElement>())
+            foreach (DrawingElement element in diagram.Borders.Values.OfType<DrawingElement>()
+                .Where(element => string.Equals(DiagramElementHelper.GetName(element), name, StringComparison.Ordinal)))
             {
-                if (string.Equals(DiagramElementHelper.GetName(element), name, StringComparison.Ordinal))
-                {
-                    return element;
-                }
+                return element;
             }
 
             throw new InvalidOperationException("Element not found: " + name);
@@ -131,8 +129,8 @@ namespace ThreatModelForge.Cli.Tests
 
         private static (int Exit, string Stdout) Capture(Func<int> run)
         {
-            StringWriter outWriter = new StringWriter();
-            StringWriter errorWriter = new StringWriter();
+            using StringWriter outWriter = new StringWriter();
+            using StringWriter errorWriter = new StringWriter();
             TextWriter originalOut = Console.Out;
             TextWriter originalError = Console.Error;
             Console.SetOut(outWriter);
@@ -151,7 +149,7 @@ namespace ThreatModelForge.Cli.Tests
 
         private string NewModel()
         {
-            string path = Path.Combine(this.WorkingDirectory, "model.tm7");
+            string path = Path.Join(this.WorkingDirectory, "model.tm7");
             Capture(() => NewCommand.Run(new[] { path, "--name", "Test" }));
             return path;
         }

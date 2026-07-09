@@ -97,13 +97,9 @@ namespace ThreatModelForge.Analysis
                 return;
             }
 
-            foreach (DeclarativeRuleSpec spec in parsed.Rules)
+            foreach (Rule? rule in parsed.Rules.Select(spec => Compile(spec, file, diagnostics)).Where(rule => rule != null))
             {
-                Rule? rule = Compile(spec, file, diagnostics);
-                if (rule != null)
-                {
-                    rules.Add(rule);
-                }
+                rules.Add(rule!);
             }
         }
 

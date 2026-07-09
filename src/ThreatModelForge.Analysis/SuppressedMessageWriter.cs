@@ -70,12 +70,9 @@ namespace ThreatModelForge.Analysis
 
         private bool IsSuppressed(Message message)
         {
-            foreach (SuppressMessage suppression in this.Suppressions)
+            foreach (SuppressMessage suppression in this.Suppressions.Where(suppression => suppression.IsMatch(message)))
             {
-                if (suppression.IsMatch(message))
-                {
-                    return true;
-                }
+                return true;
             }
 
             return false;

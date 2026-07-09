@@ -22,7 +22,7 @@ namespace ThreatModelForge.Cli.Tests
         [TestInitialize]
         public void Initialize()
         {
-            this.WorkingDirectory = Path.Combine(Path.GetTempPath(), "tmforge-mcp-" + Guid.NewGuid().ToString("N"));
+            this.WorkingDirectory = Path.Join(Path.GetTempPath(), "tmforge-mcp-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(this.WorkingDirectory);
         }
 
@@ -96,7 +96,7 @@ namespace ThreatModelForge.Cli.Tests
         public void Save_And_Read_RoundTripAModel()
         {
             AuthoringResultDto added = McpAuthoringTools.Add(model: null, kind: "process", name: "Web", alias: "web");
-            string path = Path.Combine(this.WorkingDirectory, "model.tm7");
+            string path = Path.Join(this.WorkingDirectory, "model.tm7");
 
             McpSaveResult saved = McpModelTools.Save(added.Model!, path);
             Assert.IsTrue(File.Exists(path));

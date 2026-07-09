@@ -26,29 +26,26 @@ namespace ThreatModelForge.Analysis.Rules
             GeneralPurposeComponentSet compSet = GeneralPurposeComponentSet.FromContext(context);
             foreach (DrawingSurfaceModel diagram in context.Model.DrawingSurfaceList)
             {
-                foreach (Entity c in diagram.Components())
+                foreach (Entity c in diagram.Components().Where(c => compSet.IsGeneralPurposeComponent(c)))
                 {
-                    if (compSet.IsGeneralPurposeComponent(c))
+                    string? name = c.Name();
+                    string? headerName = c.HeaderName();
+                    if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(headerName))
                     {
-                        string? name = c.Name();
-                        string? headerName = c.HeaderName();
-                        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(headerName))
-                        {
-                            continue;
-                        }
+                        continue;
+                    }
 
-                        if (string.Equals(name!.Trim(), headerName!.Trim(), StringComparison.OrdinalIgnoreCase))
-                        {
-                            string text = string.Format(
-                                System.Globalization.CultureInfo.CurrentCulture,
-                                Properties.Resources.GeneralPurposeComponentNameShouldNotMatchTypeNameMessageText,
-                                GetEntityDisplayText(c));
-                            Message m = this.CreateMessage(
-                                c,
-                                diagram,
-                                text);
-                            context.Writer.Write(m);
-                        }
+                    if (string.Equals(name!.Trim(), headerName!.Trim(), StringComparison.OrdinalIgnoreCase))
+                    {
+                        string text = string.Format(
+                            System.Globalization.CultureInfo.CurrentCulture,
+                            Properties.Resources.GeneralPurposeComponentNameShouldNotMatchTypeNameMessageText,
+                            GetEntityDisplayText(c));
+                        Message m = this.CreateMessage(
+                            c,
+                            diagram,
+                            text);
+                        context.Writer.Write(m);
                     }
                 }
             }

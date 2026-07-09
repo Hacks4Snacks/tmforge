@@ -53,7 +53,7 @@ namespace ThreatModelForge.Reporting
             }
 
             XElement html = new XElement("html", new XAttribute("lang", "en-US"), BuildHead(), body);
-            return "<!DOCTYPE html>" + Environment.NewLine + html.ToString();
+            return "<!DOCTYPE html>" + Environment.NewLine + html;
         }
 
         private static XElement BuildHead()
@@ -201,12 +201,9 @@ namespace ThreatModelForge.Reporting
 
         private static string FirstNonEmpty(params string?[] values)
         {
-            foreach (string? value in values)
+            foreach (string? value in values.Where(value => !string.IsNullOrEmpty(value)))
             {
-                if (!string.IsNullOrEmpty(value))
-                {
-                    return value!;
-                }
+                return value!;
             }
 
             return string.Empty;

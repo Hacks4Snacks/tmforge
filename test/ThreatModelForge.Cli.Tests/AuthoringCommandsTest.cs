@@ -28,7 +28,7 @@ namespace ThreatModelForge.Cli.Tests
         [TestInitialize]
         public void Initialize()
         {
-            this.WorkingDirectory = Path.Combine(Path.GetTempPath(), "tmforge-authoring-" + Guid.NewGuid().ToString("N"));
+            this.WorkingDirectory = Path.Join(Path.GetTempPath(), "tmforge-authoring-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(this.WorkingDirectory);
         }
 
@@ -191,8 +191,8 @@ namespace ThreatModelForge.Cli.Tests
             Assert.IsNotNull(diagram);
             DrawingElement? boundary = DiagramEditor.FindElement(diagram, id) as DrawingElement;
             Assert.IsNotNull(boundary);
-            Assert.AreEqual(320, boundary.Width);
-            Assert.AreEqual(240, boundary.Height);
+            Assert.AreEqual(320, boundary!.Width);
+            Assert.AreEqual(240, boundary!.Height);
         }
 
         /// <summary>
@@ -373,8 +373,8 @@ namespace ThreatModelForge.Cli.Tests
 
         private static (int Exit, string Stdout) Capture(Func<int> run)
         {
-            StringWriter outWriter = new StringWriter();
-            StringWriter errorWriter = new StringWriter();
+            using StringWriter outWriter = new StringWriter();
+            using StringWriter errorWriter = new StringWriter();
             TextWriter originalOut = Console.Out;
             TextWriter originalError = Console.Error;
             Console.SetOut(outWriter);
@@ -400,7 +400,7 @@ namespace ThreatModelForge.Cli.Tests
 
         private string ModelPath(string fileName)
         {
-            return System.IO.Path.Combine(this.WorkingDirectory, fileName);
+            return System.IO.Path.Join(this.WorkingDirectory, fileName);
         }
     }
 }
