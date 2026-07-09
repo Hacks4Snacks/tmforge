@@ -1,9 +1,9 @@
-namespace ThreatModelForge.Cli
+namespace ThreatModelForge.Engine
 {
     using System.Collections.Generic;
 
     /// <summary>An element (process, data store, or external entity) in a <see cref="Manifest"/>.</summary>
-    internal sealed class ManifestElement
+    public sealed class ManifestElement
     {
         /// <summary>Gets or sets the stable alias used to reference this element from flows.</summary>
         public string? Alias { get; set; }

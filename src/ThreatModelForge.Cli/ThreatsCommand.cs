@@ -5,6 +5,7 @@ namespace ThreatModelForge.Cli
     using System.IO;
     using System.Linq;
     using ThreatModelForge.Analysis;
+    using ThreatModelForge.Engine;
     using ThreatModelForge.Formats;
     using ThreatModelForge.Model;
 

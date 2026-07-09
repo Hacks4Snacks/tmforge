@@ -6,6 +6,7 @@ namespace ThreatModelForge.Cli.Tests
     using System.Text.Json;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
     using ThreatModelForge.Editing;
+    using ThreatModelForge.Engine;
     using ThreatModelForge.Model;
     using ThreatModelForge.Model.Abstracts;
 

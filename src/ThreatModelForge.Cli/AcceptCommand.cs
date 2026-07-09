@@ -3,6 +3,7 @@ namespace ThreatModelForge.Cli
     using System;
     using System.IO;
     using ThreatModelForge.Analysis;
+    using ThreatModelForge.Engine;
     using ThreatModelForge.Formats;
     using ThreatModelForge.Model;
 

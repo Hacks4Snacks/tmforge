@@ -1,9 +1,9 @@
-namespace ThreatModelForge.Cli
+namespace ThreatModelForge.Engine
 {
     using System.Collections.Generic;
 
     /// <summary>A data flow between two elements in a <see cref="Manifest"/>.</summary>
-    internal sealed class ManifestFlow
+    public sealed class ManifestFlow
     {
         /// <summary>Gets or sets the source element reference (alias or unique name).</summary>
         public string? From { get; set; }

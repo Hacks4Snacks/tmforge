@@ -2,6 +2,7 @@ namespace ThreatModelForge.Cli
 {
     using System;
     using System.IO;
+    using ThreatModelForge.Engine;
     using ThreatModelForge.Model;
 
     /// <summary>

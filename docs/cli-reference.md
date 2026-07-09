@@ -50,6 +50,7 @@ tmforge <command> [options] <file>
 | [`convert`](#convert) | Convert | Convert a model between file formats. |
 | [`apply`](#apply) | Author | Build a model from a declarative JSON manifest (all-or-nothing). |
 | [`export`](#export) | Author | Export a model as a declarative JSON manifest. |
+| [`mcp`](#mcp) | Agent | Run an MCP server over stdio (exposes the engine + authoring facade as tools). |
 
 ---
 
@@ -666,6 +667,41 @@ tmforge export [--out <manifest.json>] [--json] <model>
 tmforge export payments.tm7 --out payments.json
 tmforge export payments.tm7 | jq '.elements'
 ```
+
+---
+
+## Agent / MCP server
+
+### mcp
+
+`tmforge mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io/) server over stdio, so
+an AI agent can drive Threat Model Forge with the same engine Studio and the CLI use. It projects the
+stateless engine and authoring facade as MCP tools — each takes a canonical `tmforge-json` model in
+and returns the edited model (or findings, threats, or a report) out, so there is no server-side
+session state.
+
+```text
+tmforge mcp
+```
+
+Configure your MCP client to launch the tool:
+
+```json
+{
+  "mcpServers": {
+    "tmforge": { "command": "tmforge", "args": ["mcp"] }
+  }
+}
+```
+
+**Tools.** Grounding: `formats`, `stencils`, `property_schema`, `rules`, `rule_packs`,
+`manifest_schema`, `detect`. Model I/O and analysis: `read`, `save`, `analyze`, `threats`, `report`,
+`merge`. Authoring: `apply`, `export_manifest`, `add`, `connect`, `set`, `rename`, `remove`.
+
+A typical agent loop is **apply -> analyze -> set -> analyze -> save**: build a model from a manifest
+(or incrementally with `add`/`connect`), analyze it, resolve findings by setting the properties the
+rules read (for example `Protocol=HTTPS`), then materialize a `.tm7` with `save`. The JSON-RPC
+protocol owns stdout; all diagnostics go to stderr.
 
 ---
 

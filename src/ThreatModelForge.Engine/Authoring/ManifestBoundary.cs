@@ -1,7 +1,7 @@
-namespace ThreatModelForge.Cli
+namespace ThreatModelForge.Engine
 {
     /// <summary>A trust boundary in a <see cref="Manifest"/>.</summary>
-    internal sealed class ManifestBoundary
+    public sealed class ManifestBoundary
     {
         /// <summary>Gets or sets the stable alias used to reference this boundary from elements.</summary>
         public string? Alias { get; set; }

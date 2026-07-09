@@ -4,6 +4,7 @@ namespace ThreatModelForge.Cli.Tests
     using System.IO;
     using System.Text.Json;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
+    using ThreatModelForge.Engine;
 
     /// <summary>
     /// Unit tests for alias-based element references and deterministic, stable element ids
