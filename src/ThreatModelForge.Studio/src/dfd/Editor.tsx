@@ -65,12 +65,12 @@ const KIND_COLOR: Record<DfdKind, string> = {
   boundary: '#64748b',
 };
 
-const STORAGE_KEY = 'tmforge.studio.workspace.v2';
-const LEGACY_MODEL_KEY = 'tmforge.studio.model.v1';
-const THEME_KEY = 'tmforge.studio.theme';
-const RECENTS_KEY = 'tmforge.studio.recentStencils.v1';
+export const STORAGE_KEY = 'tmforge.studio.workspace.v2';
+export const LEGACY_MODEL_KEY = 'tmforge.studio.model.v1';
+export const THEME_KEY = 'tmforge.studio.theme';
+export const RECENTS_KEY = 'tmforge.studio.recentStencils.v1';
 /** How many recently used stencils to remember. */
-const RECENTS_MAX = 6;
+export const RECENTS_MAX = 6;
 /** Canvas grid pitch (px). Shared by the dotted background and snap-to-grid so they line up. */
 const GRID_SIZE = 16;
 /** Offset (px) applied to pasted/duplicated elements so a copy is visibly distinct from its source. */
@@ -81,7 +81,7 @@ const FAVORITES_KEY = 'tmforge.studio.favoriteStencils.v1';
 type Theme = 'light' | 'dark';
 
 /** The initial theme: a saved choice if present, else the OS preference. */
-function initialTheme(): Theme {
+export function initialTheme(): Theme {
   try {
     const saved = window.localStorage.getItem(THEME_KEY);
     if (saved === 'light' || saved === 'dark') {
@@ -101,7 +101,7 @@ interface StoredWorkspace {
 }
 
 /** Reads the saved multi-page workspace (v2), migrating a legacy single-page model (v1) when present. */
-function loadStoredWorkspace(): StoredWorkspace | null {
+export function loadStoredWorkspace(): StoredWorkspace | null {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (raw) {
@@ -131,13 +131,13 @@ function loadStoredWorkspace(): StoredWorkspace | null {
 }
 
 /** A fresh workspace with a single empty page. */
-function emptyWorkspace(): StoredWorkspace {
+export function emptyWorkspace(): StoredWorkspace {
   const id = crypto.randomUUID();
   return { pages: [{ id, name: 'Page 1', nodes: [], edges: [] }], activePageId: id };
 }
 
 /** Reads the recently used stencil ids from browser storage (most recent first). */
-function loadRecentStencilIds(): string[] {
+export function loadRecentStencilIds(): string[] {
   try {
     const raw = window.localStorage.getItem(RECENTS_KEY);
     if (!raw) {
@@ -153,7 +153,7 @@ function loadRecentStencilIds(): string[] {
 }
 
 /** Reads a persisted list of string ids from browser storage. */
-function loadStringList(key: string): string[] {
+export function loadStringList(key: string): string[] {
   try {
     const raw = window.localStorage.getItem(key);
     if (!raw) {
@@ -167,7 +167,7 @@ function loadStringList(key: string): string[] {
 }
 
 /** Persists a list of string ids to browser storage, ignoring storage failures. */
-function persistStringList(key: string, value: string[]): void {
+export function persistStringList(key: string, value: string[]): void {
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
   } catch {
@@ -198,7 +198,7 @@ interface FilePickerWindow {
 }
 
 /** True when a file-picker promise rejected because the user cancelled the dialog. */
-function isAbortError(err: unknown): boolean {
+export function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError';
 }
 
@@ -212,7 +212,7 @@ function downloadBlob(blob: Blob, filename: string): void {
 }
 
 /** Builds the analysis-rule selection from the current toggles, or undefined when nothing is disabled. */
-function buildAnalysis(disabledPacks: string[], disabledRuleIds: string[]): TmForgeAnalysis | undefined {
+export function buildAnalysis(disabledPacks: string[], disabledRuleIds: string[]): TmForgeAnalysis | undefined {
   const analysis: TmForgeAnalysis = {};
   if (disabledPacks.length > 0) {
     analysis.disabledPacks = disabledPacks;
@@ -224,7 +224,7 @@ function buildAnalysis(disabledPacks: string[], disabledRuleIds: string[]): TmFo
 }
 
 /** Returns copies of the graph with the `flagged` class applied to elements a finding referenced. */
-function applyFlags(
+export function applyFlags(
   nodes: DfdNode[],
   edges: DfdEdge[],
   flagged: ReadonlySet<string>,

@@ -299,10 +299,21 @@ namespace ThreatModelForge.Engine
             }
 
             // .tm7 is the lossless, register-bearing format, so materialize the full threat register
-            // (with acceptance) for it; the other formats drop the register, so keep the cheaper build.
-            ThreatModel model = string.Equals(formatId, Tm7Format.FormatId, StringComparison.OrdinalIgnoreCase)
-                ? BuildModelForExport(dto)
-                : BuildModel(dto, out _);
+            // (with acceptance) and prepare it for the Microsoft Threat Modeling Tool — embed the
+            // knowledge base and type schema-backed properties — so every path that writes a .tm7 (this
+            // facade, the CLI, and the dedicated export) produces the same tool-openable file. The other
+            // formats drop the register, so keep the cheaper build.
+            ThreatModel model;
+            if (string.Equals(formatId, Tm7Format.FormatId, StringComparison.OrdinalIgnoreCase))
+            {
+                model = BuildModelForExport(dto);
+                Tm7ExportPreparer.Prepare(model);
+            }
+            else
+            {
+                model = BuildModel(dto, out _);
+            }
+
             ThreatModelFormatRegistry registry = ThreatModelFormatRegistry.CreateDefault();
             IThreatModelFormat format = registry.FindById(formatId)
                 ?? throw new NotSupportedException($"No threat model format with id '{formatId}'.");

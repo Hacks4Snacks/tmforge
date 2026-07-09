@@ -2,6 +2,7 @@ namespace ThreatModelForge.Formats.Tests
 {
     using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using System.Text;
     using System.Text.Json;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -66,6 +67,28 @@ namespace ThreatModelForge.Formats.Tests
             }
 
             Assert.IsTrue(model.DrawingSurfaceList[0].Borders.ContainsKey(id));
+        }
+
+        /// <summary>
+        /// Verifies that the authored width and height of a component (not only a trust boundary) are
+        /// applied on read, so an element keeps the size the canvas gave it instead of shrinking to the
+        /// stencil's default size on the round trip.
+        /// </summary>
+        [TestMethod]
+        public void ReadAppliesAuthoredComponentSize()
+        {
+            string json = "{\"schema\":\"tmforge-json\",\"version\":\"0.1\",\"elements\":[" +
+                "{\"id\":\"p1\",\"kind\":\"process\",\"name\":\"Web App\",\"x\":100,\"y\":100,\"width\":140,\"height\":132}]}";
+
+            ThreatModel model;
+            using (MemoryStream stream = new MemoryStream(Encoding.UTF8.GetBytes(json)))
+            {
+                model = new TmForgeJsonFormat().Read(stream);
+            }
+
+            StencilEllipse element = (StencilEllipse)model.DrawingSurfaceList[0].Borders.Values.Single();
+            Assert.AreEqual(140, element.Width);
+            Assert.AreEqual(132, element.Height);
         }
 
         /// <summary>
