@@ -34,6 +34,7 @@ and `/openapi` are matched first.
 | `GET /v1/rule-packs` | Catalog | List rule packs. |
 | `GET /v1/property-schema` | Catalog | List the typed custom-property schema the rules read. |
 | `POST /v1/model/analyze` | Model | Analyze a model and return findings. |
+| `POST /v1/model/threats` | Model | Generate the STRIDE threat register (rule threats plus the model's author overlay). |
 | `POST /v1/model/read` | Model | Parse uploaded bytes (base64) into the canonical model. |
 | `POST /v1/model/convert?to=<format>` | Model | Convert a model to another format. |
 | `POST /v1/model/export/tm7` | Model | Export a model as a `.tm7` file. |
@@ -69,6 +70,16 @@ curl http://localhost:8080/v1/stencils         # authoring stencils
 
 `POST /v1/model/analyze` returns findings for a supplied model, the same rule engine `tmforge analyze`
 uses. This is how Studio's **Analyze** button overlays findings on the canvas.
+
+### Generate threats
+
+`POST /v1/model/threats` returns the model's **STRIDE threat register** the same rule findings as
+`analyze`, framed as threats and overlaid with the model's author-owned state. The request model's
+`threats` overlay carries risk acceptance, per-threat edits (state, priority, mitigation, description),
+and **manually-authored threats** (`manual: true`, keyed `manual:<guid>`, scoped to element ids or
+model-wide). Those edits and manual threats round-trip into the exported `.tm7` register, so a threat
+accepted or authored in Studio opens in the Microsoft Threat Modeling Tool. This powers Studio's threat
+panel and the `tmforge threats` verb.
 
 ### Convert / export
 

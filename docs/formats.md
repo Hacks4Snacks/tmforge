@@ -55,11 +55,13 @@ validated the same as one authored with custom attributes.
 ### `tmforge-json` (canonical wire model)
 
 The shape Studio and the API speak: elements, flows, trust boundaries, names, and geometry, plus an
-optional analysis selection (disabled packs/rules) and a risk-acceptance triage overlay. Multi-page
-models carry a `diagrams` array (one entry per page, with its name); single-page models keep the flat
-`elements`/`flows` shape, so older readers keep working. Knowledge-base attributes and the full
-generated-threat register are not represented — only risk-acceptance triage round-trips — so it's
-structural rather than lossless. Use it to bridge Studio and the CLI.
+optional analysis selection (disabled packs/rules) and an author-owned threat overlay, risk
+acceptance, and per-threat edits (state, priority, mitigation, description), plus manually-authored
+threats. Multi-page models carry a `diagrams` array (one entry per page, with its name); single-page
+models keep the flat `elements`/`flows` shape, so older readers keep working. Knowledge-base
+attributes and the full generated-threat register are not represented, the register is regenerated
+from the rules on demand, and only the author-owned overlay round-trips so it's structural rather
+than lossless. Use it to bridge Studio and the CLI.
 
 ### `drawio` (draw.io / diagrams.net)
 

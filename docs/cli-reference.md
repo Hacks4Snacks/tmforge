@@ -44,7 +44,7 @@ tmforge <command> [options] <file>
 | [`page`](#page) | Author | List, add, rename, reorder, or remove pages (diagrams). |
 | [`layout`](#layout) | Author | Auto-lay-out the diagram (layered; no hand-placed coordinates). |
 | [`analyze`](#analyze) | Analyze | Evaluate the analysis rules against a model. |
-| [`threats`](#threats) | Analyze | Report threats — the persisted, triaged view of the analysis findings (`--write` to persist). |
+| [`threats`](#threats) | Analyze | Report or author threats — the persisted, triaged view of the findings (`--write` to persist; `--add`/`--edit`/`--remove` to author). |
 | [`accept`](#accept) | Analyze | Accept a generated threat's risk (records a justification). |
 | [`report`](#report) | Report | Generate a self-contained HTML report. |
 | [`convert`](#convert) | Convert | Convert a model between file formats. |
@@ -531,6 +531,32 @@ tmforge threats payments.tm7 --json
 
 After `--write`, triage the register with [`list threats`](#list) and [`accept`](#accept).
 
+#### Authoring threats
+
+Beyond acceptance, `threats` can **create, edit, and remove** threats. These modes materialize the
+register (so rule threats are editable), apply the change, and save the model:
+
+```text
+tmforge threats --add --title <t> --category <STRIDE> [--scope <id>] [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] <model>
+tmforge threats --edit <id> [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] [--note <n>] <model>
+tmforge threats --remove <id> <model>
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--add` | Author a **manual threat** the rules do not detect. `--category` is a STRIDE category (`Spoofing` / `Tampering` / `Repudiation` / `InformationDisclosure` / `DenialOfService` / `ElevationOfPrivilege`); `--scope` is an element or flow id (omit for a model-wide threat). Manual threats are keyed `manual:<guid>`. |
+| `--edit <id>` | Change a threat's `--state` (`Open` / `NeedsInvestigation` / `Mitigated` / `Accepted`), `--priority`, `--mitigation`, `--description`, or `--note`. Works on rule-derived and manual threats. |
+| `--remove <id>` | Delete a **manual** threat (rule threats regenerate from the rules — accept or edit them instead). |
+
+```bash
+tmforge threats app.tm7 --add --title "Admin actions are unlogged" --category Repudiation --scope <process-id> --priority High
+tmforge threats app.tm7 --edit <id> --state Mitigated --description "Handled by the mesh"
+tmforge list threats app.tm7                 # see the register, including manual threats
+```
+
+Authored threats and edits round-trip into the `.tm7` register (and open in the Microsoft Threat
+Modeling Tool). A manual threat's id comes from the `list threats` output or from `--add --json`.
+
 ### `accept`
 
 Record **inline risk acceptance** for a generated threat. Acceptance is a threat *state*: the threat
@@ -696,7 +722,8 @@ Configure your MCP client to launch the tool:
 
 **Tools.** Grounding: `formats`, `stencils`, `property_schema`, `rules`, `rule_packs`,
 `manifest_schema`, `detect`. Model I/O and analysis: `read`, `save`, `analyze`, `threats`, `report`,
-`merge`. Authoring: `apply`, `export_manifest`, `add`, `connect`, `set`, `rename`, `remove`.
+`merge`. Authoring: `apply`, `export_manifest`, `add`, `connect`, `set`, `rename`, `remove`. Threat
+authoring: `add_threat`, `edit_threat`, `remove_threat`.
 
 A typical agent loop is **apply -> analyze -> set -> analyze -> save**: build a model from a manifest
 (or incrementally with `add`/`connect`), analyze it, resolve findings by setting the properties the

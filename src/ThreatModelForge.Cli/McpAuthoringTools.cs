@@ -8,8 +8,9 @@ namespace ThreatModelForge.Cli
 
     /// <summary>
     /// MCP authoring tools over the stateless <see cref="AuthoringService"/> facade: declarative
-    /// manifests (<c>apply</c>/<c>export_manifest</c>) and imperative edits (<c>add</c>/<c>connect</c>/
-    /// <c>set</c>/<c>rename</c>/<c>remove</c>). Each edit takes a tmforge-json model in and returns the
+    /// manifests (<c>apply</c>/<c>export_manifest</c>), imperative edits (<c>add</c>/<c>connect</c>/
+    /// <c>set</c>/<c>rename</c>/<c>remove</c>), and threat authoring (<c>add_threat</c>/
+    /// <c>edit_threat</c>/<c>remove_threat</c>). Each edit takes a tmforge-json model in and returns the
     /// edited model out, so an agent can iterate: apply, analyze, edit, repeat.
     /// </summary>
     [McpServerToolType]
@@ -179,5 +180,83 @@ namespace ThreatModelForge.Cli
             [Description("The element reference (id, alias, or unique name).")] string id,
             [Description("The page (1-based index or page name).")] string? page = null)
             => AuthoringService.Remove(model, new RemoveRequest { Id = id, Page = page });
+
+        /// <summary>
+        /// Adds a manually-authored STRIDE threat the rules do not detect.
+        /// </summary>
+        /// <param name="model">The tmforge-json model to edit; omit or pass an empty model to start fresh.</param>
+        /// <param name="title">The threat title (statement).</param>
+        /// <param name="category">The STRIDE category.</param>
+        /// <param name="scope">The element or flow id to scope the threat to; omit for a model-wide threat.</param>
+        /// <param name="state">The lifecycle state (Open, NeedsInvestigation, Mitigated, or Accepted).</param>
+        /// <param name="priority">The priority (High, Medium, or Low).</param>
+        /// <param name="description">The threat description.</param>
+        /// <param name="mitigation">The suggested mitigation.</param>
+        /// <returns>The edited model and the new threat id, or a blocking error.</returns>
+        [McpServerTool(Name = "add_threat")]
+        [Description("Adds a manually-authored STRIDE threat the rules do not detect. Scope it to an element/flow id, or omit scope for a model-wide threat.")]
+        public static AuthoringResultDto AddThreat(
+            [Description("The tmforge-json model to edit; omit or pass an empty model to start fresh.")] TmForgeModelDto? model = null,
+            [Description("The threat title (statement).")] string title = "",
+            [Description("The STRIDE category: Spoofing, Tampering, Repudiation, InformationDisclosure, DenialOfService, or ElevationOfPrivilege.")] string category = "",
+            [Description("The element or flow id to scope the threat to; omit for a model-wide threat.")] string? scope = null,
+            [Description("The lifecycle state: Open, NeedsInvestigation, Mitigated, or Accepted (default Open).")] string? state = null,
+            [Description("The priority: High, Medium, or Low.")] string? priority = null,
+            [Description("A description of the threat.")] string? description = null,
+            [Description("The suggested mitigation.")] string? mitigation = null)
+            => AuthoringService.AddThreat(model, new AddThreatRequest
+            {
+                Title = title,
+                Category = category,
+                ElementIds = string.IsNullOrWhiteSpace(scope) ? null : new[] { scope! },
+                State = state,
+                Priority = priority,
+                Description = description,
+                Mitigation = mitigation,
+            });
+
+        /// <summary>
+        /// Edits a threat's author-owned state and notes.
+        /// </summary>
+        /// <param name="model">The tmforge-json model to edit.</param>
+        /// <param name="id">The threat id (from the threats tool).</param>
+        /// <param name="state">The lifecycle state (Open, NeedsInvestigation, Mitigated, or Accepted).</param>
+        /// <param name="priority">The priority (High, Medium, or Low).</param>
+        /// <param name="mitigation">The suggested mitigation.</param>
+        /// <param name="description">The threat description.</param>
+        /// <param name="justification">A justification or state note.</param>
+        /// <returns>The edited model, or a blocking error.</returns>
+        [McpServerTool(Name = "edit_threat")]
+        [Description("Edits a threat's lifecycle state, priority, mitigation, description, or justification. Use a threat id from the threats tool.")]
+        public static AuthoringResultDto EditThreat(
+            [Description("The tmforge-json model to edit.")] TmForgeModelDto model,
+            [Description("The threat id (from the threats tool).")] string id,
+            [Description("The lifecycle state: Open, NeedsInvestigation, Mitigated, or Accepted.")] string? state = null,
+            [Description("The priority: High, Medium, or Low.")] string? priority = null,
+            [Description("The suggested mitigation.")] string? mitigation = null,
+            [Description("A description of the threat.")] string? description = null,
+            [Description("A justification or state note (for example, why a risk is accepted).")] string? justification = null)
+            => AuthoringService.EditThreat(model, new EditThreatRequest
+            {
+                Id = id,
+                State = state,
+                Priority = priority,
+                Mitigation = mitigation,
+                Description = description,
+                Justification = justification,
+            });
+
+        /// <summary>
+        /// Removes a manually-authored threat (or resets an edited rule threat) from the model's overlay.
+        /// </summary>
+        /// <param name="model">The tmforge-json model to edit.</param>
+        /// <param name="id">The threat id to remove.</param>
+        /// <returns>The edited model and the removed id, or a blocking error.</returns>
+        [McpServerTool(Name = "remove_threat")]
+        [Description("Removes a manually-authored threat, or resets an edited rule threat. Rule threats without edits regenerate from the rules and cannot be removed.")]
+        public static AuthoringResultDto RemoveThreat(
+            [Description("The tmforge-json model to edit.")] TmForgeModelDto model,
+            [Description("The threat id to remove.")] string id)
+            => AuthoringService.RemoveThreat(model, new RemoveThreatRequest { Id = id });
     }
 }

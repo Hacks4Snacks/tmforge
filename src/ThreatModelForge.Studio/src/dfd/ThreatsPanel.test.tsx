@@ -1,3 +1,4 @@
+import '@testing-library/jest-dom/vitest';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ThreatsPanel, type ThreatsPanelProps } from './ThreatsPanel';
@@ -50,6 +51,11 @@ const THREATS: Threat[] = [
   }),
 ];
 
+const SCOPE_OPTIONS = [
+  { id: 'client', label: 'Client · external' },
+  { id: 'edge1', label: 'Client -> Gateway · flow' },
+];
+
 /** Renders the panel with sensible defaults; pass overrides for the props a test cares about. */
 function renderPanel(overrides: Partial<ThreatsPanelProps> = {}): ThreatsPanelProps {
   const props: ThreatsPanelProps = {
@@ -57,8 +63,10 @@ function renderPanel(overrides: Partial<ThreatsPanelProps> = {}): ThreatsPanelPr
     findings: [],
     onSelect: vi.fn(),
     offPageLabel: () => undefined,
-    onAccept: vi.fn(),
-    onUndoAccept: vi.fn(),
+    onEditThreat: vi.fn(),
+    onAddThreat: vi.fn(),
+    onDeleteThreat: vi.fn(),
+    scopeOptions: SCOPE_OPTIONS,
     ...overrides,
   };
   render(<ThreatsPanel {...props} />);
@@ -103,6 +111,12 @@ describe('ThreatsPanel', () => {
     expect(screen.getByText('Page 2')).toBeInTheDocument();
   });
 
+  it("labels a rule threat's editable priority explicitly, distinct from its rule severity", () => {
+    renderPanel({ threats: [threat({ priority: 'High' })] });
+
+    expect(screen.getByText('Priority: High')).toBeInTheDocument();
+  });
+
   it("calls onSelect with the clicked threat's element ids", () => {
     const { onSelect } = renderPanel();
 
@@ -120,21 +134,36 @@ describe('ThreatsPanel', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it('accepts a threat with a required justification', () => {
-    const { onAccept } = renderPanel({ threats: [THREATS[0]] });
+  it('edits a threat: accepting it via the state control emits the new state and justification', () => {
+    const { onEditThreat } = renderPanel({ threats: [THREATS[0]] });
 
-    fireEvent.click(screen.getByRole('button', { name: /^Accept/ }));
-    const input = screen.getByPlaceholderText('Why is this risk accepted? (required)');
-    // The confirm button stays disabled until a justification is entered.
-    expect(screen.getByRole('button', { name: 'Accept risk' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.change(screen.getByLabelText('State'), { target: { value: 'Accepted' } });
+    fireEvent.change(screen.getByLabelText('Justification'), { target: { value: 'Compensating control X is in place.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-    fireEvent.change(input, { target: { value: 'Compensating control X is in place.' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Accept risk' }));
-
-    expect(onAccept).toHaveBeenCalledWith(THREATS[0], 'Compensating control X is in place.');
+    expect(onEditThreat).toHaveBeenCalledWith(
+      THREATS[0],
+      expect.objectContaining({ state: 'Accepted', justification: 'Compensating control X is in place.' }),
+    );
   });
 
-  it('shows accepted state (badge + justification) and can undo', () => {
+  it('edits a threat: changing priority and description emits just those changed fields', () => {
+    const { onEditThreat } = renderPanel({ threats: [THREATS[0]] });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.change(screen.getByLabelText('Priority'), { target: { value: 'High' } });
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Exploitable from the internet.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(onEditThreat).toHaveBeenCalledWith(THREATS[0], {
+      state: 'Open',
+      priority: 'High',
+      description: 'Exploitable from the internet.',
+    });
+  });
+
+  it('shows a non-open state badge and the justification for an accepted threat', () => {
     const accepted = threat({
       id: 'client:TM1023',
       ruleId: 'TM1023',
@@ -143,15 +172,44 @@ describe('ThreatsPanel', () => {
       justification: 'Accepted for the pilot.',
       elementIds: ['client'],
     });
-    const { onUndoAccept } = renderPanel({ threats: [accepted] });
+    renderPanel({ threats: [accepted] });
 
     expect(screen.getByText(/0 open threats/)).toBeInTheDocument();
-    expect(screen.getByText(/1 accepted/)).toBeInTheDocument();
+    expect(screen.getByText(/1 triaged/)).toBeInTheDocument();
     expect(screen.getByText('Accepted')).toBeInTheDocument();
     expect(screen.getByText('“Accepted for the pilot.”')).toBeInTheDocument();
+  });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
-    expect(onUndoAccept).toHaveBeenCalledWith(accepted);
+  it('authors a manual threat from the add form with a title, category, and scope', () => {
+    const { onAddThreat } = renderPanel({ threats: [] });
+
+    fireEvent.click(screen.getByRole('button', { name: '+ Add threat' }));
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Replay of a captured token' } });
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'Spoofing' } });
+    fireEvent.change(screen.getByLabelText('Scope'), { target: { value: 'client' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add threat' }));
+
+    expect(onAddThreat).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Replay of a captured token', category: 'Spoofing', scopeId: 'client' }),
+    );
+  });
+
+  it('marks manual threats and offers delete, which rule threats do not', () => {
+    const manual = threat({ id: 'manual:x', ruleId: '', title: 'Hand-authored threat.', manual: true });
+    const { onDeleteThreat } = renderPanel({ threats: [manual] });
+
+    expect(screen.getByText('Manual')).toBeInTheDocument();
+    // A manual threat has no rule severity, so its leading badge shows the author's priority, not 'warning'.
+    expect(screen.getByText('Medium')).toBeInTheDocument();
+    expect(screen.queryByText('warning')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(onDeleteThreat).toHaveBeenCalledWith(manual);
+  });
+
+  it('does not offer delete for a rule-derived threat', () => {
+    renderPanel({ threats: [THREATS[0]] });
+
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
   });
 
   it('renders non-threat hygiene findings in an "Other findings" section', () => {

@@ -370,5 +370,114 @@ namespace ThreatModelForge.Formats.Tests
                 Assert.IsFalse(parsed.RootElement.TryGetProperty("threats", out _));
             }
         }
+
+        /// <summary>
+        /// A manually-authored threat (keyed <c>manual:{guid}</c>) round-trips through the overlay in
+        /// full: its category, title, description, mitigation, priority, scope, and state survive a
+        /// write and re-read, so a threat the author created by hand is not lost on save.
+        /// </summary>
+        [TestMethod]
+        public void ManualThreatRoundTrips()
+        {
+            System.Guid node = System.Guid.NewGuid();
+            string id = "manual:" + System.Guid.NewGuid().ToString("N");
+            ThreatModel source = new ThreatModel();
+            source.AllThreatsDictionary[id] = new Threat
+            {
+                Id = 1,
+                State = ThreatState.NeedsInvestigation,
+                InteractionKey = id,
+                SourceGuid = node,
+                Title = "Stolen session token",
+                UserThreatCategory = "Spoofing",
+                UserThreatDescription = "An attacker replays a captured bearer token.",
+                Priority = "High",
+                StateInformation = "Under review.",
+                Properties = new Dictionary<string, string> { ["Mitigation"] = "Bind tokens to the client." },
+            };
+
+            byte[] bytes;
+            using (MemoryStream output = new MemoryStream())
+            {
+                new TmForgeJsonFormat().Write(source, output);
+                bytes = output.ToArray();
+            }
+
+            using (JsonDocument parsed = JsonDocument.Parse(bytes))
+            {
+                JsonElement entry = parsed.RootElement.GetProperty("threats")[0];
+                Assert.AreEqual(id, entry.GetProperty("id").GetString());
+                Assert.IsTrue(entry.GetProperty("manual").GetBoolean());
+                Assert.AreEqual("NeedsInvestigation", entry.GetProperty("state").GetString());
+                Assert.AreEqual("Spoofing", entry.GetProperty("category").GetString());
+                Assert.AreEqual("Stolen session token", entry.GetProperty("title").GetString());
+                Assert.AreEqual("Bind tokens to the client.", entry.GetProperty("mitigation").GetString());
+                Assert.AreEqual(node.ToString(), entry.GetProperty("elementIds")[0].GetString());
+            }
+
+            ThreatModel reread;
+            using (MemoryStream input = new MemoryStream(bytes))
+            {
+                reread = new TmForgeJsonFormat().Read(input);
+            }
+
+            Assert.IsTrue(reread.AllThreatsDictionary.TryGetValue(id, out Threat? threat));
+            Assert.AreEqual(ThreatState.NeedsInvestigation, threat!.State);
+            Assert.AreEqual("Stolen session token", threat.Title);
+            Assert.AreEqual("Spoofing", threat.UserThreatCategory);
+            Assert.AreEqual("An attacker replays a captured bearer token.", threat.UserThreatDescription);
+            Assert.AreEqual("High", threat.Priority);
+            Assert.AreEqual(node, threat.SourceGuid);
+            Assert.IsNotNull(threat.Properties);
+            Assert.AreEqual("Bind tokens to the client.", threat.Properties!["Mitigation"]);
+        }
+
+        /// <summary>
+        /// An edited rule threat — one whose state moved to <c>Mitigated</c> with a description — round
+        /// trips its author-owned fields on the overlay without storing the regenerable rule text, so
+        /// the edit survives a save while the register stays sparse (no <c>manual</c> flag emitted).
+        /// </summary>
+        [TestMethod]
+        public void EditedRuleThreatRoundTrips()
+        {
+            System.Guid target = System.Guid.NewGuid();
+            string threatId = target.ToString("N") + ":TM1013";
+            ThreatModel source = new ThreatModel();
+            source.AllThreatsDictionary[threatId] = new Threat
+            {
+                Id = 1,
+                TypeId = "TM1013",
+                State = ThreatState.Mitigated,
+                InteractionKey = threatId,
+                SourceGuid = target,
+                UserThreatDescription = "Handled by the WAF rule set.",
+            };
+
+            byte[] bytes;
+            using (MemoryStream output = new MemoryStream())
+            {
+                new TmForgeJsonFormat().Write(source, output);
+                bytes = output.ToArray();
+            }
+
+            using (JsonDocument parsed = JsonDocument.Parse(bytes))
+            {
+                JsonElement entry = parsed.RootElement.GetProperty("threats")[0];
+                Assert.AreEqual("Mitigated", entry.GetProperty("state").GetString());
+                Assert.AreEqual("Handled by the WAF rule set.", entry.GetProperty("description").GetString());
+                Assert.IsFalse(entry.TryGetProperty("manual", out _));
+            }
+
+            ThreatModel reread;
+            using (MemoryStream input = new MemoryStream(bytes))
+            {
+                reread = new TmForgeJsonFormat().Read(input);
+            }
+
+            Assert.IsTrue(reread.AllThreatsDictionary.TryGetValue(threatId, out Threat? threat));
+            Assert.AreEqual(ThreatState.Mitigated, threat!.State);
+            Assert.AreEqual("Handled by the WAF rule set.", threat.UserThreatDescription);
+            Assert.AreEqual("TM1013", threat.TypeId);
+        }
     }
 }

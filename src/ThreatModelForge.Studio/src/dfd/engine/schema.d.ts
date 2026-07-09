@@ -375,11 +375,20 @@ export interface components {
             interaction?: string;
             state?: string;
             justification?: null | string;
+            description?: null | string;
+            manual?: boolean;
         };
         ThreatStateDto: {
             id?: string;
             state?: string;
             justification?: null | string;
+            manual?: null | boolean;
+            category?: null | string;
+            title?: null | string;
+            description?: null | string;
+            mitigation?: null | string;
+            priority?: null | string;
+            elementIds?: null | string[];
         };
         TmForgeAnalysisDto: {
             disabledPacks?: null | string[];

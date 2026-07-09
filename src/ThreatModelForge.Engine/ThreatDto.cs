@@ -38,10 +38,16 @@ namespace ThreatModelForge.Engine
         /// <summary>Gets the human-readable scope string (<c>source -&gt; target</c> for a flow, else the element name).</summary>
         public string Interaction { get; init; } = string.Empty;
 
-        /// <summary>Gets the triage state (<c>Open</c> or <c>Accepted</c>).</summary>
+        /// <summary>Gets the lifecycle state (<c>Open</c>, <c>NeedsInvestigation</c>, <c>Mitigated</c>, or <c>Accepted</c>).</summary>
         public string State { get; init; } = "Open";
 
         /// <summary>Gets the risk-acceptance justification, when the threat has been accepted.</summary>
         public string? Justification { get; init; }
+
+        /// <summary>Gets the author-set description, when present.</summary>
+        public string? Description { get; init; }
+
+        /// <summary>Gets a value indicating whether this threat was authored manually (not projected from a rule).</summary>
+        public bool Manual { get; init; }
     }
 }

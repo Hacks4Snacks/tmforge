@@ -29,7 +29,7 @@ import { Inspector } from './Inspector';
 import { AnalysisSettings } from './AnalysisSettings';
 import { FALLBACK_PACKS, FALLBACK_STENCILS } from './stencils';
 import { createHttpEngine, loadWasmEngine, offlineEngine, probeEngine, type Finding, type FormatInfo, type IEngineClient, type PackInfo, type PropertyDescriptorInfo, type RuleInfo, type RulePackInfo, type StencilInfo, type Threat } from './engineClient';
-import { ThreatsPanel } from './ThreatsPanel';
+import { ThreatsPanel, type NewThreatDraft, type ThreatEdit, type ThreatScopeOption } from './ThreatsPanel';
 import { CanvasSearch, type SearchItem } from './CanvasSearch';
 import { DEFAULT_NODE_SIZE, modelFromPages, pagesFromModel, type PageGraph } from './mapping';
 import { cloneGraph, type Clipboard } from './clipboard';
@@ -975,17 +975,53 @@ export function Editor() {
     }
   }, [disabledRulePacks, disabledRuleIds]);
 
-  // Accept a threat's risk with a justification: record it in the model's triage overlay (so it
-  // persists and round-trips) and reflect it immediately in the panel, no re-analysis needed.
-  const acceptThreat = useCallback((threat: Threat, reason: string) => {
-    setThreatTriage((prev) => [...prev.filter((t) => t.id !== threat.id), { id: threat.id, state: 'Accepted', justification: reason }]);
-    setThreats((prev) => prev.map((t) => (t.id === threat.id ? { ...t, state: 'Accepted', justification: reason } : t)));
+  // Apply an author edit (state / priority / mitigation / description / justification) to a threat:
+  // record it on the model's overlay (so it persists and round-trips) and reflect it in the panel.
+  const editThreat = useCallback((threat: Threat, edit: ThreatEdit) => {
+    setThreatTriage((prev) => {
+      const existing = prev.find((t) => t.id === threat.id);
+      const base: ThreatTriage = existing ?? {
+        id: threat.id,
+        state: 'Open',
+        ...(threat.manual
+          ? { manual: true, category: threat.category, title: threat.title, elementIds: threat.elementIds }
+          : {}),
+      };
+      const next: ThreatTriage = { ...base, state: edit.state };
+      if (edit.justification !== undefined) {
+        next.justification = edit.justification;
+      }
+      if (edit.priority !== undefined) {
+        next.priority = edit.priority;
+      }
+      if (edit.description !== undefined) {
+        next.description = edit.description;
+      }
+      if (edit.mitigation !== undefined) {
+        next.mitigation = edit.mitigation;
+      }
+      return [...prev.filter((t) => t.id !== threat.id), next];
+    });
+    setThreats((prev) =>
+      prev.map((t) =>
+        t.id === threat.id
+          ? {
+              ...t,
+              state: edit.state,
+              justification: edit.justification ?? t.justification,
+              priority: edit.priority ?? t.priority,
+              description: edit.description ?? t.description,
+              mitigation: edit.mitigation ?? t.mitigation,
+            }
+          : t,
+      ),
+    );
   }, []);
 
-  // Revert an accepted threat back to open.
-  const undoAccept = useCallback((threat: Threat) => {
+  // Delete a manually-authored threat from the overlay and the panel.
+  const deleteThreat = useCallback((threat: Threat) => {
     setThreatTriage((prev) => prev.filter((t) => t.id !== threat.id));
-    setThreats((prev) => prev.map((t) => (t.id === threat.id ? { ...t, state: 'Open', justification: undefined } : t)));
+    setThreats((prev) => prev.filter((t) => t.id !== threat.id));
   }, []);
 
   // Navigates to the page holding the first of a threat's / finding's referenced elements.
@@ -1029,6 +1065,60 @@ export function Editor() {
     }
     return items;
   }, [allPages]);
+
+  // The elements and flows a manual threat can be scoped to (reuses the canvas search index).
+  const scopeOptions = useMemo<ThreatScopeOption[]>(
+    () => searchItems.map((item) => ({ id: item.id, label: `${item.name} · ${item.kind}` })),
+    [searchItems],
+  );
+
+  // Author a new manual threat: mint a stable manual id, record it on the overlay (so it persists and
+  // round-trips), and show it in the panel immediately.
+  const addThreat = useCallback(
+    (draft: NewThreatDraft) => {
+      const id = `manual:${crypto.randomUUID()}`;
+      const elementIds = draft.scopeId ? [draft.scopeId] : [];
+      const scope = scopeOptions.find((option) => option.id === draft.scopeId);
+      const interaction = draft.scopeId ? scope?.label ?? draft.scopeId : 'Model-wide';
+      const entry: ThreatTriage = {
+        id,
+        state: 'Open',
+        manual: true,
+        category: draft.category,
+        title: draft.title,
+        elementIds,
+      };
+      if (draft.priority) {
+        entry.priority = draft.priority;
+      }
+      if (draft.description) {
+        entry.description = draft.description;
+      }
+      if (draft.mitigation) {
+        entry.mitigation = draft.mitigation;
+      }
+      setThreatTriage((prev) => [...prev, entry]);
+      setThreats((prev) => [
+        ...prev,
+        {
+          id,
+          ruleId: '',
+          category: draft.category,
+          title: draft.title,
+          mitigation: draft.mitigation,
+          description: draft.description,
+          severity: 'warning',
+          priority: draft.priority ?? 'Medium',
+          references: [],
+          elementIds,
+          interaction,
+          state: 'Open',
+          manual: true,
+        },
+      ]);
+    },
+    [scopeOptions],
+  );
 
   // Jump to a searched element: switch to its page if needed, select it, and frame it in view.
   const jumpToSearchItem = useCallback(
@@ -1298,8 +1388,10 @@ export function Editor() {
                       findings={findings}
                       onSelect={jumpToElements}
                       offPageLabel={offPageLabel}
-                      onAccept={acceptThreat}
-                      onUndoAccept={undoAccept}
+                      onEditThreat={editThreat}
+                      onAddThreat={addThreat}
+                      onDeleteThreat={deleteThreat}
+                      scopeOptions={scopeOptions}
                     />
                   )}
                 </div>

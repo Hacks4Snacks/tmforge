@@ -99,6 +99,108 @@ namespace ThreatModelForge.Api.Tests
             Assert.AreEqual(open.Count, model.AllThreatsDictionary.Count);
         }
 
+        /// <summary>
+        /// A manually-authored threat carried on the overlay is surfaced by generation alongside the
+        /// rule-projected threats, flagged manual and carrying its author-set category, title, state,
+        /// and priority — the projection is no longer rule-only.
+        /// </summary>
+        [TestMethod]
+        public void GenerateThreats_AppendsManualThreat()
+        {
+            const string manualId = "manual:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+            ThreatStateDto[] overlay = new[]
+            {
+                new ThreatStateDto
+                {
+                    Id = manualId,
+                    Manual = true,
+                    Category = "Tampering",
+                    Title = "Config file is writable by any pod",
+                    Description = "A co-located workload can rewrite the gateway config.",
+                    Priority = "High",
+                    State = "NeedsInvestigation",
+                    ElementIds = new[] { "22222222-2222-4222-8222-222222222222" },
+                },
+            };
+
+            IReadOnlyList<ThreatDto> threats = EngineService.GenerateThreats(BuildModel(null, overlay));
+
+            ThreatDto manual = threats.First(t => t.Id == manualId);
+            Assert.IsTrue(manual.Manual);
+            Assert.AreEqual("Tampering", manual.Category);
+            Assert.AreEqual("Config file is writable by any pod", manual.Title);
+            Assert.AreEqual("NeedsInvestigation", manual.State);
+            Assert.AreEqual("High", manual.Priority);
+            Assert.IsTrue(manual.ElementIds.Contains("22222222-2222-4222-8222-222222222222"));
+
+            // The rule-projected threats still appear and remain flagged non-manual.
+            Assert.IsTrue(threats.Any(t => t.RuleId == "TM1023" && !t.Manual));
+        }
+
+        /// <summary>
+        /// Editing a rule threat's state and priority on the overlay is reflected in the projection:
+        /// the same register id comes back Mitigated with the author's priority and description, not
+        /// the rule defaults.
+        /// </summary>
+        [TestMethod]
+        public void GenerateThreats_AppliesRuleEdit()
+        {
+            IReadOnlyList<ThreatDto> open = EngineService.GenerateThreats(BuildModel(null));
+            ThreatDto spoof = open.First(t => t.RuleId == "TM1023");
+            ThreatStateDto[] overlay = new[]
+            {
+                new ThreatStateDto { Id = spoof.Id, State = "Mitigated", Priority = "Low", Description = "mTLS enforced at the mesh." },
+            };
+
+            IReadOnlyList<ThreatDto> edited = EngineService.GenerateThreats(BuildModel(null, overlay));
+
+            ThreatDto after = edited.First(t => t.Id == spoof.Id);
+            Assert.AreEqual("Mitigated", after.State);
+            Assert.AreEqual("Low", after.Priority);
+            Assert.AreEqual("mTLS enforced at the mesh.", after.Description);
+            Assert.IsFalse(after.Manual);
+        }
+
+        /// <summary>
+        /// Exporting a model that carries a manual threat to <c>.tm7</c> injects it into the register
+        /// alongside the full generated register, so a hand-authored threat lands in the file a tool
+        /// such as MTMT reads — the manual threat is not lost on export.
+        /// </summary>
+        [TestMethod]
+        public void ExportTm7_CarriesManualThreat()
+        {
+            IReadOnlyList<ThreatDto> open = EngineService.GenerateThreats(BuildModel(null));
+            const string manualId = "manual:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+            ThreatStateDto[] overlay = new[]
+            {
+                new ThreatStateDto
+                {
+                    Id = manualId,
+                    Manual = true,
+                    Category = "Repudiation",
+                    Title = "No audit trail for admin actions",
+                    State = "NeedsInvestigation",
+                    ElementIds = new[] { "22222222-2222-4222-8222-222222222222" },
+                },
+            };
+
+            byte[] tm7 = EngineService.ExportTm7(BuildModel(null, overlay));
+
+            ThreatModel model;
+            using (MemoryStream stream = new MemoryStream(tm7))
+            {
+                model = ThreatModel.Load(stream);
+            }
+
+            Assert.IsTrue(model.AllThreatsDictionary.TryGetValue(manualId, out Threat? threat));
+            Assert.AreEqual("No audit trail for admin actions", threat!.Title);
+            Assert.AreEqual("Repudiation", threat.UserThreatCategory);
+            Assert.AreEqual(ThreatState.NeedsInvestigation, threat.State);
+
+            // The manual threat is additive: the full generated register is present plus the one manual.
+            Assert.AreEqual(open.Count + 1, model.AllThreatsDictionary.Count);
+        }
+
         private static TmForgeModelDto BuildModel(TmForgeAnalysisDto? analysis, IReadOnlyList<ThreatStateDto>? threats = null)
         {
             // Guid-shaped ids so the generated threat ids are stable across builds: the register is
