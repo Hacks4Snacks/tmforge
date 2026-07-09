@@ -87,6 +87,8 @@ interface ToolbarProps {
   onReport: () => void;
   onClear: () => void;
   onFit: () => void;
+  /** Auto-sizes shapes to fit their text and separates overlapping flow labels on the current page. */
+  onTidy: () => void;
   onUndo: () => void;
   onRedo: () => void;
   canUndo: boolean;
@@ -188,6 +190,13 @@ export function Toolbar(props: ToolbarProps) {
         </button>
         <button className="btn" onClick={props.onFit}>
           Fit
+        </button>
+        <button
+          className="btn"
+          onClick={props.onTidy}
+          title="Auto-layout: size shapes to fit their text and separate overlapping flow labels"
+        >
+          Tidy
         </button>
         <button className="btn" onClick={props.onClear}>
           Clear
