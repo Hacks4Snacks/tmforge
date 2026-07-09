@@ -1,4 +1,4 @@
-namespace ThreatModelForge.Cli
+namespace ThreatModelForge.Engine
 {
     using System;
     using System.Collections.Generic;
@@ -18,7 +18,7 @@ namespace ThreatModelForge.Cli
     /// <c>remove</c>, <c>rename</c>): diagram resolution, deterministic placement, element-kind
     /// parsing, and atomic model writes.
     /// </summary>
-    internal static class AuthoringSupport
+    public static class AuthoringSupport
     {
         /// <summary>
         /// The custom-property key that stores an element's authoring alias (set by <c>add --alias</c>).
@@ -345,6 +345,57 @@ namespace ThreatModelForge.Cli
                     result = StencilKind.Process;
                     return false;
             }
+        }
+
+        /// <summary>
+        /// Resolves an element-kind noun or a concrete stencil id to a <see cref="StencilKind"/> (and,
+        /// for a stencil, the resolved <see cref="StencilDto"/>). A stencil id takes precedence; its
+        /// base primitive determines the kind. This is the single kind-resolution seam shared by the
+        /// CLI <c>add</c> verb and the engine authoring facade.
+        /// </summary>
+        /// <param name="kindNoun">The element-kind noun (<c>process</c>, <c>store</c>, <c>external</c>, <c>boundary</c>), or <see langword="null"/>.</param>
+        /// <param name="stencilId">The concrete stencil id, or <see langword="null"/>.</param>
+        /// <param name="kind">On success, the resolved element kind.</param>
+        /// <param name="stencil">On success, the resolved stencil when <paramref name="stencilId"/> was supplied; otherwise <see langword="null"/>.</param>
+        /// <param name="error">On failure, a message describing why the kind could not be resolved.</param>
+        /// <returns><see langword="true"/> when a kind was resolved.</returns>
+        public static bool TryResolveKind(string? kindNoun, string? stencilId, out StencilKind kind, out StencilDto? stencil, out string? error)
+        {
+            error = null;
+            stencil = null;
+            if (!string.IsNullOrEmpty(stencilId))
+            {
+                stencil = StencilCatalog.Find(stencilId!);
+                if (stencil == null)
+                {
+                    kind = StencilKind.Process;
+                    error = "Unknown stencil: " + stencilId + " (run 'tmforge stencils' to list available stencils).";
+                    return false;
+                }
+
+                if (!TryParseKind(stencil.Base, out kind))
+                {
+                    error = "Stencil '" + stencil.Id + "' has an unrecognized base primitive: " + stencil.Base + ".";
+                    return false;
+                }
+
+                return true;
+            }
+
+            if (!string.IsNullOrEmpty(kindNoun))
+            {
+                if (!TryParseKind(kindNoun!, out kind))
+                {
+                    error = "Unknown element kind: " + kindNoun + " (expected process, store, external, or boundary).";
+                    return false;
+                }
+
+                return true;
+            }
+
+            kind = StencilKind.Process;
+            error = "An element kind or stencil is required.";
+            return false;
         }
 
         /// <summary>

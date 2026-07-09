@@ -1,4 +1,4 @@
-namespace ThreatModelForge.Cli
+namespace ThreatModelForge.Engine
 {
     using System.Collections.Generic;
 
@@ -8,7 +8,7 @@ namespace ThreatModelForge.Cli
     /// one. Elements are referenced by <see cref="ManifestElement.Alias"/> (or unique name), so the
     /// manifest is stable and diffable and needs no GUIDs.
     /// </summary>
-    internal sealed class Manifest
+    public sealed class Manifest
     {
         /// <summary>Gets or sets the model title.</summary>
         public string? Name { get; set; }

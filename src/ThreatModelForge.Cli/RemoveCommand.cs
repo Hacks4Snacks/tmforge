@@ -3,8 +3,7 @@ namespace ThreatModelForge.Cli
     using System;
     using System.Collections.Generic;
     using System.IO;
-    using System.Linq;
-    using ThreatModelForge.Editing;
+    using ThreatModelForge.Engine;
     using ThreatModelForge.Formats;
     using ThreatModelForge.Model;
 
@@ -69,43 +68,12 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            if (!AuthoringSupport.TryResolveElementId(model, null, idText!, out Guid id, out string? resolveError))
+            RemoveRequest request = new RemoveRequest { Id = idText!, Page = parsed.Get("page") };
+            if (!AuthoringOperations.Remove(model, request, out IReadOnlyList<Guid> removed, out string? error))
             {
-                Console.Error.WriteLine(resolveError);
+                Console.Error.WriteLine(error);
                 return 1;
             }
-
-            string? pageSpec = parsed.Get("page");
-            DrawingSurfaceModel? diagram;
-            if (string.IsNullOrEmpty(pageSpec))
-            {
-                diagram = AuthoringSupport.FindDiagramContaining(model, id);
-            }
-            else if (AuthoringSupport.TryResolveDiagram(model, pageSpec!, out DrawingSurfaceModel? resolved, out string? pageError))
-            {
-                diagram = resolved;
-            }
-            else
-            {
-                Console.Error.WriteLine(pageError);
-                return 1;
-            }
-
-            if (diagram == null || DiagramEditor.FindElement(diagram, id) == null)
-            {
-                Console.Error.WriteLine("Element not found: " + id);
-                return 1;
-            }
-
-            HashSet<Guid> before = new HashSet<Guid>(diagram.Borders.Keys);
-            before.UnionWith(diagram.Lines.Keys);
-
-            DiagramEditor editor = new DiagramEditor(model);
-            editor.RemoveElement(diagram, id);
-
-            before.ExceptWith(diagram.Borders.Keys);
-            before.ExceptWith(diagram.Lines.Keys);
-            List<Guid> removed = before.OrderBy(guid => guid).ToList();
 
             AuthoringSupport.Save(model, input!, format);
 

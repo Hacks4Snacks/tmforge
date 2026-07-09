@@ -4,6 +4,7 @@ namespace ThreatModelForge.Cli
     using System.Collections.Generic;
     using System.IO;
     using ThreatModelForge.Editing;
+    using ThreatModelForge.Engine;
     using ThreatModelForge.Model;
     using ThreatModelForge.Model.Abstracts;
 

@@ -2,7 +2,7 @@ namespace ThreatModelForge.Cli
 {
     using System;
     using System.IO;
-    using ThreatModelForge.Editing;
+    using ThreatModelForge.Engine;
     using ThreatModelForge.Formats;
     using ThreatModelForge.Model;
 
@@ -68,36 +68,12 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            if (!AuthoringSupport.TryResolveElementId(model, null, idText!, out Guid id, out string? resolveError))
+            RenameRequest request = new RenameRequest { Id = idText!, Name = name!, Page = parsed.Get("page") };
+            if (!AuthoringOperations.Rename(model, request, out Guid id, out string? error))
             {
-                Console.Error.WriteLine(resolveError);
+                Console.Error.WriteLine(error);
                 return 1;
             }
-
-            string? pageSpec = parsed.Get("page");
-            DrawingSurfaceModel? diagram;
-            if (string.IsNullOrEmpty(pageSpec))
-            {
-                diagram = AuthoringSupport.FindDiagramContaining(model, id);
-            }
-            else if (AuthoringSupport.TryResolveDiagram(model, pageSpec!, out DrawingSurfaceModel? resolved, out string? pageError))
-            {
-                diagram = resolved;
-            }
-            else
-            {
-                Console.Error.WriteLine(pageError);
-                return 1;
-            }
-
-            if (diagram == null || DiagramEditor.FindElement(diagram, id) == null)
-            {
-                Console.Error.WriteLine("Element not found: " + id);
-                return 1;
-            }
-
-            DiagramEditor editor = new DiagramEditor(model);
-            editor.SetElementName(diagram, id, name!);
 
             AuthoringSupport.Save(model, input!, format);
 

@@ -1,7 +1,7 @@
-namespace ThreatModelForge.Cli
+namespace ThreatModelForge.Engine
 {
     /// <summary>A count of what a manifest produced or captured.</summary>
-    internal readonly struct ManifestSummary
+    public readonly struct ManifestSummary
     {
         /// <summary>Initializes a new instance of the <see cref="ManifestSummary"/> struct.</summary>
         /// <param name="boundaries">The number of boundaries.</param>

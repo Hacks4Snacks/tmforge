@@ -3,10 +3,9 @@ namespace ThreatModelForge.Cli
     using System;
     using System.Collections.Generic;
     using System.IO;
-    using ThreatModelForge.Editing;
+    using ThreatModelForge.Engine;
     using ThreatModelForge.Formats;
     using ThreatModelForge.Model;
-    using ThreatModelForge.Model.Abstracts;
 
     /// <summary>
     /// Implements the <c>tmforge connect</c> command: adds a data-flow connector between two
@@ -70,76 +69,24 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            string? pageSpec = parsed.Get("page");
-            DrawingSurfaceModel? diagram;
-            if (string.IsNullOrEmpty(pageSpec))
+            ConnectRequest request = new ConnectRequest
             {
-                diagram = AuthoringSupport.FirstDiagram(model);
-            }
-            else if (AuthoringSupport.TryResolveDiagram(model, pageSpec!, out DrawingSurfaceModel? resolved, out string? pageError))
+                Source = sourceText!,
+                Target = targetText!,
+                Name = parsed.Get("name"),
+                Page = parsed.Get("page"),
+                Properties = parsed.Properties,
+                Force = parsed.HasFlag("force"),
+            };
+            if (!AuthoringOperations.Connect(model, request, out Guid id, out Guid source, out Guid target, out IReadOnlyList<string> warnings, out string? error))
             {
-                diagram = resolved;
-            }
-            else
-            {
-                Console.Error.WriteLine(pageError);
+                Console.Error.WriteLine(error);
                 return 1;
             }
 
-            if (diagram == null)
+            foreach (string warning in warnings)
             {
-                Console.Error.WriteLine("The model has no diagram to connect within.");
-                return 1;
-            }
-
-            if (!AuthoringSupport.TryResolveElementId(model, diagram, sourceText!, out Guid source, out string? sourceError))
-            {
-                Console.Error.WriteLine(sourceError);
-                return 1;
-            }
-
-            if (!AuthoringSupport.TryResolveElementId(model, diagram, targetText!, out Guid target, out string? targetError))
-            {
-                Console.Error.WriteLine(targetError);
-                return 1;
-            }
-
-            if (!diagram.Borders.ContainsKey(source))
-            {
-                Console.Error.WriteLine("Source element not found on this page: " + sourceText);
-                return 1;
-            }
-
-            if (!diagram.Borders.ContainsKey(target))
-            {
-                Console.Error.WriteLine("Target element not found on this page: " + targetText);
-                return 1;
-            }
-
-            DiagramEditor editor = new DiagramEditor(model);
-            Guid id = editor.AddConnector(diagram, source, target);
-            string? name = parsed.Get("name");
-            if (!string.IsNullOrEmpty(name))
-            {
-                editor.SetElementName(diagram, id, name!);
-            }
-
-            if (parsed.Properties.Count > 0)
-            {
-                Entity? flow = DiagramEditor.FindElement(diagram, id);
-                if (flow != null)
-                {
-                    if (!AuthoringSupport.TryApplyProperties(flow, parsed.Properties, "flow", parsed.HasFlag("force"), out string? propertyError, out IReadOnlyList<string> propertyWarnings))
-                    {
-                        Console.Error.WriteLine(propertyError);
-                        return 1;
-                    }
-
-                    foreach (string warning in propertyWarnings)
-                    {
-                        Console.Error.WriteLine(warning);
-                    }
-                }
+                Console.Error.WriteLine(warning);
             }
 
             AuthoringSupport.Save(model, input!, format);

@@ -38,6 +38,7 @@ namespace ThreatModelForge.Cli
             new CommandInfo("apply", "Build a model from a declarative JSON manifest (all-or-nothing).", "output, format, dryRun, boundaries, elements, flows", ApplyCommand.Run),
             new CommandInfo("export", "Export a model as a declarative JSON manifest.", "output, boundaries, elements, flows", ExportCommand.Run),
             new CommandInfo("git-setup", "Wire git to use tmforge for .tm7 diff/merge (or --print the commands).", null, GitSetupCommand.Run),
+            new CommandInfo("mcp", "Run an MCP server over stdio for AI agents (exposes the engine + authoring facade as tools).", null, McpCommand.Run),
         };
 
         private static readonly IReadOnlyDictionary<string, CommandInfo> ByVerb = Index(All);

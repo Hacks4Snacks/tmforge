@@ -5,6 +5,7 @@ namespace ThreatModelForge.Cli
     using System.Globalization;
     using System.IO;
     using ThreatModelForge.Editing;
+    using ThreatModelForge.Engine;
     using ThreatModelForge.Formats;
     using ThreatModelForge.Model;
     using ThreatModelForge.Model.Abstracts;
@@ -44,19 +45,11 @@ namespace ThreatModelForge.Cli
             }
 
             string? stencilId = parsed.Get("stencil");
-            StencilDto? stencil = null;
-            StencilKind kind;
+            string? kindNoun = null;
             string input;
 
             if (!string.IsNullOrEmpty(stencilId))
             {
-                stencil = StencilCatalog.Find(stencilId!);
-                if (stencil == null)
-                {
-                    Console.Error.WriteLine("Unknown stencil: " + stencilId + " (run 'tmforge stencils' to list available stencils).");
-                    return 1;
-                }
-
                 if (parsed.Positionals.Count > 1)
                 {
                     Console.Error.WriteLine("Specify either an element kind or --stencil, not both.");
@@ -66,12 +59,6 @@ namespace ThreatModelForge.Cli
                 if (parsed.Positionals.Count < 1)
                 {
                     PrintUsage();
-                    return 1;
-                }
-
-                if (!AuthoringSupport.TryParseKind(stencil.Base, out kind))
-                {
-                    Console.Error.WriteLine("Stencil '" + stencil.Id + "' has an unrecognized base primitive: " + stencil.Base + ".");
                     return 1;
                 }
 
@@ -85,14 +72,14 @@ namespace ThreatModelForge.Cli
                     return 1;
                 }
 
-                string kindText = parsed.Positionals[0];
+                kindNoun = parsed.Positionals[0];
                 input = parsed.Positionals[1];
+            }
 
-                if (!AuthoringSupport.TryParseKind(kindText, out kind))
-                {
-                    Console.Error.WriteLine("Unknown element kind: " + kindText + " (expected process, store, external, or boundary).");
-                    return 1;
-                }
+            if (!AuthoringSupport.TryResolveKind(kindNoun, stencilId, out StencilKind kind, out StencilDto? stencil, out string? kindError))
+            {
+                Console.Error.WriteLine(kindError);
+                return 1;
             }
 
             if (!File.Exists(input))
@@ -108,125 +95,42 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            string? pageSpec = parsed.Get("page");
-            DrawingSurfaceModel diagram;
-            if (string.IsNullOrEmpty(pageSpec))
+            AddRequest request = new AddRequest
             {
-                diagram = AuthoringSupport.GetOrCreateFirstDiagram(model);
-            }
-            else if (AuthoringSupport.TryResolveDiagram(model, pageSpec!, out DrawingSurfaceModel? resolved, out string? pageError))
+                Kind = kind,
+                Stencil = stencil,
+                Name = parsed.Get("name"),
+                Page = parsed.Get("page"),
+                Left = TryGetInt(parsed, "left", out int parsedLeft) ? parsedLeft : null,
+                Top = TryGetInt(parsed, "top", out int parsedTop) ? parsedTop : null,
+                Width = TryGetInt(parsed, "width", out int parsedWidth) ? parsedWidth : null,
+                Height = TryGetInt(parsed, "height", out int parsedHeight) ? parsedHeight : null,
+                Alias = parsed.Get("alias"),
+                Boundary = parsed.Get("boundary"),
+                Properties = parsed.Properties,
+                Force = parsed.HasFlag("force"),
+            };
+            if (!AuthoringOperations.Add(model, request, out Guid id, out IReadOnlyList<string> warnings, out string? error))
             {
-                diagram = resolved!;
-            }
-            else
-            {
-                Console.Error.WriteLine(pageError);
+                Console.Error.WriteLine(error);
                 return 1;
             }
 
-            DiagramEditor editor = new DiagramEditor(model);
-
-            (int defaultLeft, int defaultTop) = AuthoringSupport.NextPosition(diagram);
-            int left = TryGetInt(parsed, "left", out int parsedLeft) ? parsedLeft : defaultLeft;
-            int top = TryGetInt(parsed, "top", out int parsedTop) ? parsedTop : defaultTop;
-            bool hasWidth = TryGetInt(parsed, "width", out int argWidth);
-            bool hasHeight = TryGetInt(parsed, "height", out int argHeight);
-
-            Guid id = editor.AddElement(diagram, kind, left, top);
-            if (kind == StencilKind.TrustBoundary)
+            foreach (string warning in warnings)
             {
-                editor.ResizeElement(diagram, id, left, top, hasWidth ? argWidth : 260, hasHeight ? argHeight : 180);
+                Console.Error.WriteLine(warning);
             }
-            else if (hasWidth || hasHeight)
-            {
-                DrawingElement? placed = DiagramEditor.FindElement(diagram, id) as DrawingElement;
-                editor.ResizeElement(diagram, id, left, top, hasWidth ? argWidth : placed?.Width ?? 100, hasHeight ? argHeight : placed?.Height ?? 60);
-            }
-
-            string? name = parsed.Get("name");
-            if (string.IsNullOrEmpty(name) && stencil != null)
-            {
-                name = stencil.Label;
-            }
-
-            if (!string.IsNullOrEmpty(name))
-            {
-                editor.SetElementName(diagram, id, name!);
-            }
-
-            Entity? added = DiagramEditor.FindElement(diagram, id);
-            if (stencil != null && added != null)
-            {
-                DiagramElementHelper.SetCustomProperty(added, "StencilType", stencil.Id);
-                foreach (KeyValuePair<string, string> preset in stencil.Defaults)
-                {
-                    DiagramElementHelper.SetCustomProperty(added, preset.Key, preset.Value);
-                }
-            }
-
-            if (added != null && parsed.Properties.Count > 0)
-            {
-                if (!AuthoringSupport.TryApplyProperties(added, parsed.Properties, AuthoringSupport.SchemaBase(kind), parsed.HasFlag("force"), out string? propertyError, out IReadOnlyList<string> propertyWarnings))
-                {
-                    Console.Error.WriteLine(propertyError);
-                    return 1;
-                }
-
-                foreach (string warning in propertyWarnings)
-                {
-                    Console.Error.WriteLine(warning);
-                }
-            }
-
-            string? boundaryRef = parsed.Get("boundary");
-            if (!string.IsNullOrEmpty(boundaryRef) && added is DrawingElement placedComponent)
-            {
-                if (!AuthoringSupport.TryResolveElementId(model, diagram, boundaryRef!, out Guid boundaryId, out string? boundaryError))
-                {
-                    Console.Error.WriteLine(boundaryError);
-                    return 1;
-                }
-
-                Entity? boundaryEntity = DiagramEditor.FindElement(diagram, boundaryId);
-                if (boundaryEntity is not BorderBoundary boundaryBox)
-                {
-                    Console.Error.WriteLine("--boundary must reference a trust boundary (run 'tmforge list boundaries " + input + "').");
-                    return 1;
-                }
-
-                IReadOnlyDictionary<string, string> boundaryProps = DiagramElementHelper.GetCustomProperties(boundaryEntity);
-                string boundaryName = DiagramElementHelper.GetName(boundaryEntity);
-                string membershipKey = boundaryProps.TryGetValue(AuthoringSupport.AliasPropertyName, out string? boundaryAlias) && !string.IsNullOrEmpty(boundaryAlias)
-                    ? boundaryAlias!
-                    : (string.IsNullOrWhiteSpace(boundaryName) ? boundaryRef! : boundaryName);
-                int memberIndex = AuthoringSupport.CountBoundaryMembers(diagram, membershipKey);
-                (int insideLeft, int insideTop) = AuthoringSupport.PositionInsideBoundary(boundaryBox, memberIndex);
-                editor.ResizeElement(diagram, id, insideLeft, insideTop, placedComponent.Width, placedComponent.Height);
-                DiagramElementHelper.SetCustomProperty(added, AuthoringSupport.BoundaryPropertyName, membershipKey);
-            }
-
-            string? alias = parsed.Get("alias");
-            if (!string.IsNullOrEmpty(alias) && added != null)
-            {
-                Guid desired = AuthoringSupport.DeterministicId(alias!);
-                if (desired != id && AuthoringSupport.FindDiagramContaining(model, desired) != null)
-                {
-                    Console.Error.WriteLine("Alias '" + alias + "' already maps to an existing element in this model; aliases must be unique.");
-                    return 1;
-                }
-
-                DiagramElementHelper.SetCustomProperty(added, AuthoringSupport.AliasPropertyName, alias!);
-                AuthoringSupport.RekeyComponent(diagram, id, desired);
-                id = desired;
-            }
-
-            string effectiveName = added != null ? DiagramElementHelper.GetName(added) : string.Empty;
 
             AuthoringSupport.Save(model, input, format);
 
+            DrawingSurfaceModel? placedDiagram = AuthoringSupport.FindDiagramContaining(model, id);
+            Entity? added = placedDiagram != null ? DiagramEditor.FindElement(placedDiagram, id) : null;
+            string effectiveName = added != null ? DiagramElementHelper.GetName(added) : string.Empty;
+            string? alias = parsed.Get("alias");
+
             if (parsed.Json)
             {
-                CliJson.WriteEnvelope("add", new { id, kind, name = effectiveName, stencil = stencil?.Id, diagramId = diagram.Guid, alias });
+                CliJson.WriteEnvelope("add", new { id, kind, name = effectiveName, stencil = stencil?.Id, diagramId = placedDiagram?.Guid, alias });
             }
             else
             {

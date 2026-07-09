@@ -4,6 +4,7 @@ namespace ThreatModelForge.Cli
     using System.Collections.Generic;
     using System.IO;
     using ThreatModelForge.Editing;
+    using ThreatModelForge.Engine;
     using ThreatModelForge.Formats;
     using ThreatModelForge.Model;
     using ThreatModelForge.Model.Abstracts;
@@ -79,66 +80,44 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            if (!AuthoringSupport.TryResolveElementId(model, null, idText!, out Guid id, out string? resolveError))
+            SetRequest request = new SetRequest
             {
-                Console.Error.WriteLine(resolveError);
+                Id = idText!,
+                Name = name,
+                Page = parsed.Get("page"),
+                Properties = parsed.Properties,
+                Force = parsed.HasFlag("force"),
+            };
+            if (!AuthoringOperations.Set(model, request, out Guid id, out IReadOnlyList<string> warnings, out string? error))
+            {
+                Console.Error.WriteLine(error);
                 return 1;
             }
 
-            string? pageSpec = parsed.Get("page");
-            Entity? target = null;
-            if (string.IsNullOrEmpty(pageSpec))
-            {
-                foreach (DrawingSurfaceModel diagram in model.DrawingSurfaceList)
-                {
-                    target = DiagramEditor.FindElement(diagram, id);
-                    if (target != null)
-                    {
-                        break;
-                    }
-                }
-            }
-            else if (AuthoringSupport.TryResolveDiagram(model, pageSpec!, out DrawingSurfaceModel? resolved, out string? pageError))
-            {
-                target = DiagramEditor.FindElement(resolved!, id);
-            }
-            else
-            {
-                Console.Error.WriteLine(pageError);
-                return 1;
-            }
-
-            if (target == null)
-            {
-                Console.Error.WriteLine("Element not found: " + id);
-                return 1;
-            }
-
-            if (!string.IsNullOrEmpty(name))
-            {
-                DiagramElementHelper.SetName(target, name!);
-            }
-
-            if (!AuthoringSupport.TryApplyProperties(target, parsed.Properties, AuthoringSupport.SchemaBase(target), parsed.HasFlag("force"), out string? propertyError, out IReadOnlyList<string> propertyWarnings))
-            {
-                Console.Error.WriteLine(propertyError);
-                return 1;
-            }
-
-            foreach (string warning in propertyWarnings)
+            foreach (string warning in warnings)
             {
                 Console.Error.WriteLine(warning);
             }
 
             AuthoringSupport.Save(model, input!, format);
 
+            Entity? target = null;
+            foreach (DrawingSurfaceModel diagram in model.DrawingSurfaceList)
+            {
+                target = DiagramEditor.FindElement(diagram, id);
+                if (target != null)
+                {
+                    break;
+                }
+            }
+
             if (parsed.Json)
             {
                 CliJson.WriteEnvelope("set", new
                 {
                     id,
-                    name = DiagramElementHelper.GetName(target),
-                    properties = DiagramElementHelper.GetCustomProperties(target),
+                    name = DiagramElementHelper.GetName(target!),
+                    properties = DiagramElementHelper.GetCustomProperties(target!),
                 });
             }
             else

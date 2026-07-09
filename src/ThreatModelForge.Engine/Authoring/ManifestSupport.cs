@@ -1,4 +1,4 @@
-namespace ThreatModelForge.Cli
+namespace ThreatModelForge.Engine
 {
     using System;
     using System.Collections.Generic;
@@ -16,7 +16,7 @@ namespace ThreatModelForge.Cli
     /// so the caller can write atomically. Element references (aliases, unique names) and boundary
     /// membership reuse the same resolution the imperative verbs use.
     /// </summary>
-    internal static class ManifestSupport
+    public static class ManifestSupport
     {
         private static readonly JsonSerializerOptions SerializerOptions = new JsonSerializerOptions
         {
