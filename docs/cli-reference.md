@@ -590,9 +590,12 @@ diagram as a standalone SVG for review artifacts.
 tmforge report [--format <html|svg>] [--out <path>] [--json] <model.tm7>
 ```
 
-- `--format html` (default) writes a self-contained HTML report (findings table + inline SVG per page).
+- `--format html` (default) writes a responsive, print-friendly report with an executive summary,
+  model context, inline SVG per page, and the full threat register. Rule-backed threats are generated
+  on demand from the enabled STRIDE-bearing rules, then combined with manual threats and existing
+  triage; a `tmforge-json` model's disabled packs and rules are honored.
 - `--format svg` writes just the diagram as a standalone SVG (every page stacked), suitable for
-  attaching to a pull request or embedding in docs.
+  attaching to a pull request or embedding in docs. It does not run analysis.
 
 ```bash
 tmforge report payments.tm7 --out payments.html

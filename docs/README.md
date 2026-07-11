@@ -33,16 +33,6 @@ Microsoft Threat Modeling Tool (MTMT).
 Threat Model Forge is one engine with three faces, so the same model behaves identically whether
 you drive it from a shell, a browser, or over HTTP.
 
-```mermaid
-flowchart TD
-    subgraph Engine[".NET engine (core model + formats + rules + reporting)"]
-        core["Canonical .tm7-shaped model"]
-    end
-    cli["tmforge CLI<br/>(shell / CI / agents)"] --> Engine
-    api["/v1 HTTP API"] --> Engine
-    studio["Studio SPA<br/>(React, in the browser)"] --> api
-```
-
 - **CLI** (`tmforge`): headless, scriptable authoring, validation, reporting, and conversion.
 - **Studio**: a React single-page app for drawing data-flow diagrams, served by the API.
 - **Engine API** (`/v1`): a versioned HTTP surface that hosts Studio and exposes the engine to

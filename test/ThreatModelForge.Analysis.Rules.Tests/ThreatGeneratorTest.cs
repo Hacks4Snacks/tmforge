@@ -97,6 +97,45 @@ namespace ThreatModelForge.Analysis.Rules.Tests
             Assert.AreEqual(ThreatState.Mitigated, model.AllThreatsDictionary[key].State);
         }
 
+        /// <summary>
+        /// A sparse triage overlay is enriched with its rule-owned fields without replacing the
+        /// accepted state or author-supplied treatment values.
+        /// </summary>
+        [TestMethod]
+        public void ApplyHydratesSparseTriagedThreats()
+        {
+            ThreatModel model = UnauthenticatedExternalModel();
+            GeneratedThreat generated = ThreatGenerator.Generate(model).Threats.First(threat => threat.RuleId == "TM1023");
+            model.AllThreatsDictionary[generated.Id] = new Threat
+            {
+                SourceGuid = Guid.NewGuid(),
+                DrawingSurfaceGuid = Guid.NewGuid(),
+                State = ThreatState.NotApplicable,
+                StateInformation = "Authenticated by the upstream identity proxy.",
+                Priority = "Low",
+                Properties = new System.Collections.Generic.Dictionary<string, string>
+                {
+                    ["Mitigation"] = "Maintain the proxy policy.",
+                },
+            };
+
+            ApplyResult result = ThreatGenerator.Apply(model, ThreatGenerator.Generate(model));
+
+            Threat hydrated = model.AllThreatsDictionary[generated.Id];
+            Assert.IsTrue(result.Preserved >= 1);
+            Assert.AreEqual(ThreatState.NotApplicable, hydrated.State);
+            Assert.AreEqual("Authenticated by the upstream identity proxy.", hydrated.StateInformation);
+            Assert.AreEqual("Low", hydrated.Priority);
+            Assert.AreEqual("Maintain the proxy policy.", hydrated.Properties!["Mitigation"]);
+            Assert.AreEqual(generated.Title, hydrated.Title);
+            Assert.AreEqual("TM1023", hydrated.TypeId);
+            Assert.AreEqual("Spoofing", hydrated.UserThreatCategory);
+            Assert.AreEqual(generated.SourceGuid, hydrated.SourceGuid);
+            Assert.AreEqual(generated.DiagramGuid, hydrated.DrawingSurfaceGuid);
+            Assert.AreEqual(generated.InteractionString, hydrated.InteractionString);
+            StringAssert.Contains(hydrated.Properties["References"], "CWE-287");
+        }
+
         /// <summary>Accepting a threat marks it not-applicable and records the justification.</summary>
         [TestMethod]
         public void AcceptMarksThreatNotApplicableWithJustification()

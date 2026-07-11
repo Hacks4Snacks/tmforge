@@ -15,7 +15,21 @@ namespace ThreatModelForge.Reporting
     /// </summary>
     public sealed class DiagramSvgRenderer
     {
+        private const int ComponentFontSize = 12;
+        private const int ComponentLineHeight = 14;
+        private const int MinimumComponentFontSize = 9;
         private const int Padding = 24;
+        private const string SvgStyles =
+            ".tmf-diagram { background: var(--tmf-diagram-surface, #ffffff); }"
+            + " .tmf-connector { stroke: var(--tmf-connector, #475569); }"
+            + " .tmf-arrow { fill: var(--tmf-connector, #475569); }"
+            + " .tmf-flow-label { fill: var(--tmf-flow-label, #242424); stroke: var(--tmf-flow-halo, #ffffff);"
+            + " stroke-width: 4px; stroke-linejoin: round; paint-order: stroke; font-weight: 600; }"
+            + " .tmf-page-title { fill: var(--tmf-page-title, #242424); }"
+            + " .tmf-boundary { stroke: var(--tmf-boundary, #dc2626); }"
+            + " @media (prefers-color-scheme: dark) { .tmf-diagram { --tmf-diagram-surface: #202020;"
+            + " --tmf-connector: #f3f4f6; --tmf-flow-label: #f9fafb; --tmf-flow-halo: #202020;"
+            + " --tmf-page-title: #f9fafb; --tmf-boundary: #f87171; } }";
 
         private static readonly XNamespace Svg = "http://www.w3.org/2000/svg";
 
@@ -37,6 +51,7 @@ namespace ThreatModelForge.Reporting
 
             XElement root = new XElement(
                 Svg + "svg",
+                new XAttribute("class", "tmf-diagram"),
                 new XAttribute("viewBox", string.Format(CultureInfo.InvariantCulture, "{0} {1} {2} {3}", minX - Padding, minY - Padding, width, height)),
                 new XAttribute("width", width),
                 new XAttribute("height", height),
@@ -115,12 +130,13 @@ namespace ThreatModelForge.Reporting
 
                 body.Add(new XElement(
                     Svg + "text",
+                    new XAttribute("class", "tmf-page-title"),
                     new XAttribute("x", 4),
                     new XAttribute("y", offsetY + 18),
                     new XAttribute("font-family", "'Segoe UI', Helvetica, sans-serif"),
                     new XAttribute("font-size", 16),
                     new XAttribute("font-weight", "bold"),
-                    new XAttribute("fill", "#1a3a6b"),
+                    new XAttribute("fill", "#242424"),
                     string.IsNullOrEmpty(surface.Header) ? "Diagram" : surface.Header!));
 
                 page.SetAttributeValue("x", 0);
@@ -133,6 +149,7 @@ namespace ThreatModelForge.Reporting
             int totalHeight = Math.Max(1, offsetY - gap);
             XElement root = new XElement(
                 Svg + "svg",
+                new XAttribute("class", "tmf-diagram tmf-diagram-stack"),
                 new XAttribute("viewBox", string.Format(CultureInfo.InvariantCulture, "0 0 {0} {1}", maxWidth, totalHeight)),
                 new XAttribute("width", maxWidth),
                 new XAttribute("height", totalHeight),
@@ -190,6 +207,7 @@ namespace ThreatModelForge.Reporting
         {
             return new XElement(
                 Svg + "defs",
+                new XElement(Svg + "style", new XAttribute("type", "text/css"), SvgStyles),
                 new XElement(
                     Svg + "marker",
                     new XAttribute("id", "arrow"),
@@ -201,14 +219,16 @@ namespace ThreatModelForge.Reporting
                     new XAttribute("markerUnits", "strokeWidth"),
                     new XElement(
                         Svg + "path",
+                        new XAttribute("class", "tmf-arrow"),
                         new XAttribute("d", "M0,0 L0,6 L9,3 z"),
-                        new XAttribute("fill", "#333333"))));
+                        new XAttribute("fill", "#475569"))));
         }
 
         private static XElement RenderBorderBoundary(BorderBoundary boundary)
         {
             return new XElement(
                 Svg + "rect",
+                new XAttribute("class", "tmf-boundary"),
                 new XAttribute("x", boundary.Left),
                 new XAttribute("y", boundary.Top),
                 new XAttribute("width", Math.Max(0, boundary.Width)),
@@ -225,6 +245,7 @@ namespace ThreatModelForge.Reporting
             (int handleX, int handleY) = EffectiveHandle(boundary);
             return new XElement(
                 Svg + "path",
+                new XAttribute("class", "tmf-boundary"),
                 new XAttribute("d", string.Format(CultureInfo.InvariantCulture, "M {0},{1} Q {2},{3} {4},{5}", boundary.SourceX, boundary.SourceY, handleX, handleY, boundary.TargetX, boundary.TargetY)),
                 new XAttribute("fill", "none"),
                 new XAttribute("stroke", "#dc2626"),
@@ -238,10 +259,12 @@ namespace ThreatModelForge.Reporting
             (int handleX, int handleY) = EffectiveHandle(connector);
             group.Add(new XElement(
                 Svg + "path",
+                new XAttribute("class", "tmf-connector"),
                 new XAttribute("d", string.Format(CultureInfo.InvariantCulture, "M {0},{1} Q {2},{3} {4},{5}", connector.SourceX, connector.SourceY, handleX, handleY, connector.TargetX, connector.TargetY)),
                 new XAttribute("fill", "none"),
-                new XAttribute("stroke", "#333333"),
-                new XAttribute("stroke-width", 1.5),
+                new XAttribute("stroke", "#475569"),
+                new XAttribute("stroke-width", 2.25),
+                new XAttribute("vector-effect", "non-scaling-stroke"),
                 new XAttribute("marker-end", "url(#arrow)")));
 
             string name = GetElementName(connector);
@@ -249,7 +272,7 @@ namespace ThreatModelForge.Reporting
             {
                 int labelX = (connector.SourceX + (2 * handleX) + connector.TargetX) / 4;
                 int labelY = ((connector.SourceY + (2 * handleY) + connector.TargetY) / 4) - 4;
-                group.Add(CreateLabel(labelX, labelY, name, "#333333"));
+                group.Add(CreateFlowLabel(labelX, labelY, name));
             }
 
             return group;
@@ -270,6 +293,11 @@ namespace ThreatModelForge.Reporting
             XElement group = new XElement(Svg + "g");
             int centerX = element.Left + (element.Width / 2);
             int centerY = element.Top + (element.Height / 2);
+            string name = GetElementName(element);
+            if (!string.IsNullOrEmpty(name))
+            {
+                group.Add(new XElement(Svg + "title", name));
+            }
 
             if (element is StencilEllipse)
             {
@@ -310,10 +338,11 @@ namespace ThreatModelForge.Reporting
                     new XAttribute("stroke-width", 1.5)));
             }
 
-            string name = GetElementName(element);
             if (!string.IsNullOrEmpty(name))
             {
-                group.Add(CreateLabel(centerX, centerY, name, "#111111"));
+                string clipId = "tmf-label-" + element.Guid.ToString("N");
+                group.Add(CreateLabelClip(element, clipId));
+                group.Add(CreateComponentLabel(element, centerX, centerY, name, clipId));
             }
 
             return group;
@@ -331,18 +360,170 @@ namespace ThreatModelForge.Reporting
                 new XAttribute("stroke-width", 2));
         }
 
-        private static XElement CreateLabel(int x, int y, string text, string color)
+        private static XElement CreateFlowLabel(int x, int y, string text)
         {
             return new XElement(
                 Svg + "text",
+                new XAttribute("class", "tmf-flow-label"),
                 new XAttribute("x", x),
                 new XAttribute("y", y),
                 new XAttribute("text-anchor", "middle"),
                 new XAttribute("dominant-baseline", "middle"),
                 new XAttribute("font-family", "Segoe UI, Helvetica, sans-serif"),
-                new XAttribute("font-size", 12),
-                new XAttribute("fill", color),
+                new XAttribute("font-size", 13),
+                new XAttribute("fill", "#242424"),
+                new XAttribute("stroke", "#ffffff"),
+                new XAttribute("stroke-width", 4),
+                new XAttribute("paint-order", "stroke"),
                 text);
+        }
+
+        private static XElement CreateLabelClip(DrawingElement element, string clipId)
+        {
+            XElement shape;
+            if (element is StencilEllipse)
+            {
+                shape = new XElement(
+                    Svg + "ellipse",
+                    new XAttribute("cx", element.Left + (element.Width / 2)),
+                    new XAttribute("cy", element.Top + (element.Height / 2)),
+                    new XAttribute("rx", Math.Max(1, element.Width / 2)),
+                    new XAttribute("ry", Math.Max(1, element.Height / 2)));
+            }
+            else
+            {
+                shape = new XElement(
+                    Svg + "rect",
+                    new XAttribute("x", element.Left),
+                    new XAttribute("y", element.Top),
+                    new XAttribute("width", Math.Max(0, element.Width)),
+                    new XAttribute("height", Math.Max(0, element.Height)));
+            }
+
+            return new XElement(Svg + "clipPath", new XAttribute("id", clipId), shape);
+        }
+
+        private static XElement CreateComponentLabel(
+            DrawingElement element,
+            int centerX,
+            int centerY,
+            string text,
+            string clipId)
+        {
+            int horizontalPadding = element is StencilEllipse ? Math.Max(8, element.Width / 5) : 10;
+            int verticalPadding = element is StencilEllipse ? Math.Max(6, element.Height / 5) : 6;
+            int availableWidth = Math.Max(1, element.Width - (2 * horizontalPadding));
+            int availableHeight = Math.Max(1, element.Height - (2 * verticalPadding));
+            int fontSize = ComponentFontSize;
+            int lineHeight = ComponentLineHeight;
+            int maxCharacters;
+            int maxLines;
+            List<string> lines;
+
+            do
+            {
+                lineHeight = fontSize + 2;
+                maxCharacters = Math.Max(1, (int)Math.Floor(availableWidth / (fontSize * 0.56)));
+                maxLines = Math.Max(1, availableHeight / lineHeight);
+                lines = WrapText(text, maxCharacters);
+                if (lines.Count <= maxLines || fontSize == MinimumComponentFontSize)
+                {
+                    break;
+                }
+
+                fontSize--;
+            }
+            while (fontSize >= MinimumComponentFontSize);
+
+            lines = TruncateLines(lines, maxLines, maxCharacters);
+            int firstY = centerY - (((lines.Count - 1) * lineHeight) / 2);
+            XElement label = new XElement(
+                Svg + "text",
+                new XAttribute("class", "tmf-node-label"),
+                new XAttribute("clip-path", "url(#" + clipId + ")"),
+                new XAttribute("text-anchor", "middle"),
+                new XAttribute("font-family", "Segoe UI, Helvetica, sans-serif"),
+                new XAttribute("font-size", fontSize),
+                new XAttribute("fill", "#111111"));
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                label.Add(new XElement(
+                    Svg + "tspan",
+                    new XAttribute("x", centerX),
+                    new XAttribute("y", firstY + (i * lineHeight)),
+                    new XAttribute("dominant-baseline", "middle"),
+                    lines[i]));
+            }
+
+            return label;
+        }
+
+        private static List<string> WrapText(string text, int maxCharacters)
+        {
+            List<string> lines = new List<string>();
+            string current = string.Empty;
+            foreach (string word in text.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (word.Length <= maxCharacters)
+                {
+                    if (current.Length == 0)
+                    {
+                        current = word;
+                        continue;
+                    }
+
+                    if (current.Length + 1 + word.Length <= maxCharacters)
+                    {
+                        current += " " + word;
+                        continue;
+                    }
+
+                    lines.Add(current);
+                    current = word;
+                    continue;
+                }
+
+                if (current.Length > 0)
+                {
+                    lines.Add(current);
+                    current = string.Empty;
+                }
+
+                int offset = 0;
+                while (word.Length - offset > maxCharacters)
+                {
+                    lines.Add(word.Substring(offset, maxCharacters));
+                    offset += maxCharacters;
+                }
+
+                if (offset < word.Length)
+                {
+                    current = word.Substring(offset);
+                }
+            }
+
+            if (current.Length > 0)
+            {
+                lines.Add(current);
+            }
+
+            return lines.Count == 0 ? new List<string> { string.Empty } : lines;
+        }
+
+        private static List<string> TruncateLines(List<string> lines, int maxLines, int maxCharacters)
+        {
+            if (lines.Count <= maxLines)
+            {
+                return lines;
+            }
+
+            List<string> visible = lines.Take(maxLines).ToList();
+            int last = visible.Count - 1;
+            int keep = Math.Max(1, maxCharacters - 3);
+            string finalLine = visible[last].Length > keep ? visible[last].Substring(0, keep) : visible[last];
+            visible[last] = finalLine.TrimEnd() + "...";
+            return visible;
         }
 
         private static string GetElementName(Entity element)

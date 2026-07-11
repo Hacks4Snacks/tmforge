@@ -166,6 +166,52 @@ namespace ThreatModelForge.Api.Tests
         }
 
         /// <summary>
+        /// <see cref="EngineService.Report"/> includes the rule-backed threats generated for the model,
+        /// not only threats that were manually authored into its register.
+        /// </summary>
+        [TestMethod]
+        public void ReportHtmlIncludesGeneratedThreats()
+        {
+            TmForgeModelDto model = ThreatBearingModel();
+            ThreatDto generated = EngineService.GenerateThreats(model).First(threat => threat.RuleId == "TM1023");
+
+            string report = Encoding.UTF8.GetString(EngineService.Report(model, "html"));
+
+            StringAssert.Contains(report, generated.Title);
+            StringAssert.Contains(report, generated.RuleId);
+            StringAssert.Contains(report, generated.Interaction);
+            StringAssert.Contains(report, generated.Mitigation!);
+            StringAssert.Contains(report, generated.References[0]);
+        }
+
+        /// <summary>
+        /// <see cref="EngineService.Report"/> enriches sparse accepted triage with the generated threat
+        /// details while retaining the author's state and justification.
+        /// </summary>
+        [TestMethod]
+        public void ReportHtmlIncludesAcceptedThreatDetails()
+        {
+            ThreatDto generated = EngineService.GenerateThreats(ThreatBearingModel()).First(threat => threat.RuleId == "TM1023");
+            TmForgeModelDto model = ThreatBearingModel(
+                new[]
+                {
+                    new ThreatStateDto
+                    {
+                        Id = generated.Id,
+                        State = "Accepted",
+                        Justification = "Authenticated by the upstream identity proxy.",
+                    },
+                });
+
+            string report = Encoding.UTF8.GetString(EngineService.Report(model, "html"));
+
+            StringAssert.Contains(report, generated.Title);
+            StringAssert.Contains(report, "TM1023");
+            StringAssert.Contains(report, "Accepted");
+            StringAssert.Contains(report, "Authenticated by the upstream identity proxy.");
+        }
+
+        /// <summary>
         /// <see cref="EngineService.Report"/> renders SVG when asked, matching the format string
         /// case-insensitively.
         /// </summary>
@@ -232,6 +278,33 @@ namespace ThreatModelForge.Api.Tests
                         Properties = new Dictionary<string, string> { { "Protocol", "TLS" } },
                     },
                 },
+            };
+        }
+
+        private static TmForgeModelDto ThreatBearingModel(IReadOnlyList<ThreatStateDto>? threats = null)
+        {
+            const string externalId = "11111111-1111-4111-8111-111111111111";
+            const string processId = "22222222-2222-4222-8222-222222222222";
+            return new TmForgeModelDto
+            {
+                Schema = "tmforge-json",
+                Version = "0.1",
+                Elements = new[]
+                {
+                    new TmForgeElementDto { Id = externalId, Kind = "external", Name = "Client", X = 50, Y = 50 },
+                    new TmForgeElementDto { Id = processId, Kind = "process", Name = "Gateway", X = 220, Y = 50 },
+                },
+                Flows = new[]
+                {
+                    new TmForgeFlowDto
+                    {
+                        Id = "33333333-3333-4333-8333-333333333333",
+                        Source = externalId,
+                        Target = processId,
+                        Name = "request",
+                    },
+                },
+                Threats = threats,
             };
         }
     }

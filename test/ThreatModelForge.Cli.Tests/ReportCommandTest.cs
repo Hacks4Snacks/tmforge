@@ -18,6 +18,14 @@ namespace ThreatModelForge.Cli.Tests
             "{\"id\":\"ds1\",\"kind\":\"datastore\",\"name\":\"DB\",\"x\":400,\"y\":100}]," +
             "\"flows\":[{\"id\":\"f1\",\"source\":\"p1\",\"target\":\"ds1\",\"name\":\"query\"}]}";
 
+        private const string ThreatBearingJson =
+            "{\"schema\":\"tmforge-json\",\"version\":\"0.1\"," +
+            "\"elements\":[" +
+            "{\"id\":\"11111111-1111-4111-8111-111111111111\",\"kind\":\"external\",\"name\":\"Client\",\"x\":50,\"y\":50}," +
+            "{\"id\":\"22222222-2222-4222-8222-222222222222\",\"kind\":\"process\",\"name\":\"Gateway\",\"x\":220,\"y\":50}]," +
+            "\"flows\":[{\"id\":\"33333333-3333-4333-8333-333333333333\",\"source\":\"11111111-1111-4111-8111-111111111111\"," +
+            "\"target\":\"22222222-2222-4222-8222-222222222222\",\"name\":\"request\"}]}";
+
         /// <summary>
         /// Gets or sets the working directory created for each test.
         /// </summary>
@@ -78,6 +86,39 @@ namespace ThreatModelForge.Cli.Tests
 
             Assert.AreEqual(0, exit);
             StringAssert.Contains(stdout, "<");
+        }
+
+        /// <summary>
+        /// Verifies that HTML reports materialize rule-backed threats rather than showing only the
+        /// model's manually-authored register entries.
+        /// </summary>
+        [TestMethod]
+        public void HtmlIncludesGeneratedThreats()
+        {
+            string input = this.WriteInput(ThreatBearingJson);
+
+            (int exit, string stdout) = Run(new[] { input });
+
+            Assert.AreEqual(0, exit);
+            StringAssert.Contains(stdout, "TM1023");
+            StringAssert.Contains(stdout, "CWE-287");
+            StringAssert.Contains(stdout, "Client");
+        }
+
+        /// <summary>
+        /// Verifies that generation for a report honors rule packs disabled in the model.
+        /// </summary>
+        [TestMethod]
+        public void HtmlHonorsDisabledRulePacks()
+        {
+            string json = ThreatBearingJson.Substring(0, ThreatBearingJson.Length - 1)
+                + ",\"analysis\":{\"disabledPacks\":[\"identity-access\"]}}";
+            string input = this.WriteInput(json);
+
+            (int exit, string stdout) = Run(new[] { input });
+
+            Assert.AreEqual(0, exit);
+            Assert.IsFalse(stdout.Contains("TM1023", StringComparison.Ordinal));
         }
 
         /// <summary>
@@ -158,10 +199,10 @@ namespace ThreatModelForge.Cli.Tests
             }
         }
 
-        private string WriteInput()
+        private string WriteInput(string json = SampleJson)
         {
             string input = Path.Join(this.WorkingDirectory, "model.tmforge.json");
-            File.WriteAllText(input, SampleJson);
+            File.WriteAllText(input, json);
             return input;
         }
     }
