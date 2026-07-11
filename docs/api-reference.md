@@ -98,7 +98,9 @@ exported file opens in the Microsoft Threat Modeling Tool. See
 
 `POST /v1/model/report?format=html` (or `format=svg`) renders a report from a model, the hosted
 equivalent of `tmforge report`. Multi-page models render every diagram: the HTML report has one
-section per page, and the SVG stacks the pages.
+section per page, and the SVG stacks the pages. HTML reports generate the enabled rule-backed threats
+on demand, overlay the model's manual threats and triage, and show rule id, STRIDE category, scope,
+priority, mitigation, references, and decision note. SVG output renders diagrams only.
 
 ## OpenAPI & client generation
 

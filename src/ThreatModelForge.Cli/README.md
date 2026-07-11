@@ -42,7 +42,7 @@ Every command accepts `--json` for machine-readable output, and options take eit
 | Command | Purpose |
 | --- | --- |
 | `tmforge analyze [--ruleset <path>] [--suppressionFile <path>] [--reportFolder <dir>] [--define name=value ...] [--json] <model>` | Evaluate the analysis rules against the model. `--reportFolder` also emits SARIF + HTML findings reports. |
-| `tmforge report [--out <path.html>] [--json] <model.tm7>` | Generate a self-contained HTML report of the model. |
+| `tmforge report [--format <html\|svg>] [--out <path>] [--json] <model>` | Generate a self-contained HTML threat report (enabled rule-backed + manual threats and triage), or a standalone SVG diagram. |
 | `tmforge convert [--to <format>] [--out <path>] [--json] <input>` | Convert between formats (`tm7`, `tmforge-json`, `drawio`, `vsdx`). |
 
 `analyze` exit codes: `0` = clean, `1` = error (bad arguments or load failure), `2` = findings

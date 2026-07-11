@@ -28,8 +28,90 @@ namespace ThreatModelForge.Reporting.Tests
             Assert.IsNotNull(svg.Attribute("viewBox"));
             Assert.IsTrue(svg.Descendants(Svg + "rect").Any(), "expected a rectangle");
             Assert.IsTrue(svg.Descendants(Svg + "ellipse").Any(), "expected an ellipse");
-            Assert.IsTrue(svg.Descendants(Svg + "path").Any(p => string.Equals((string?)p.Attribute("stroke"), "#333333", StringComparison.Ordinal)), "expected a connector path");
+            Assert.IsTrue(svg.Descendants(Svg + "path").Any(p => string.Equals((string?)p.Attribute("class"), "tmf-connector", StringComparison.Ordinal)), "expected a connector path");
             Assert.IsTrue(svg.Descendants(Svg + "text").Any(t => string.Equals((string)t, "Web App", StringComparison.Ordinal)), "expected the element label");
+        }
+
+        /// <summary>
+        /// Verifies that connector strokes and their labels use theme-aware classes, with a halo that
+        /// keeps line text readable over either a light or dark diagram surface.
+        /// </summary>
+        [TestMethod]
+        public void RendersThemeAwareConnectorAndLabel()
+        {
+            DrawingSurfaceModel diagram = BuildDiagram();
+            Connector connector = diagram.Lines.Values.OfType<Connector>().Single();
+            connector.Properties.Add(new StringDisplayAttribute { Name = "Name", Value = "HTTPS request" });
+
+            XElement svg = new DiagramSvgRenderer().Render(diagram);
+
+            XElement path = svg.Descendants(Svg + "path").Single(element => (string?)element.Attribute("class") == "tmf-connector");
+            XElement label = svg.Descendants(Svg + "text").Single(element => (string?)element.Attribute("class") == "tmf-flow-label");
+            string styles = svg.Descendants(Svg + "style").Single().Value;
+            Assert.AreEqual("non-scaling-stroke", (string?)path.Attribute("vector-effect"));
+            Assert.AreEqual("stroke", (string?)label.Attribute("paint-order"));
+            StringAssert.Contains(styles, ".tmf-connector");
+            StringAssert.Contains(styles, "prefers-color-scheme: dark");
+        }
+
+        /// <summary>
+        /// Verifies that a long component name is wrapped and clipped to the shape while its complete
+        /// value remains available as an SVG title.
+        /// </summary>
+        [TestMethod]
+        public void WrapsAndClipsLongComponentLabel()
+        {
+            const string name = "A very long component name that cannot fit on one line";
+            StencilRectangle component = new StencilRectangle
+            {
+                Guid = Guid.NewGuid(),
+                TypeId = "GE.P",
+                Left = 0,
+                Top = 0,
+                Width = 90,
+                Height = 48,
+            };
+            component.Properties.Add(new StringDisplayAttribute { Name = "Name", Value = name });
+            DrawingSurfaceModel diagram = new DrawingSurfaceModel { Guid = Guid.NewGuid() };
+            diagram.Borders[component.Guid] = component;
+
+            XElement svg = new DiagramSvgRenderer().Render(diagram);
+
+            XElement label = svg.Descendants(Svg + "text").Single(element => (string?)element.Attribute("class") == "tmf-node-label");
+            Assert.IsTrue(label.Elements(Svg + "tspan").Count() > 1, "expected a wrapped label");
+            StringAssert.StartsWith((string?)label.Attribute("clip-path"), "url(#tmf-label-");
+            Assert.IsTrue(svg.Descendants(Svg + "clipPath").Any(), "expected the label to be clipped to its shape");
+            Assert.IsTrue(svg.Descendants(Svg + "title").Any(element => element.Value == name), "expected the full label in a title");
+        }
+
+        /// <summary>
+        /// Verifies that wrapping moves a word intact to the next row rather than splitting it merely
+        /// to consume the unused space at the end of the current row.
+        /// </summary>
+        [TestMethod]
+        public void WrapsComponentLabelAtWordBoundaries()
+        {
+            StencilRectangle component = new StencilRectangle
+            {
+                Guid = Guid.NewGuid(),
+                TypeId = "GE.P",
+                Left = 0,
+                Top = 0,
+                Width = 140,
+                Height = 60,
+            };
+            component.Properties.Add(new StringDisplayAttribute { Name = "Name", Value = "Azure Front Door data-plane edge" });
+            DrawingSurfaceModel diagram = new DrawingSurfaceModel { Guid = Guid.NewGuid() };
+            diagram.Borders[component.Guid] = component;
+
+            XElement svg = new DiagramSvgRenderer().Render(diagram);
+
+            string[] lines = svg.Descendants(Svg + "text")
+                .Single(element => (string?)element.Attribute("class") == "tmf-node-label")
+                .Elements(Svg + "tspan")
+                .Select(element => element.Value)
+                .ToArray();
+            CollectionAssert.AreEqual(new[] { "Azure Front Door", "data-plane edge" }, lines);
         }
 
         /// <summary>

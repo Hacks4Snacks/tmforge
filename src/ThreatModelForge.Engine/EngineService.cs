@@ -358,12 +358,13 @@ namespace ThreatModelForge.Engine
         /// <returns>The report bytes (UTF-8).</returns>
         public static byte[] Report(TmForgeModelDto dto, string format)
         {
-            ThreatModel model = BuildModel(dto, out _);
             if (string.Equals(format, "svg", StringComparison.OrdinalIgnoreCase))
             {
-                return Encoding.UTF8.GetBytes(new DiagramSvgRenderer().RenderModel(model).ToString());
+                ThreatModel diagramModel = BuildModel(dto, out _);
+                return Encoding.UTF8.GetBytes(new DiagramSvgRenderer().RenderModel(diagramModel).ToString());
             }
 
+            ThreatModel model = BuildModelForExport(dto);
             string html = new HtmlReportWriter().Write(model);
             return Encoding.UTF8.GetBytes(html);
         }

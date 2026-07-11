@@ -1,8 +1,11 @@
 namespace ThreatModelForge.Cli
 {
     using System;
+    using System.Collections.Generic;
     using System.IO;
     using System.Text;
+    using ThreatModelForge.Analysis;
+    using ThreatModelForge.Engine;
     using ThreatModelForge.Formats;
     using ThreatModelForge.Model;
     using ThreatModelForge.Reporting;
@@ -61,6 +64,12 @@ namespace ThreatModelForge.Cli
             }
 
             ThreatModel model = ThreatModelFormatRegistry.CreateDefault().Load(input!);
+            if (formatId == "html")
+            {
+                using RuleSet ruleSet = AnalysisRuleSources.Create();
+                ApplyModelRuleSelection(ruleSet, input!);
+                ThreatGenerator.Apply(model, ThreatGenerator.Generate(model, ruleSet));
+            }
 
             string content = formatId == "svg"
                 ? new DiagramSvgRenderer().RenderModel(model).ToString()
@@ -95,6 +104,25 @@ namespace ThreatModelForge.Cli
             }
 
             return 0;
+        }
+
+        private static void ApplyModelRuleSelection(RuleSet ruleSet, string path)
+        {
+            using (FileStream stream = new FileStream(path, FileMode.Open, FileAccess.Read))
+            {
+                if (!new TmForgeJsonFormat().CanRead(stream))
+                {
+                    return;
+                }
+
+                if (TmForgeJsonFormat.TryReadAnalysis(
+                    stream,
+                    out IReadOnlyList<string> disabledPacks,
+                    out IReadOnlyList<string> disabledRuleIds))
+                {
+                    ruleSet.Disable(disabledPacks, disabledRuleIds);
+                }
+            }
         }
 
         private static void PrintUsage()
