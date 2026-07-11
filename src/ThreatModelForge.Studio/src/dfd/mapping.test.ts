@@ -37,4 +37,37 @@ describe('mapping — property round-trip (inspector edits reach the engine)', (
     // n2 (User) had an empty properties bag — it should not serialize a properties object.
     expect(model.elements[1].properties).toBeUndefined();
   });
+
+  it('does not serialize a transient Tidy label offset', () => {
+    const automatic: DfdEdge = {
+      ...edges[0],
+      data: { ...edges[0].data, labelOffset: { x: 0, y: 24 }, autoLabelOffset: true },
+    };
+
+    expect(toModel(nodes, [automatic]).flows[0].labelOffset).toBeUndefined();
+  });
+});
+
+describe('mapping — routed ports round-trip (Tidy layout survives a reload)', () => {
+  const routed: DfdEdge[] = [
+    { id: 'f1', source: 'n1', target: 'n2', label: 'request', sourceHandle: 'r', targetHandle: 'l', data: { properties: {} } },
+  ];
+
+  it('toModel persists the source/target ports on the flow', () => {
+    const model = toModel(nodes, routed);
+    expect(model.flows[0].sourceHandle).toBe('r');
+    expect(model.flows[0].targetHandle).toBe('l');
+  });
+
+  it('fromModel restores the ports onto the edge', () => {
+    const { edges: re } = fromModel(toModel(nodes, routed));
+    expect(re[0].sourceHandle).toBe('r');
+    expect(re[0].targetHandle).toBe('l');
+  });
+
+  it('omits the port keys for an unrouted flow', () => {
+    const model = toModel(nodes, edges);
+    expect(model.flows[0].sourceHandle).toBeUndefined();
+    expect(model.flows[0].targetHandle).toBeUndefined();
+  });
 });

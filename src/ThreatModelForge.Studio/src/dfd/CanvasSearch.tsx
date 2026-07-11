@@ -49,7 +49,7 @@ export function CanvasSearch({ items, onJump }: { items: SearchItem[]; onJump: (
       <input
         className="canvas-search-input"
         type="search"
-        placeholder="Find element…"
+        placeholder="Find element"
         aria-label="Find an element or flow on the canvas"
         value={query}
         onChange={(event) => setQuery(event.target.value)}

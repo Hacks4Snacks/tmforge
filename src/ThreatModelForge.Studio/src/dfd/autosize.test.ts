@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { deconflictEdgeLabels, fitNodeSize, resizeNodesToFit, separateNodes, tidyGraph, wrapLabel } from './autosize';
+import {
+  deconflictEdgeLabels,
+  findEdgeLabelObjectOverlaps,
+  fitNodeSize,
+  resizeNodesToFit,
+  routeEdges,
+  separateNodes,
+  tidyGraph,
+  wrapLabel,
+} from './autosize';
 import { DEFAULT_NODE_SIZE } from './mapping';
 import type { DfdEdge, DfdNode } from './types';
 
@@ -167,9 +176,48 @@ describe('deconflictEdgeLabels', () => {
     const edges = [edge('req', 'a', 'b'), edge('res', 'b', 'a')];
     const out = deconflictEdgeLabels(nodes, edges);
     const offsets = out.map((e) => e.data?.labelOffset ?? { x: 0, y: 0 });
-    // One label is pushed up, the other down; both stay horizontally on the line.
+    // One label is pushed up, the other down; both stay horizontally on the line, and the pair is
+    // separated by at least a label height so they no longer overlap.
     expect(offsets.every((o) => o.x === 0)).toBe(true);
-    expect(offsets.map((o) => o.y).sort((p, q) => p - q)).toEqual([-11, 11]);
+    const ys = offsets.map((o) => o.y).sort((p, q) => p - q);
+    expect(ys[0]).toBeLessThan(0);
+    expect(ys[0]).toBe(-ys[1]); // symmetric about the shared midpoint
+    expect(ys[1] - ys[0]).toBeGreaterThanOrEqual(22);
+  });
+
+  it('stacks two wide labels whose pills overlap even when their midpoints differ', () => {
+    // Endpoints far to the sides put both midpoints in open space (no shape underneath); the two
+    // long labels have anchors 100px apart yet pills far wider, so their boxes still overlap.
+    const wide: DfdNode[] = [
+      node('a1', 'external', 'A1', 0, 100, 100, 60),
+      node('b1', 'process', 'B1', 800, 100, 100, 60),
+      node('a2', 'external', 'A2', 100, 100, 100, 60),
+      node('b2', 'process', 'B2', 900, 100, 100, 60),
+    ];
+    const long = 'HTTPS forward heartbeat metrics to the configured endpoint';
+    const e1 = { id: 'f1', source: 'a1', target: 'b1', label: long, data: {} } as DfdEdge;
+    const e2 = { id: 'f2', source: 'a2', target: 'b2', label: long, data: {} } as DfdEdge;
+    const out = deconflictEdgeLabels(wide, [e1, e2]);
+    const ys = out.map((e) => e.data?.labelOffset?.y ?? 0);
+    expect(out.every((e) => (e.data?.labelOffset?.x ?? 0) === 0)).toBe(true);
+    expect(Math.abs(ys[0] - ys[1])).toBeGreaterThanOrEqual(22); // stacked apart, not overlapping
+  });
+
+  it('lifts a label off a shape that sits under its flow midpoint', () => {
+    const withObstacle: DfdNode[] = [
+      node('a', 'external', 'A', 0, 0, 100, 60),
+      node('b', 'process', 'B', 600, 0, 100, 60),
+      node('c', 'process', 'C', 300, 0, 120, 80), // sits at the a->b midpoint
+    ];
+    const [out] = deconflictEdgeLabels(withObstacle, [
+      { id: 'f', source: 'a', target: 'b', label: 'x', data: {} } as DfdEdge,
+    ]);
+    const dy = out.data?.labelOffset?.y ?? 0;
+    expect(dy).not.toBe(0);
+    // The label pill (centre 30 + dy, half-height 11) now clears node C's rectangle (y 0..80).
+    const top = 30 + dy - 11;
+    const bottom = 30 + dy + 11;
+    expect(bottom <= 0 || top >= 80).toBe(true);
   });
 
   it('leaves a solitary flow label on the line', () => {
@@ -184,11 +232,99 @@ describe('deconflictEdgeLabels', () => {
     expect(out[0].data?.labelOffset).toEqual({ x: 20, y: -40 });
   });
 
+  it('recomputes an automatic offset after object geometry changes', () => {
+    const automatic = {
+      ...edge('req', 'a', 'b', { x: 0, y: -40 }),
+      data: { labelOffset: { x: 0, y: -40 }, autoLabelOffset: true },
+    };
+    const obstacle = node('c', 'process', 'C', 220, 20, 120, 80);
+
+    const [out] = deconflictEdgeLabels([...nodes, obstacle], [automatic]);
+
+    expect(out.data?.autoLabelOffset).toBe(true);
+    expect(out.data?.labelOffset).not.toEqual({ x: 0, y: -40 });
+  });
+
+  it('clears a stale automatic offset when the label no longer needs one', () => {
+    const automatic = {
+      ...edge('only', 'a', 'b', { x: 0, y: 40 }),
+      data: { labelOffset: { x: 0, y: 40 }, autoLabelOffset: true },
+    };
+
+    const [out] = deconflictEdgeLabels(nodes, [automatic]);
+
+    expect(out.data?.labelOffset).toBeUndefined();
+    expect(out.data?.autoLabelOffset).toBeUndefined();
+  });
+
+  it('keeps labels clear of a trust-boundary title strip', () => {
+    const boundary = node('tb', 'boundary', 'Edge Kubernetes cluster', 200, 20, 320, 220);
+    const endpoints = [
+      node('left', 'external', 'Left', 0, 0, 100, 60),
+      node('right', 'process', 'Right', 600, 0, 100, 60),
+    ];
+
+    const [out] = deconflictEdgeLabels([boundary, ...endpoints], [edge('flow', 'left', 'right')]);
+    const dy = out.data?.labelOffset?.y ?? 0;
+    const labelCenterY = 30 + dy;
+
+    expect(labelCenterY + 11 <= 20 || labelCenterY - 11 >= 48).toBe(true);
+  });
+
+  it('finds a two-dimensional slot in a dense object corridor', () => {
+    const dense: DfdNode[] = [
+      node('left', 'process', 'Left', 0, 100, 140, 132),
+      node('right', 'process', 'Right', 600, 100, 140, 132),
+      node('middle-top', 'process', 'Middle top', 260, 40, 180, 120),
+      node('middle-bottom', 'datastore', 'Middle bottom', 260, 180, 180, 90),
+    ];
+    const flows: DfdEdge[] = [
+      { id: 'f1', source: 'left', target: 'right', label: 'Long request label crossing the dense middle corridor', data: {} },
+      { id: 'f2', source: 'right', target: 'left', label: 'Long response label crossing the dense middle corridor', data: {} },
+    ];
+
+    const routed = routeEdges(dense, flows);
+    const placed = deconflictEdgeLabels(dense, routed);
+
+    expect(findEdgeLabelObjectOverlaps(dense, placed)).toEqual([]);
+    expect(placed.every((flow) => flow.data?.autoLabelOffset)).toBe(true);
+  });
+
   it('is stable across repeated runs', () => {
     const edges = [edge('req', 'a', 'b'), edge('res', 'b', 'a')];
     const once = deconflictEdgeLabels(nodes, edges);
     const twice = deconflictEdgeLabels(nodes, once);
     expect(twice.map((e) => e.data?.labelOffset)).toEqual(once.map((e) => e.data?.labelOffset));
+  });
+});
+
+describe('routeEdges', () => {
+  it('routes a rightward flow out of the source right port and into the target left port', () => {
+    const nodes = [node('a', 'process', 'A', 0, 0, 100, 100), node('b', 'process', 'B', 400, 0, 100, 100)];
+    const [routed] = routeEdges(nodes, [edge('e', 'a', 'b')]);
+    expect(routed.sourceHandle).toBe('r');
+    expect(routed.targetHandle).toBe('l');
+  });
+
+  it('routes a downward flow bottom-to-top', () => {
+    const nodes = [node('a', 'process', 'A', 0, 0, 100, 100), node('b', 'process', 'B', 0, 400, 100, 100)];
+    const [routed] = routeEdges(nodes, [edge('e', 'a', 'b')]);
+    expect(routed.sourceHandle).toBe('b');
+    expect(routed.targetHandle).toBe('t');
+  });
+
+  it('leaves a flow touching a trust boundary for React Flow to place', () => {
+    const nodes = [node('bnd', 'boundary', 'TB', 0, 0, 300, 300), node('b', 'process', 'B', 400, 0, 100, 100)];
+    const edges = [edge('e', 'bnd', 'b')];
+    const out = routeEdges(nodes, edges);
+    expect(out[0]).toBe(edges[0]); // unchanged reference: a boundary has no ports
+  });
+
+  it('is a no-op on a second run', () => {
+    const nodes = [node('a', 'process', 'A', 0, 0, 100, 100), node('b', 'process', 'B', 400, 0, 100, 100)];
+    const once = routeEdges(nodes, [edge('e', 'a', 'b')]);
+    const twice = routeEdges(nodes, once);
+    expect(twice[0]).toBe(once[0]); // same reference: handles already face their endpoints
   });
 });
 
@@ -203,5 +339,7 @@ describe('tidyGraph', () => {
     expect(out.nodes[0].width!).toBeGreaterThan(120);
     expect(out.nodes[1].height!).toBeGreaterThan(100);
     expect(out.edges.some((e) => (e.data?.labelOffset?.y ?? 0) !== 0)).toBe(true);
+    // Every component-to-component flow is routed through a pair of facing ports.
+    expect(out.edges.every((e) => Boolean(e.sourceHandle) && Boolean(e.targetHandle))).toBe(true);
   });
 });

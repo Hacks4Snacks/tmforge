@@ -58,8 +58,15 @@ export function toModel(nodes: DfdNode[], edges: DfdEdge[]): TmForgeModel {
         flow.properties = props;
       }
       const offset = e.data?.labelOffset;
-      if (offset && (offset.x !== 0 || offset.y !== 0)) {
+      if (!e.data?.autoLabelOffset && offset && (offset.x !== 0 || offset.y !== 0)) {
         flow.labelOffset = { x: Math.round(offset.x), y: Math.round(offset.y) };
+      }
+      // Persist the ports Tidy routed the flow through so the routing survives a reload.
+      if (typeof e.sourceHandle === 'string') {
+        flow.sourceHandle = e.sourceHandle;
+      }
+      if (typeof e.targetHandle === 'string') {
+        flow.targetHandle = e.targetHandle;
       }
       return flow;
     }),
@@ -75,25 +82,43 @@ export function fromModel(model: TmForgeModel): { nodes: DfdNode[]; edges: DfdEd
     const stencilType = properties.StencilType;
     delete properties.StencilType;
     const size = DEFAULT_NODE_SIZE[el.kind];
+    const width = el.width ?? size.width;
+    const height = el.height ?? size.height;
     return {
       id: el.id,
       type: el.kind,
       position: { x: el.x, y: el.y },
       data: { label: el.name, stencilType, properties },
-      style: { width: el.width ?? size.width, height: el.height ?? size.height },
+      // Set the size top-level as well as in style so React Flow knows each node's dimensions on the
+      // first render (before it measures the DOM); without this an edge can't resolve its handle
+      // positions and stays unrendered until an interaction re-measures — e.g. on a reload restore.
+      width,
+      height,
+      style: { width, height },
       zIndex: el.kind === 'boundary' ? 0 : 1,
     };
   });
 
-  const edges: DfdEdge[] = model.flows.map((f) => ({
-    id: f.id,
-    source: f.source,
-    target: f.target,
-    label: f.name,
-    type: 'flow',
-    markerEnd: { type: MarkerType.ArrowClosed },
-    data: { properties: f.properties ?? {}, labelOffset: f.labelOffset },
-  }));
+  const edges: DfdEdge[] = model.flows.map((f) => {
+    const edge: DfdEdge = {
+      id: f.id,
+      source: f.source,
+      target: f.target,
+      label: f.name,
+      type: 'flow',
+      markerEnd: { type: MarkerType.ArrowClosed },
+      data: { properties: f.properties ?? {}, labelOffset: f.labelOffset },
+    };
+    // Only set the ports when the flow carries them (a Tidy-routed model); leaving the keys off an
+    // unrouted flow lets React Flow place the line on its default port.
+    if (f.sourceHandle) {
+      edge.sourceHandle = f.sourceHandle;
+    }
+    if (f.targetHandle) {
+      edge.targetHandle = f.targetHandle;
+    }
+    return edge;
+  });
 
   return { nodes, edges };
 }

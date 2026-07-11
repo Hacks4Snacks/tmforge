@@ -4,8 +4,10 @@ import type { DfdEdge, DfdKind, DfdNode } from './types';
 /**
  * Auto-layout helpers that make an imported (for example, CLI-authored) model readable without
  * manual clean-up: every shape is grown to fit its label so the name never overruns the boundary,
- * and flow labels that would stack on the same spot — the classic request/response pair between two
- * nodes — are nudged apart. All functions are pure and deterministic so a repeated run is a no-op.
+ * overlapping shapes are pushed apart, each flow is routed through the ports that face its
+ * endpoints (instead of React Flow's default top port, which loops lines over their own shapes),
+ * and the flow labels are sized from their text and stacked so none cover one another or a shape.
+ * All functions are pure and deterministic so a repeated run is a no-op.
  */
 
 /** Label font — mirrors `.dfd-node` (13px / 600) over the app's system font stack, for measurement. */
@@ -81,6 +83,37 @@ export function textWidth(text: string): number {
   }
   // ≈7.1px average glyph advance for 13px/600 in the system stack — deterministic for tests.
   return text.length * 7.1;
+}
+
+/** Edge-label font — mirrors `.edge-label` (11px / 600); flow labels are measured to size their pills. */
+const EDGE_LABEL_FONT =
+  "600 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+
+let edgeMeasureCtx: CanvasRenderingContext2D | null | undefined;
+
+/** A cached 2D context for edge-label measurement at 11px, or null where canvas is unavailable. */
+function edgeContext(): CanvasRenderingContext2D | null {
+  if (edgeMeasureCtx === undefined) {
+    try {
+      edgeMeasureCtx = document.createElement('canvas').getContext('2d') ?? null;
+      if (edgeMeasureCtx) {
+        edgeMeasureCtx.font = EDGE_LABEL_FONT;
+      }
+    } catch {
+      edgeMeasureCtx = null;
+    }
+  }
+  return edgeMeasureCtx;
+}
+
+/** Width (px) of a one-line flow label. Falls back to a per-character estimate without canvas. */
+export function edgeLabelWidth(text: string): number {
+  const ctx = edgeContext();
+  if (ctx) {
+    return ctx.measureText(text).width;
+  }
+  // ≈6.0px average glyph advance for 11px/600 in the system stack — deterministic for tests.
+  return text.length * 6;
 }
 
 /** Greedy word-wrap to a target pixel width; a single word wider than the target is hard-broken. */
@@ -197,77 +230,370 @@ export function resizeNodesToFit(nodes: DfdNode[], mode: FitMode = 'exact'): Dfd
   });
 }
 
-/** Distance (px) within which two flow-label anchors are treated as the same spot and separated. */
-const CLUSTER_RADIUS = 46;
-/** Vertical gap (px) between stacked labels that share a spot. */
-const ROW_GAP = 22;
+/** The four connection ports every shape node exposes, in the order ShapeNode renders them. */
+type HandleSide = 't' | 'r' | 'b' | 'l';
 
-/** The geometric centre of a node, from its position and (possibly stringified) size. */
-function nodeCenter(n: DfdNode): { x: number; y: number } {
-  const fallback = DEFAULT_NODE_SIZE[(n.type as DfdKind) ?? 'process'] ?? DEFAULT_NODE_SIZE.process;
-  const w = dim(n.width ?? n.style?.width, fallback.width);
-  const h = dim(n.height ?? n.style?.height, fallback.height);
-  return { x: n.position.x + w / 2, y: n.position.y + h / 2 };
+function isSide(value: string): value is HandleSide {
+  return value === 't' || value === 'r' || value === 'b' || value === 'l';
+}
+
+/** The point (flow coords) where a given side's port sits on the edge of a node's rectangle. */
+function handlePoint(r: Rect, side: HandleSide): { x: number; y: number } {
+  switch (side) {
+    case 't':
+      return { x: r.x + r.w / 2, y: r.y };
+    case 'b':
+      return { x: r.x + r.w / 2, y: r.y + r.h };
+    case 'l':
+      return { x: r.x, y: r.y + r.h / 2 };
+    case 'r':
+      return { x: r.x + r.w, y: r.y + r.h / 2 };
+  }
+}
+
+/** The facing (source, target) port sides between two node rectangles, chosen by dominant axis. */
+function facingSides(s: Rect, t: Rect): [HandleSide, HandleSide] {
+  const dx = t.x + t.w / 2 - (s.x + s.w / 2);
+  const dy = t.y + t.h / 2 - (s.y + s.h / 2);
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx >= 0 ? ['r', 'l'] : ['l', 'r'];
+  }
+  return dy >= 0 ? ['b', 't'] : ['t', 'b'];
 }
 
 /**
- * Returns edges whose labels are nudged apart wherever several flows share the same midpoint (for
- * example, a request/response pair between the same two nodes). A label the author has already
- * dragged aside (a non-zero offset) is left untouched, and a flow that sits alone keeps its label on
- * the line. Offsets are symmetric about the shared anchor, so the result is stable across re-runs.
+ * Assigns each flow the source and target ports that face one another, so a line leaves the side of
+ * its source nearest the target and enters the side of its target nearest the source. Without an
+ * explicit handle React Flow falls back to a shape's first port (its top), which sends every line
+ * looping up and over its own shapes and scatters the midpoint labels far from the flow. Only
+ * component-to-component flows are routed; a flow touching a trust boundary (which has no ports) is
+ * left for React Flow to place. Handles come purely from geometry, so a repeated run is a no-op.
  */
-export function deconflictEdgeLabels(nodes: DfdNode[], edges: DfdEdge[]): DfdEdge[] {
-  const centers = new Map<string, { x: number; y: number }>();
+export function routeEdges(nodes: DfdNode[], edges: DfdEdge[]): DfdEdge[] {
+  const rects = new Map<string, Rect>();
   for (const n of nodes) {
-    centers.set(n.id, nodeCenter(n));
-  }
-
-  // Only auto-place labels the author has not already positioned.
-  const movable = edges
-    .filter((e) => {
-      const off = e.data?.labelOffset;
-      return !off || (off.x === 0 && off.y === 0);
-    })
-    .map((e) => {
-      const s = centers.get(e.source);
-      const t = centers.get(e.target);
-      return s && t ? { id: e.id, anchor: { x: (s.x + t.x) / 2, y: (s.y + t.y) / 2 } } : null;
-    })
-    .filter((x): x is { id: string; anchor: { x: number; y: number } } => x !== null)
-    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-
-  // Greedy proximity clustering — diagrams are small, so the O(n²) scan is fine.
-  const clusters: { cx: number; cy: number; ids: string[] }[] = [];
-  for (const item of movable) {
-    const hit = clusters.find((c) => Math.hypot(c.cx - item.anchor.x, c.cy - item.anchor.y) < CLUSTER_RADIUS);
-    if (hit) {
-      hit.ids.push(item.id);
-      hit.cx = (hit.cx * (hit.ids.length - 1) + item.anchor.x) / hit.ids.length;
-      hit.cy = (hit.cy * (hit.ids.length - 1) + item.anchor.y) / hit.ids.length;
-    } else {
-      clusters.push({ cx: item.anchor.x, cy: item.anchor.y, ids: [item.id] });
+    if (n.type !== 'boundary') {
+      rects.set(n.id, rectOf(n));
     }
   }
+  return edges.map((e) => {
+    const s = rects.get(e.source);
+    const t = rects.get(e.target);
+    if (!s || !t) {
+      return e;
+    }
+    const [sourceHandle, targetHandle] = facingSides(s, t);
+    if (e.sourceHandle === sourceHandle && e.targetHandle === targetHandle) {
+      return e;
+    }
+    return { ...e, sourceHandle, targetHandle };
+  });
+}
 
-  const offsets = new Map<string, { x: number; y: number }>();
-  for (const cluster of clusters) {
-    const k = cluster.ids.length;
-    cluster.ids.forEach((id, i) => {
-      offsets.set(id, { x: 0, y: k > 1 ? Math.round((i - (k - 1) / 2) * ROW_GAP) : 0 });
+/** Text width (px) a long flow label wraps at, so verbose descriptions form a compact multi-line pill. */
+const EDGE_WRAP_TARGET = 224;
+/** Rendered height (px) of one wrapped line of an 11px/600 flow label (line-height 1.25). */
+const EDGE_LINE_H = 14;
+/** Horizontal padding (px) added to a label's measured text to get the width of its pill. */
+const LABEL_PAD_X = 8;
+/** Vertical padding (px), including the pill's halo, added above and below the wrapped lines. */
+const LABEL_PAD_Y = 5;
+/** Minimum vertical gap (px) kept between a separated label and whatever it was moved off. */
+const LABEL_GAP = 6;
+/** Iteration cap for the label-overlap relaxation — small diagrams converge well before it. */
+const LABEL_ITERS = 60;
+/** Height (px) reserved for the title strip at the top of a trust boundary. */
+const BOUNDARY_TITLE_H = 28;
+/** Horizontal padding (px) around a trust-boundary title. */
+const BOUNDARY_TITLE_PAD_X = 17;
+
+/** A movable flow label as a box centred on its anchor and shifted to clear overlaps. */
+interface LabelBox {
+  id: string;
+  anchorX: number;
+  anchorY: number;
+  cx: number;
+  cy: number;
+  w: number;
+  h: number;
+}
+
+interface LabelObstacle extends Rect {
+  id: string;
+}
+
+/** The midpoint of a flow's routed path — its two ports, or the node centres when it is unrouted. */
+function labelAnchor(edge: DfdEdge, source: Rect, target: Rect): { x: number; y: number } {
+  const sp =
+    typeof edge.sourceHandle === 'string' && isSide(edge.sourceHandle)
+      ? handlePoint(source, edge.sourceHandle)
+      : { x: source.x + source.w / 2, y: source.y + source.h / 2 };
+  const tp =
+    typeof edge.targetHandle === 'string' && isSide(edge.targetHandle)
+      ? handlePoint(target, edge.targetHandle)
+      : { x: target.x + target.w / 2, y: target.y + target.h / 2 };
+  return { x: (sp.x + tp.x) / 2, y: (sp.y + tp.y) / 2 };
+}
+
+/** Overlap of two axis ranges (start + length each), or a value ≤ 0 when they are disjoint. */
+function axisOverlap(aStart: number, aLen: number, bStart: number, bLen: number): number {
+  return Math.min(aStart + aLen, bStart + bLen) - Math.max(aStart, bStart);
+}
+
+/** Greedy word-wrap of a flow label at the edge font, matching the wrapping `.edge-label` renders. */
+function wrapEdgeLabel(label: string, maxWidth: number): string[] {
+  const words = label.split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
+    return [''];
+  }
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (line && edgeLabelWidth(candidate) > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+  }
+  if (line) {
+    lines.push(line);
+  }
+  return lines;
+}
+
+/** The on-canvas pill size of a flow label once wrapped, used to detect and clear label overlaps. */
+function edgeLabelBox(text: string): { w: number; h: number } {
+  const lines = wrapEdgeLabel(text, EDGE_WRAP_TARGET);
+  const longest = Math.max(1, ...lines.map(edgeLabelWidth));
+  return {
+    w: Math.ceil(Math.min(longest, EDGE_WRAP_TARGET)) + LABEL_PAD_X * 2,
+    h: lines.length * EDGE_LINE_H + LABEL_PAD_Y * 2,
+  };
+}
+
+function labelRect(label: LabelBox, x = label.cx, y = label.cy): Rect {
+  return { x: x - label.w / 2, y: y - label.h / 2, w: label.w, h: label.h };
+}
+
+function labelObstacles(nodes: DfdNode[]): LabelObstacle[] {
+  return nodes.map((node) => {
+    const rect = rectOf(node);
+    if (node.type !== 'boundary') {
+      return { id: node.id, ...rect };
+    }
+    const label = typeof node.data.label === 'string' ? node.data.label : '';
+    return {
+      id: `title:${node.id}`,
+      x: rect.x,
+      y: rect.y,
+      w: Math.min(rect.w, Math.max(72, Math.ceil(textWidth(label)) + BOUNDARY_TITLE_PAD_X * 2)),
+      h: BOUNDARY_TITLE_H,
+    };
+  });
+}
+
+function rectsOverlap(a: Rect, b: Rect, gap = 0): boolean {
+  return axisOverlap(a.x, a.w, b.x - gap, b.w + gap * 2) > 0
+    && axisOverlap(a.y, a.h, b.y - gap, b.h + gap * 2) > 0;
+}
+
+/** Candidate offsets around a preferred label centre, ordered nearest-first with vertical bias. */
+function labelCandidates(label: LabelBox): { x: number; y: number }[] {
+  const stepX = 32;
+  const stepY = Math.max(24, Math.ceil(label.h + LABEL_GAP));
+  const candidates = [{ x: 0, y: 0 }];
+  for (let ring = 1; ring <= 32; ring += 1) {
+    const current: { x: number; y: number }[] = [];
+    for (let gx = -ring; gx <= ring; gx += 1) {
+      current.push({ x: gx * stepX, y: -ring * stepY });
+      current.push({ x: gx * stepX, y: ring * stepY });
+    }
+    for (let gy = -ring + 1; gy < ring; gy += 1) {
+      current.push({ x: -ring * stepX, y: gy * stepY });
+      current.push({ x: ring * stepX, y: gy * stepY });
+    }
+    current.sort((a, b) => {
+      const ac = Math.hypot(a.x * 1.2, a.y);
+      const bc = Math.hypot(b.x * 1.2, b.y);
+      return ac - bc || Math.abs(a.x) - Math.abs(b.x) || a.y - b.y || a.x - b.x;
+    });
+    candidates.push(...current);
+  }
+  return candidates;
+}
+
+/**
+ * Returns edges whose labels are nudged vertically so no two auto-placed labels overlap and none
+ * sits on top of a component shape. Each label is sized from its measured text, so long flow
+ * descriptions that would otherwise cover one another (or a neighbouring shape) are stacked apart,
+ * not just the classic request/response pair that shares an exact midpoint. A label the author has
+ * already dragged aside (a non-zero offset) is left where it is — and treated as an obstacle the
+ * auto-placed labels avoid — and a flow whose label is already clear keeps it on the line. Labels
+ * prefer vertical movement but can move horizontally out of dense object corridors. Repeated runs
+ * are stable.
+ */
+export function deconflictEdgeLabels(nodes: DfdNode[], edges: DfdEdge[]): DfdEdge[] {
+  const rects = new Map<string, Rect>();
+  for (const n of nodes) {
+    rects.set(n.id, rectOf(n));
+  }
+
+  // Components are fixed obstacles. A boundary's interior legitimately contains labels, but its
+  // title strip does not, so reserve only the title rather than the whole region.
+  const obstacles = labelObstacles(nodes);
+  const movable: LabelBox[] = [];
+
+  for (const e of edges) {
+    const s = rects.get(e.source);
+    const t = rects.get(e.target);
+    if (!s || !t) {
+      continue;
+    }
+    const anchor = labelAnchor(e, s, t);
+    const text = typeof e.label === 'string' && e.label ? e.label : 'data flow';
+    const box = edgeLabelBox(text);
+    const off = e.data?.labelOffset;
+    if (off && (off.x !== 0 || off.y !== 0) && !e.data?.autoLabelOffset) {
+      // Author-placed: never move it, but keep it as an obstacle the auto-placed labels avoid.
+      obstacles.push({
+        id: `manual:${e.id}`,
+        x: anchor.x + off.x - box.w / 2,
+        y: anchor.y + off.y - box.h / 2,
+        w: box.w,
+        h: box.h,
+      });
+      continue;
+    }
+    movable.push({
+      id: e.id,
+      anchorX: anchor.x,
+      anchorY: anchor.y,
+      cx: anchor.x,
+      cy: anchor.y,
+      w: box.w,
+      h: box.h,
     });
   }
 
+  // Deterministic order so ties resolve the same way on every run.
+  movable.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+  // Separate labels symmetrically around their path anchors first, retaining the familiar
+  // request/response treatment before object-aware placement.
+  for (let iter = 0; iter < LABEL_ITERS / 2; iter += 1) {
+    let moved = false;
+    for (let i = 0; i < movable.length; i++) {
+      for (let j = i + 1; j < movable.length; j++) {
+        const a = movable[i];
+        const b = movable[j];
+        if (axisOverlap(a.cx - a.w / 2, a.w, b.cx - b.w / 2, b.w) <= 0) {
+          continue;
+        }
+        const gap = (a.h + b.h) / 2 + LABEL_GAP - Math.abs(a.cy - b.cy);
+        if (gap <= 0) {
+          continue;
+        }
+        // Lower id goes up on a tie, so the split is deterministic.
+        const dir = a.cy <= b.cy ? -1 : 1;
+        a.cy += (dir * gap) / 2;
+        b.cy -= (dir * gap) / 2;
+        moved = true;
+      }
+    }
+
+    if (!moved) {
+      break;
+    }
+  }
+
+  // The old vertical-only relaxation could oscillate between neighboring objects. Place each label
+  // into the nearest 2D slot that clears objects, manual labels, and labels already placed.
+  const placed: Rect[] = [];
+  for (const label of movable) {
+    const preferredX = label.cx;
+    const preferredY = label.cy;
+    let chosen = { x: preferredX, y: preferredY };
+    for (const offset of labelCandidates(label)) {
+      const x = preferredX + offset.x;
+      const y = preferredY + offset.y;
+      const candidate = labelRect(label, x, y);
+      if (
+        obstacles.every((obstacle) => !rectsOverlap(candidate, obstacle, LABEL_GAP))
+        && placed.every((other) => !rectsOverlap(candidate, other, LABEL_GAP))
+      ) {
+        chosen = { x, y };
+        break;
+      }
+    }
+    label.cx = chosen.x;
+    label.cy = chosen.y;
+    placed.push(labelRect(label));
+  }
+
+  const offsets = new Map<string, { x: number; y: number }>();
+  for (const m of movable) {
+    const next = { x: Math.round(m.cx - m.anchorX), y: Math.round(m.cy - m.anchorY) };
+    if (next.x !== 0 || next.y !== 0) {
+      offsets.set(m.id, next);
+    }
+  }
+
   return edges.map((e) => {
-    const next = offsets.get(e.id);
-    if (!next) {
+    const off = e.data?.labelOffset;
+    const manual = Boolean(off && (off.x !== 0 || off.y !== 0) && !e.data?.autoLabelOffset);
+    if (manual) {
       return e;
     }
-    const cur = e.data?.labelOffset ?? { x: 0, y: 0 };
+    const next = offsets.get(e.id) ?? { x: 0, y: 0 };
+    const cur = off ?? { x: 0, y: 0 };
+    if (next.x === 0 && next.y === 0) {
+      if (!e.data?.autoLabelOffset && cur.x === 0 && cur.y === 0) {
+        return e;
+      }
+      const data = { ...e.data };
+      delete data.labelOffset;
+      delete data.autoLabelOffset;
+      return { ...e, data };
+    }
     if (cur.x === next.x && cur.y === next.y) {
-      return e;
+      return e.data?.autoLabelOffset ? e : { ...e, data: { ...e.data, autoLabelOffset: true } };
     }
-    return { ...e, data: { ...e.data, labelOffset: next } };
+    return { ...e, data: { ...e.data, labelOffset: next, autoLabelOffset: true } };
   });
+}
+
+/** Returns component/title collisions for the label boxes produced by Tidy. */
+export function findEdgeLabelObjectOverlaps(
+  nodes: DfdNode[],
+  edges: DfdEdge[],
+): { edgeId: string; obstacleId: string }[] {
+  const rects = new Map(nodes.map((node) => [node.id, rectOf(node)]));
+  const obstacles = labelObstacles(nodes);
+  const overlaps: { edgeId: string; obstacleId: string }[] = [];
+  for (const edge of edges) {
+    const source = rects.get(edge.source);
+    const target = rects.get(edge.target);
+    if (!source || !target) {
+      continue;
+    }
+    const anchor = labelAnchor(edge, source, target);
+    const offset = edge.data?.labelOffset ?? { x: 0, y: 0 };
+    const size = edgeLabelBox(typeof edge.label === 'string' && edge.label ? edge.label : 'data flow');
+    const box: Rect = {
+      x: anchor.x + offset.x - size.w / 2,
+      y: anchor.y + offset.y - size.h / 2,
+      w: size.w,
+      h: size.h,
+    };
+    for (const obstacle of obstacles) {
+      if (rectsOverlap(box, obstacle)) {
+        overlaps.push({ edgeId: edge.id, obstacleId: obstacle.id });
+      }
+    }
+  }
+  return overlaps;
 }
 
 /** Desired minimum gap (px) kept between component nodes when they are pushed apart. */
@@ -434,7 +760,8 @@ export function separateNodes(nodes: DfdNode[]): DfdNode[] {
 
 /**
  * Tidies a page: fits every shape to its label, separates overlapping shapes (growing any trust
- * boundary to keep wrapping its contents), and separates overlapping flow labels. `grow` (used when
+ * boundary to keep wrapping its contents), routes each flow through the ports that face its
+ * endpoints, and separates the flow labels so none overlap one another or a shape. `grow` (used when
  * a model is loaded) only enlarges shapes; `exact` (the toolbar action) sets the computed fit.
  */
 export function tidyGraph(
@@ -443,5 +770,6 @@ export function tidyGraph(
   mode: FitMode = 'exact',
 ): { nodes: DfdNode[]; edges: DfdEdge[] } {
   const separated = separateNodes(resizeNodesToFit(nodes, mode));
-  return { nodes: separated, edges: deconflictEdgeLabels(separated, edges) };
+  const routed = routeEdges(separated, edges);
+  return { nodes: separated, edges: deconflictEdgeLabels(separated, routed) };
 }

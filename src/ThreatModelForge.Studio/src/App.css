@@ -1489,6 +1489,13 @@ a.threat-ref:hover {
   cursor: grab;
   touch-action: none;
   box-shadow: 0 0 0 2px var(--surface);
+  /* Wrap a long flow description into a compact multi-line pill instead of one very wide line,
+     so parallel labels stay legible and Tidy can stack them without overlap. */
+  max-width: 240px;
+  white-space: normal;
+  overflow-wrap: break-word;
+  line-height: 1.25;
+  text-align: center;
 }
 
 .edge-label:hover {
