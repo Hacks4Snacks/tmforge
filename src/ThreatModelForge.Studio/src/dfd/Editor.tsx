@@ -199,6 +199,19 @@ interface FilePickerWindow {
   showSaveFilePicker?: (options?: { suggestedName?: string }) => Promise<WritableFileHandle>;
 }
 
+/** Builds a browser-compatible accept list, including the terminal suffix of compound extensions. */
+export function buildFileAccept(formats: FormatInfo[]): string {
+  const extensions = formats
+    .filter((format) => format.canRead)
+    .flatMap((format) => format.extensions)
+    .flatMap((extension) => {
+      const terminalDot = extension.lastIndexOf('.');
+      return terminalDot > 0 ? [extension, extension.slice(terminalDot)] : [extension];
+    });
+
+  return [...new Set(extensions.length > 0 ? extensions : ['.json', '.tm7', '.drawio', '.vsdx'])].join(',');
+}
+
 /** True when a file-picker promise rejected because the user cancelled the dialog. */
 export function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError';
@@ -1470,12 +1483,7 @@ export function Editor() {
           <input
             ref={fileRef}
             type="file"
-            accept={
-              formats
-                .filter((f) => f.canRead)
-                .flatMap((f) => f.extensions)
-                .join(',') || '.json,.tm7,.drawio,.vsdx'
-            }
+            accept={buildFileAccept(formats)}
             hidden
             onChange={(e) => {
               const file = e.target.files?.[0];

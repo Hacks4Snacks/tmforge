@@ -5,6 +5,7 @@ import {
   loadRecentStencilIds,
   loadStringList,
   persistStringList,
+  buildFileAccept,
   isAbortError,
   buildAnalysis,
   applyCanvasEdgeChanges,
@@ -177,6 +178,54 @@ describe('Editor — isAbortError', () => {
     expect(isAbortError(new Error('AbortError'))).toBe(false);
     expect(isAbortError('AbortError')).toBe(false);
     expect(isAbortError(null)).toBe(false);
+  });
+});
+
+describe('Editor — file picker filter', () => {
+  it('includes .json for the canonical compound tmforge extension', () => {
+    const accept = buildFileAccept([
+      {
+        id: 'tmforge-json',
+        displayName: 'Threat Model Forge JSON (.tmforge.json)',
+        extensions: ['.tmforge.json'],
+        canRead: true,
+        canWrite: true,
+      },
+    ]);
+
+    expect(accept).toBe('.tmforge.json,.json');
+  });
+
+  it('deduplicates terminal extensions and ignores write-only formats', () => {
+    const accept = buildFileAccept([
+      {
+        id: 'tmforge-json',
+        displayName: 'Threat Model Forge JSON (.tmforge.json)',
+        extensions: ['.tmforge.json'],
+        canRead: true,
+        canWrite: true,
+      },
+      {
+        id: 'json',
+        displayName: 'JSON',
+        extensions: ['.json'],
+        canRead: true,
+        canWrite: false,
+      },
+      {
+        id: 'output-only',
+        displayName: 'Output only',
+        extensions: ['.out'],
+        canRead: false,
+        canWrite: true,
+      },
+    ]);
+
+    expect(accept).toBe('.tmforge.json,.json');
+  });
+
+  it('uses the startup fallback before format metadata is available', () => {
+    expect(buildFileAccept([])).toBe('.json,.tm7,.drawio,.vsdx');
   });
 });
 
