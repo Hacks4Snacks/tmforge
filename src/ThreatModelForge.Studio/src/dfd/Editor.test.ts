@@ -5,8 +5,10 @@ import {
   loadRecentStencilIds,
   loadStringList,
   persistStringList,
+  buildFileAccept,
   isAbortError,
   buildAnalysis,
+  applyCanvasEdgeChanges,
   applyFlags,
   initialTheme,
   STORAGE_KEY,
@@ -16,6 +18,7 @@ import {
   RECENTS_MAX,
 } from './Editor';
 import { modelFromPages, type PageGraph } from './mapping';
+import type { EdgeChange } from '@xyflow/react';
 import type { DfdEdge, DfdNode } from './types';
 
 const processNode: DfdNode = { id: 'n1', type: 'process', position: { x: 10, y: 20 }, data: { label: 'API' } };
@@ -178,6 +181,54 @@ describe('Editor — isAbortError', () => {
   });
 });
 
+describe('Editor — file picker filter', () => {
+  it('includes .json for the canonical compound tmforge extension', () => {
+    const accept = buildFileAccept([
+      {
+        id: 'tmforge-json',
+        displayName: 'Threat Model Forge JSON (.tmforge.json)',
+        extensions: ['.tmforge.json'],
+        canRead: true,
+        canWrite: true,
+      },
+    ]);
+
+    expect(accept).toBe('.tmforge.json,.json');
+  });
+
+  it('deduplicates terminal extensions and ignores write-only formats', () => {
+    const accept = buildFileAccept([
+      {
+        id: 'tmforge-json',
+        displayName: 'Threat Model Forge JSON (.tmforge.json)',
+        extensions: ['.tmforge.json'],
+        canRead: true,
+        canWrite: true,
+      },
+      {
+        id: 'json',
+        displayName: 'JSON',
+        extensions: ['.json'],
+        canRead: true,
+        canWrite: false,
+      },
+      {
+        id: 'output-only',
+        displayName: 'Output only',
+        extensions: ['.out'],
+        canRead: false,
+        canWrite: true,
+      },
+    ]);
+
+    expect(accept).toBe('.tmforge.json,.json');
+  });
+
+  it('uses the startup fallback before format metadata is available', () => {
+    expect(buildFileAccept([])).toBe('.json,.tm7,.drawio,.vsdx');
+  });
+});
+
 describe('Editor — buildAnalysis', () => {
   it('is undefined when nothing is disabled', () => {
     expect(buildAnalysis([], [])).toBeUndefined();
@@ -223,6 +274,76 @@ describe('Editor — applyFlags', () => {
 
     expect(cleared.nodes.every((n) => n.className === undefined)).toBe(true);
     expect(cleared.edges.every((e) => e.className === undefined)).toBe(true);
+  });
+});
+
+describe('Editor — Tidy edge geometry', () => {
+  const route = {
+    points: [{ x: 120, y: 40 }, { x: 280, y: 40 }],
+    label: { x: 200, y: 40 },
+    labelAxis: 'horizontal',
+  };
+
+  it('preserves every routed line when controlled replacements omit Studio geometry', () => {
+    const current: DfdEdge[] = ['e1', 'e2', 'e3'].map((id, index) => ({
+      id,
+      source: `n${index}`,
+      target: `n${index + 1}`,
+      sourceHandle: 'r',
+      targetHandle: 'l',
+      data: {
+        labelOffset: { x: 0, y: index * 18 },
+        route,
+        autoLabelOffset: true,
+        properties: { Protocol: 'HTTPS' },
+      },
+    }));
+    const replacements: EdgeChange<DfdEdge>[] = current.map((edge) => ({
+      id: edge.id,
+      type: 'replace',
+      item: {
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        label: 'updated label',
+        data: { properties: { Port: '443' } },
+      },
+    }));
+
+    const result = applyCanvasEdgeChanges(replacements, current);
+
+    expect(result).toHaveLength(3);
+    for (let index = 0; index < result.length; index += 1) {
+      expect(result[index].sourceHandle).toBe('r');
+      expect(result[index].targetHandle).toBe('l');
+      expect(result[index].data?.route).toEqual(route);
+      expect(result[index].data?.autoLabelOffset).toBe(true);
+      expect(result[index].data?.labelOffset).toEqual({ x: 0, y: index * 18 });
+      expect(result[index].data?.properties).toEqual({ Port: '443' });
+    }
+  });
+
+  it('does not carry old handles onto an edge whose endpoint changed', () => {
+    const current: DfdEdge[] = [{
+      id: 'e1',
+      source: 'a',
+      target: 'b',
+      sourceHandle: 'r',
+      targetHandle: 'l',
+      data: { labelOffset: { x: 0, y: 18 }, route },
+    }];
+    const reconnect: EdgeChange<DfdEdge>[] = [{
+      id: 'e1',
+      type: 'replace',
+      item: { id: 'e1', source: 'a', target: 'c', data: {} },
+    }];
+
+    const [result] = applyCanvasEdgeChanges(reconnect, current);
+
+    expect(result.sourceHandle).toBeUndefined();
+    expect(result.targetHandle).toBeUndefined();
+    expect(result.data?.route).toBeUndefined();
+    expect(result.data?.labelOffset).toBeUndefined();
   });
 });
 

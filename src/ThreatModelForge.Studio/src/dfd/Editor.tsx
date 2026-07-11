@@ -8,6 +8,7 @@ import {
   Panel,
   addEdge,
   reconnectEdge,
+  applyEdgeChanges as applyEdgeChangesToGraph,
   useNodesState,
   useEdgesState,
   useReactFlow,
@@ -17,6 +18,7 @@ import {
   type NodeTypes,
   type EdgeTypes,
   type DefaultEdgeOptions,
+  type EdgeChange,
   type XYPosition,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -197,6 +199,19 @@ interface FilePickerWindow {
   showSaveFilePicker?: (options?: { suggestedName?: string }) => Promise<WritableFileHandle>;
 }
 
+/** Builds a browser-compatible accept list, including the terminal suffix of compound extensions. */
+export function buildFileAccept(formats: FormatInfo[]): string {
+  const extensions = formats
+    .filter((format) => format.canRead)
+    .flatMap((format) => format.extensions)
+    .flatMap((extension) => {
+      const terminalDot = extension.lastIndexOf('.');
+      return terminalDot > 0 ? [extension, extension.slice(terminalDot)] : [extension];
+    });
+
+  return [...new Set(extensions.length > 0 ? extensions : ['.json', '.tm7', '.drawio', '.vsdx'])].join(',');
+}
+
 /** True when a file-picker promise rejected because the user cancelled the dialog. */
 export function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError';
@@ -235,11 +250,44 @@ export function applyFlags(
   };
 }
 
+/**
+ * Applies React Flow edge changes without letting controlled-prop synchronization discard Tidy's
+ * geometry. React Flow can emit `replace` copies after an unrelated canvas edit; those copies do
+ * not carry Studio-only handles, routes, or label offsets. Preserve that state when the endpoints
+ * are unchanged. A real reconnect changes an endpoint and intentionally receives fresh geometry.
+ */
+export function applyCanvasEdgeChanges(changes: EdgeChange<DfdEdge>[], current: DfdEdge[]): DfdEdge[] {
+  const byId = new Map(current.map((edge) => [edge.id, edge]));
+  const geometrySafe = changes.map((change): EdgeChange<DfdEdge> => {
+    if (change.type !== 'replace') {
+      return change;
+    }
+    const existing = byId.get(change.id);
+    const replacement = change.item;
+    if (!existing || existing.source !== replacement.source || existing.target !== replacement.target) {
+      return change;
+    }
+    return {
+      ...change,
+      item: {
+        ...replacement,
+        sourceHandle: replacement.sourceHandle ?? existing.sourceHandle,
+        targetHandle: replacement.targetHandle ?? existing.targetHandle,
+        data:
+          existing.data || replacement.data
+            ? { ...existing.data, ...replacement.data }
+            : undefined,
+      },
+    };
+  });
+  return applyEdgeChangesToGraph(geometrySafe, current);
+}
+
 export function Editor() {
   const [pages, setPages] = useState<PageGraph[]>(INITIAL_WORKSPACE.pages);
   const [activePageId, setActivePageId] = useState<string>(INITIAL_ACTIVE.id);
   const [nodes, setNodes, onNodesChange] = useNodesState<DfdNode>(INITIAL_ACTIVE.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<DfdEdge>(INITIAL_ACTIVE.edges);
+  const [edges, setEdges] = useEdgesState<DfdEdge>(INITIAL_ACTIVE.edges);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [threats, setThreats] = useState<Threat[]>([]);
   const [threatTriage, setThreatTriage] = useState<ThreatTriage[]>(INITIAL_WORKSPACE.threats ?? []);
@@ -745,6 +793,13 @@ export function Editor() {
     [setEdges, takeSnapshot],
   );
 
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange<DfdEdge>[]) => {
+      setEdges((current) => applyCanvasEdgeChanges(changes, current));
+    },
+    [setEdges],
+  );
+
   // Show/hide a whole stencil pack in the palette (persisted).
   const togglePack = useCallback((packId: string) => {
     setDisabledPacks((prev) => {
@@ -853,7 +908,11 @@ export function Editor() {
   // Persist a label's dragged offset (the snapshot is taken by the edge on drag start via beginEdit).
   const setEdgeLabelOffset = useCallback(
     (id: string, offset: { x: number; y: number }) =>
-      setEdges((eds) => eds.map((e) => (e.id === id ? { ...e, data: { ...e.data, labelOffset: offset } } : e))),
+      setEdges((eds) =>
+        eds.map((e) =>
+          e.id === id ? { ...e, data: { ...e.data, labelOffset: offset, autoLabelOffset: false } } : e,
+        ),
+      ),
     [setEdges],
   );
 
@@ -1177,10 +1236,10 @@ export function Editor() {
 
   const loadModel = useCallback(
     (model: TmForgeModel) => {
-      // Auto-fit each page as it loads: grow shapes so a name never overruns its boundary and pull
-      // apart overlapping flow labels, so an imported (for example, CLI-authored) model is readable
-      // without manual clean-up. `grow` never shrinks a hand-tuned size, and labels already dragged
-      // aside are left as they are, so this is non-destructive.
+      // Auto-fit each page as it loads: grow shapes so a name never overruns its boundary, route
+      // flows through the ports that face their endpoints, and pull apart overlapping flow labels, so
+      // an imported (for example, CLI-authored) model is readable without manual clean-up. `grow`
+      // never shrinks a hand-tuned size, and labels already dragged aside are left as they are.
       const nextPages = pagesFromModel(model).map((p) => {
         const tidied = tidyGraph(p.nodes, p.edges, 'grow');
         return { ...p, nodes: tidied.nodes, edges: tidied.edges };
@@ -1278,9 +1337,10 @@ export function Editor() {
     reset();
   }, [setNodes, setEdges, reset]);
 
-  // Auto-layout the active page: fit every shape to its label (so a name can't overrun its boundary)
-  // and separate flow labels that overlap. One undo snapshot covers the whole tidy, then the view is
-  // re-framed. This is the on-demand form of the grow-only pass that runs when a model is loaded.
+  // Auto-layout the active page: fit every shape to its label (so a name can't overrun its boundary),
+  // route each flow through the ports that face its endpoints, and separate flow labels that overlap.
+  // One undo snapshot covers the whole tidy, then the view is re-framed. This is the on-demand form
+  // of the grow-only pass that runs when a model is loaded.
   const tidyActivePage = useCallback(() => {
     if (nodes.length === 0) {
       return;
@@ -1423,12 +1483,7 @@ export function Editor() {
           <input
             ref={fileRef}
             type="file"
-            accept={
-              formats
-                .filter((f) => f.canRead)
-                .flatMap((f) => f.extensions)
-                .join(',') || '.json,.tm7,.drawio,.vsdx'
-            }
+            accept={buildFileAccept(formats)}
             hidden
             onChange={(e) => {
               const file = e.target.files?.[0];

@@ -29,6 +29,8 @@ export type DfdEdgeData = Record<string, unknown> & {
   properties?: Record<string, string>;
   /** Label nudge (px, in flow coordinates) so labels on parallel flows can be pulled apart. */
   labelOffset?: { x: number; y: number };
+  /** Whether Tidy generated the current offset; manual label drags set this to false. */
+  autoLabelOffset?: boolean;
 };
 
 export type DfdNode = Node<DfdNodeData, DfdKind>;
@@ -59,6 +61,9 @@ export interface TmForgeFlow {
   properties?: Record<string, string>;
   /** Persisted label offset (px) so overlapping labels on parallel flows can be separated. */
   labelOffset?: { x: number; y: number };
+  /** Persisted source/target ports ('t' | 'r' | 'b' | 'l') that Tidy routes the flow through. */
+  sourceHandle?: string;
+  targetHandle?: string;
 }
 
 /**

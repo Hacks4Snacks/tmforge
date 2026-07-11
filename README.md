@@ -18,9 +18,6 @@ rules**, and gate a build on the result. No Windows, no GUI required.
 **[hacks4snacks.github.io/tmforge](https://hacks4snacks.github.io/tmforge/)**. Your model never
 leaves the page.
 
-> **Status: v0.1, early development.** Authoring (browser **and** CLI), lossless `.tm7`
-> read/write, multi-format interop, validation, and reporting all work today.
-
 ## Why tmforge
 
 - **Your existing models just work.** Lossless, byte-for-byte `.tm7` compatibility means models
@@ -97,7 +94,7 @@ Prebuilt, **self-contained** `tmforge` binaries (no .NET runtime required on the
 attached to each GitHub Release for six platforms:
 
 | OS      | x64                              | arm64                              |
-| ------- | -------------------------------- | ---------------------------------- |
+|---------|----------------------------------|------------------------------------|
 | Linux   | `tmforge-<ver>-linux-x64.tar.gz` | `tmforge-<ver>-linux-arm64.tar.gz` |
 | macOS   | `tmforge-<ver>-osx-x64.tar.gz`   | `tmforge-<ver>-osx-arm64.tar.gz`   |
 | Windows | `tmforge-<ver>-win-x64.zip`      | `tmforge-<ver>-win-arm64.zip`      |
