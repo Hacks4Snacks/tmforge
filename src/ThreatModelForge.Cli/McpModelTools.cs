@@ -34,9 +34,9 @@ namespace ThreatModelForge.Cli
             McpPathPolicy pathPolicy = services.GetRequiredService<McpPathPolicy>();
             byte[] content = pathPolicy.ReadAllBytes(path);
             pathPolicy.ValidateArchiveContainer(content);
-            string? effectiveFormat = format ?? EngineService.Detect(content)?.Id;
+            string? effectiveFormat = string.IsNullOrEmpty(format) ? EngineService.Detect(content)?.Id : format;
             pathPolicy.ValidateExpandedContent(content, effectiveFormat);
-            TmForgeModelDto model = EngineService.ReadModel(content, format);
+            TmForgeModelDto model = EngineService.ReadModel(content, effectiveFormat);
             McpToolSupport.ValidateModel(model);
             return model;
         }

@@ -12,6 +12,7 @@ namespace ThreatModelForge.Engine
     using ThreatModelForge.Formats;
     using ThreatModelForge.KnowledgeBase;
     using ThreatModelForge.Model;
+    using ThreatModelForge.Model.Abstracts;
     using ThreatModelForge.Reporting;
 
     /// <summary>
@@ -135,7 +136,10 @@ namespace ThreatModelForge.Engine
             List<FindingDto> findings = new List<FindingDto>();
             try
             {
-                ThreatModel model = BuildModel(dto, out Dictionary<string, List<string>> nameToIds);
+                ThreatModel model = BuildModel(
+                    dto,
+                    out Dictionary<string, List<string>> nameToIds,
+                    out Dictionary<Guid, string> originalIds);
                 using (RuleSet ruleSet = LoadRuleSet())
                 {
                     if (dto.Analysis != null)
@@ -146,22 +150,19 @@ namespace ThreatModelForge.Engine
                     CollectingMessageWriter writer = new CollectingMessageWriter();
                     RuleEvaluationContext context = new RuleEvaluationContext(model, writer);
                     ruleSet.Evaluate(context);
-                    ModelReport report = context.GenerateReport(ruleSet);
 
                     int sequence = 0;
-                    foreach (RuleReport ruleReport in report.RuleReports)
+                    foreach (Message message in writer.Messages)
                     {
-                        foreach (RuleReportMessage message in ruleReport.Messages)
+                        string ruleId = message.Source?.ID ?? string.Empty;
+                        findings.Add(new FindingDto
                         {
-                            findings.Add(new FindingDto
-                            {
-                                Id = $"{ruleReport.ID}:{sequence++}",
-                                Severity = MapSeverity(ruleReport.Severity),
-                                RuleId = ruleReport.ID,
-                                Message = message.Text ?? string.Empty,
-                                ElementIds = ResolveIds(message.Entity, nameToIds),
-                            });
-                        }
+                            Id = $"{ruleId}:{sequence++}",
+                            Severity = MapSeverity(message.Severity),
+                            RuleId = ruleId,
+                            Message = message.Text ?? string.Empty,
+                            ElementIds = ResolveIds(message.Target, originalIds, nameToIds),
+                        });
                     }
                 }
             }
@@ -619,7 +620,16 @@ namespace ThreatModelForge.Engine
 
         private static ThreatModel BuildModel(TmForgeModelDto dto, out Dictionary<string, List<string>> nameToIds)
         {
+            return BuildModel(dto, out nameToIds, out _);
+        }
+
+        private static ThreatModel BuildModel(
+            TmForgeModelDto dto,
+            out Dictionary<string, List<string>> nameToIds,
+            out Dictionary<Guid, string> originalIds)
+        {
             nameToIds = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            originalIds = new Dictionary<Guid, string>();
 
             // For a multi-page model the top-level elements/flows mirror the first page, so index the
             // pages when present (and only then) to avoid double-counting page one.
@@ -656,7 +666,7 @@ namespace ThreatModelForge.Engine
             byte[] json = JsonSerializer.SerializeToUtf8Bytes(dto, CanonicalJsonOptions);
             using (MemoryStream stream = new MemoryStream(json))
             {
-                return new TmForgeJsonFormat().Read(stream);
+                return TmForgeJsonFormat.ReadWithOriginalIds(stream, originalIds);
             }
         }
 
@@ -686,28 +696,25 @@ namespace ThreatModelForge.Engine
             ids.Add(id);
         }
 
-        private static IReadOnlyList<string> ResolveIds(string? entity, Dictionary<string, List<string>> nameToIds)
+        private static IReadOnlyList<string> ResolveIds(
+            Entity? target,
+            IReadOnlyDictionary<Guid, string> originalIds,
+            IReadOnlyDictionary<string, List<string>> nameToIds)
         {
-            if (string.IsNullOrEmpty(entity))
+            if (target == null)
             {
                 return Array.Empty<string>();
             }
 
-            if (nameToIds.TryGetValue(entity!, out List<string>? exact))
+            if (originalIds.TryGetValue(target.Guid, out string? originalId))
             {
-                return exact;
+                return new[] { originalId };
             }
 
-            // The engine's entity text embeds the element name (for example,
-            // "Edge [HTTPS request of unknown type and ID=...]"), so fall back to a contains match
-            // so the canvas can still highlight the offending element.
-            List<string> matches = new List<string>();
-            foreach (KeyValuePair<string, List<string>> pair in nameToIds.Where(pair => pair.Key.Length > 0 && entity!.IndexOf(pair.Key, StringComparison.Ordinal) >= 0))
-            {
-                matches.AddRange(pair.Value);
-            }
-
-            return matches;
+            string name = DiagramElementHelper.GetName(target);
+            return nameToIds.TryGetValue(name, out List<string>? ids) && ids.Count == 1
+                ? new[] { ids[0] }
+                : Array.Empty<string>();
         }
 
         private static RuleSet LoadRuleSet()
