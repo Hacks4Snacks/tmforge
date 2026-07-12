@@ -710,15 +710,24 @@ and returns the edited model (or findings, threats, or a report) out, so there i
 session state.
 
 ```text
-tmforge mcp
+tmforge mcp [--root <path>] [--max-read-bytes <n>] [--max-write-bytes <n>]
 ```
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--root <path>` | Process working directory | Workspace root for every MCP file read and write. Relative tool paths resolve beneath it; traversal and symbolic-link escapes are rejected. |
+| `--max-read-bytes <n>` | `67108864` (64 MiB) | Maximum size of one model file read by `read` or `detect`; for VSDX, the same budget also caps total expanded ZIP content. |
+| `--max-write-bytes <n>` | `67108864` (64 MiB) | Maximum serialized output accepted by `save`, enforced while the format writes. |
 
 Configure your MCP client to launch the tool:
 
 ```json
 {
   "mcpServers": {
-    "tmforge": { "command": "tmforge", "args": ["mcp"] }
+    "tmforge": {
+      "command": "tmforge",
+      "args": ["mcp", "--root", "/path/to/project"]
+    }
   }
 }
 ```
@@ -732,6 +741,34 @@ A typical agent loop is **apply -> analyze -> set -> analyze -> save**: build a 
 (or incrementally with `add`/`connect`), analyze it, resolve findings by setting the properties the
 rules read (for example `Protocol=HTTPS`), then materialize a `.tm7` with `save`. The JSON-RPC
 protocol owns stdout; all diagnostics go to stderr.
+
+**Filesystem boundary.** `read`, `detect`, and `save` are the only tools that access local files.
+They accept paths inside `--root`; absolute paths are allowed only when they resolve inside that same
+root. The server canonicalizes every existing path component and follows symbolic links only when
+their final target remains inside the root. A missing intermediate directory is rejected rather than
+created implicitly. `save` writes only exact extensions registered by writable model formats:
+`.tm7`, `.tmforge.json`, `.drawio`, and `.vsdx`; an explicit format cannot override a mismatched or
+non-model extension. Save streams into a fresh same-directory temporary file and atomically replaces
+the destination, so an existing hard link is not truncated through to another pathname and an
+oversized or failed conversion leaves no partial output. The result returned to the agent contains
+the caller's path, not the canonical host path.
+
+**Request budgets.** Every MCP tool validates model and manifest complexity before invoking the
+engine: at most 128 pages, 10,000 elements, 20,000 flows, 20,000 threat-overlay entries, 100,000
+properties, 65,536 characters in one string, and 16 Mi characters of aggregate model text. These
+limits count every physically supplied collection (including top-level page-one mirrors), and all
+models supplied to one merge share a single budget. They apply only to the MCP host; direct CLI and
+API operations retain their existing contracts. Generated findings, threats, and merge conflicts are
+capped at 100,000 items, and generated report text at 32 Mi characters.
+ZIP model inputs are preflighted before package parsing (at most 4,096 entries, a 4 MiB central
+directory, and 1,024-byte entry names; prefixed and ZIP64 packages are rejected), and VSDX expanded
+content shares the read-byte budget. VSDX pages are imported/exported one at a time and threats are
+indexed once per export rather than scanned for every element.
+ModelContextProtocol 1.4.1 does not expose a stdio frame-size option, so deployers that accept
+untrusted MCP clients should also apply process/container memory limits; tool-level budgets take
+effect after the SDK has deserialized a request. Report generation also uses the existing in-memory
+report writers before the response-text cap is checked; the model budget bounds that work, while a
+future streaming report API could enforce the response cap during rendering.
 
 ---
 

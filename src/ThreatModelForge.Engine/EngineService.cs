@@ -294,9 +294,27 @@ namespace ThreatModelForge.Engine
         /// <returns>The serialized document bytes.</returns>
         public static byte[] Convert(TmForgeModelDto dto, string formatId)
         {
+            using (MemoryStream stream = new MemoryStream())
+            {
+                WriteConverted(dto, formatId, stream);
+                return stream.ToArray();
+            }
+        }
+
+        /// <summary>Serializes the supplied model to the requested registered format stream.</summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <param name="formatId">The target format id.</param>
+        /// <param name="output">The destination stream, which remains open.</param>
+        public static void WriteConverted(TmForgeModelDto dto, string formatId, Stream output)
+        {
             if (string.IsNullOrEmpty(formatId))
             {
                 throw new ArgumentException("Value cannot be null or empty.", nameof(formatId));
+            }
+
+            if (output == null)
+            {
+                throw new ArgumentNullException(nameof(output));
             }
 
             // .tm7 is the lossless, register-bearing format, so materialize the full threat register
@@ -323,11 +341,7 @@ namespace ThreatModelForge.Engine
                 throw new NotSupportedException($"Format '{formatId}' does not support writing.");
             }
 
-            using (MemoryStream stream = new MemoryStream())
-            {
-                format.Write(model, stream);
-                return stream.ToArray();
-            }
+            format.Write(model, output);
         }
 
         /// <summary>
