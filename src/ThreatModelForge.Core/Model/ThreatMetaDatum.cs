@@ -29,12 +29,16 @@ namespace ThreatModelForge.Model
         [DataMember(IsRequired = false, Name = "Values", Order = 4)]
         public List<string> Values => this.values ??= new List<string>();
 
+        /// <summary>Gets or sets the property description.</summary>
+        [DataMember(EmitDefaultValue = false, Name = "Description", Order = 5)]
+        public string? Description { get; set; }
+
         /// <summary>Gets or sets the property identifier.</summary>
-        [DataMember(Name = "Id", Order = 5)]
+        [DataMember(Name = "Id", Order = 6)]
         public string? Id { get; set; }
 
         /// <summary>Gets or sets the attribute-type discriminator.</summary>
-        [DataMember(Name = "AttributeType", Order = 6)]
+        [DataMember(Name = "AttributeType", Order = 7)]
         public int AttributeType { get; set; }
     }
 }

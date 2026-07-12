@@ -15,5 +15,14 @@ following MIT-licensed Microsoft open-source project:
   - Copyright (c) Microsoft Corporation.
   - Licensed under the MIT License.
 
+Official `.tb7` semantic regression fixtures are derived from:
+
+- **microsoft/threat-modeling-templates** — https://github.com/microsoft/threat-modeling-templates
+  - Pinned at commit `0ece9c71b6f3710b10d497bd1ef63e57805e7c3e`.
+  - Copyright (c) Microsoft Corporation. All rights reserved.
+  - Licensed under the MIT License.
+  - Fixture derivation and checksums are recorded in
+    `test/ThreatModelForge.Core.Tests/Fixtures/OfficialTb7/README.md`.
+
 The `.tm7` / `.tb7` file formats are reproduced for **interoperability** with the Microsoft Threat
 Modeling Tool. No source from the Microsoft Threat Modeling Tool was copied.
