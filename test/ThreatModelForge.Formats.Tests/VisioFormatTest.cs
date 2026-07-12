@@ -195,6 +195,70 @@ namespace ThreatModelForge.Formats.Tests
             CollectionAssert.Contains(headers, "Payments");
         }
 
+        /// <summary>Verifies that two page records cannot reference the same page content part.</summary>
+        [TestMethod]
+        public void ReadRejectsDuplicatePageTargets()
+        {
+            byte[] vsdx = BuildPageReferenceVisio(pageCount: 2, duplicateTarget: true);
+
+            using MemoryStream input = new MemoryStream(vsdx, writable: false);
+            _ = Assert.Throws<InvalidDataException>(() => new VisioFormat().Read(input));
+        }
+
+        /// <summary>Verifies that page references are bounded before any page content is parsed.</summary>
+        [TestMethod]
+        public void ReadRejectsTooManyPageReferences()
+        {
+            byte[] vsdx = BuildPageReferenceVisio(pageCount: 129, duplicateTarget: false);
+
+            using MemoryStream input = new MemoryStream(vsdx, writable: false);
+            _ = Assert.Throws<InvalidDataException>(() => new VisioFormat().Read(input));
+        }
+
+        /// <summary>Verifies that every page record must resolve through the relationships catalog.</summary>
+        [TestMethod]
+        public void ReadRejectsDanglingPageRelationship()
+        {
+            byte[] vsdx = BuildPageReferenceVisio(pageCount: 2, duplicateTarget: false, omitLastRelationship: true);
+
+            using MemoryStream input = new MemoryStream(vsdx, writable: false);
+            _ = Assert.Throws<InvalidDataException>(() => new VisioFormat().Read(input));
+        }
+
+        /// <summary>Verifies that every referenced page target must exist in the package.</summary>
+        [TestMethod]
+        public void ReadRejectsMissingPageTarget()
+        {
+            byte[] vsdx = BuildPageReferenceVisio(pageCount: 2, duplicateTarget: false, omitLastPagePart: true);
+
+            using MemoryStream input = new MemoryStream(vsdx, writable: false);
+            _ = Assert.Throws<InvalidDataException>(() => new VisioFormat().Read(input));
+        }
+
+        /// <summary>Verifies that page parts cannot be hidden by omitting them from the page catalog.</summary>
+        [TestMethod]
+        public void ReadRejectsUnreferencedPagePart()
+        {
+            byte[] vsdx = BuildPageReferenceVisio(pageCount: 1, duplicateTarget: false, extraPagePart: true);
+
+            using MemoryStream input = new MemoryStream(vsdx, writable: false);
+            _ = Assert.Throws<InvalidDataException>(() => new VisioFormat().Read(input));
+        }
+
+        /// <summary>Verifies that the single-page legacy fallback cannot hide extra catalogued pages.</summary>
+        [TestMethod]
+        public void ReadRejectsMultipleUnrelatedCatalogPages()
+        {
+            byte[] vsdx = BuildPageReferenceVisio(
+                pageCount: 2,
+                duplicateTarget: false,
+                omitLastPagePart: true,
+                omitAllRelationships: true);
+
+            using MemoryStream input = new MemoryStream(vsdx, writable: false);
+            _ = Assert.Throws<InvalidDataException>(() => new VisioFormat().Read(input));
+        }
+
         /// <summary>
         /// Verifies Tier-3 heuristic import: an arbitrary Visio diagram (standard stencil masters,
         /// none of this provider's own fill/pattern markers) is classified by master name and label
@@ -431,6 +495,69 @@ namespace ThreatModelForge.Formats.Tests
             }
 
             return buffer.ToArray();
+        }
+
+        private static byte[] BuildPageReferenceVisio(
+            int pageCount,
+            bool duplicateTarget,
+            bool omitLastRelationship = false,
+            bool omitLastPagePart = false,
+            bool extraPagePart = false,
+            bool omitAllRelationships = false)
+        {
+            StringBuilder pages = new StringBuilder(
+                "<Pages xmlns='http://schemas.microsoft.com/office/visio/2012/main' " +
+                "xmlns:r='http://schemas.openxmlformats.org/officeDocument/2006/relationships'>");
+            StringBuilder relationships = new StringBuilder(
+                "<Relationships xmlns='http://schemas.openxmlformats.org/package/2006/relationships'>");
+            for (int index = 1; index <= pageCount; index++)
+            {
+                pages.Append("<Page ID='").Append(index.ToString(CultureInfo.InvariantCulture))
+                    .Append("' Name='Page ").Append(index.ToString(CultureInfo.InvariantCulture)).Append("'>");
+                if (!omitAllRelationships)
+                {
+                    pages.Append("<Rel r:id='rId").Append(index.ToString(CultureInfo.InvariantCulture)).Append("'/>");
+                }
+
+                pages.Append("</Page>");
+                if (!omitAllRelationships && (!omitLastRelationship || index < pageCount))
+                {
+                    int target = duplicateTarget ? 1 : index;
+                    relationships.Append("<Relationship Id='rId").Append(index.ToString(CultureInfo.InvariantCulture))
+                        .Append("' Type='http://schemas.microsoft.com/visio/2010/relationships/page' Target='page")
+                        .Append(target.ToString(CultureInfo.InvariantCulture)).Append(".xml'/>");
+                }
+            }
+
+            pages.Append("</Pages>");
+            relationships.Append("</Relationships>");
+
+            using MemoryStream buffer = new MemoryStream();
+            using (ZipArchive zip = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                WritePart(zip, "visio/document.xml", "<VisioDocument/>");
+                WritePart(zip, "visio/pages/pages.xml", pages.ToString());
+                WritePart(zip, "visio/pages/_rels/pages.xml.rels", relationships.ToString());
+                int physicalPageCount = omitLastPagePart ? pageCount - 1 : pageCount;
+                for (int index = 1; index <= physicalPageCount; index++)
+                {
+                    WritePart(zip, "visio/pages/page" + index.ToString(CultureInfo.InvariantCulture) + ".xml", "<PageContents/>");
+                }
+
+                if (extraPagePart)
+                {
+                    WritePart(zip, "visio/pages/page999.xml", "<PageContents/>");
+                }
+            }
+
+            return buffer.ToArray();
+        }
+
+        private static void WritePart(ZipArchive zip, string name, string content)
+        {
+            ZipArchiveEntry entry = zip.CreateEntry(name);
+            using StreamWriter writer = new StreamWriter(entry.Open());
+            writer.Write(content);
         }
 
         private static string NodeShape(int id, int master, double pinX, double pinY, string label)

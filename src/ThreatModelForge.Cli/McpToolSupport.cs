@@ -2,6 +2,8 @@ namespace ThreatModelForge.Cli
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
+    using System.Text.Json;
     using ThreatModelForge.Engine;
 
     /// <summary>
@@ -43,11 +45,21 @@ namespace ThreatModelForge.Cli
         private const int MaxFlows = 20000;
         private const int MaxThreats = 20000;
         private const int MaxProperties = 100000;
+        private const int MaxPropertiesPerObject = 256;
         private const int MaxListItems = 100000;
         private const int MaxGeneratedItems = 100000;
         private const int MaxStringLength = 65536;
         private const long MaxTextCharacters = 16L * 1024 * 1024;
-        private const int MaxResponseCharacters = 32 * 1024 * 1024;
+        private const long MaxOperationWork = 4L * 1024 * 1024;
+
+        // Typed MCP results are serialized to JSON text and then escaped into the JSON-RPC envelope.
+        // Keep the inner payload below half the 32 MiB response budget, with room for the envelope.
+        private const long MaxStructuredResponseBytes = 15L * 1024 * 1024;
+
+        private static readonly JsonSerializerOptions ResponseJsonOptions = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        };
 
         /// <summary>
         /// Marshals a property map (a JSON object of key/value strings) into the <c>KEY=VALUE</c>
@@ -109,6 +121,7 @@ namespace ThreatModelForge.Cli
                 budget.AddTexts(finding.ElementIds);
             }
 
+            ValidateStructuredResponse(findings);
             return findings;
         }
 
@@ -140,6 +153,7 @@ namespace ThreatModelForge.Cli
                 budget.AddText(threat.Description);
             }
 
+            ValidateStructuredResponse(threats);
             return threats;
         }
 
@@ -148,11 +162,7 @@ namespace ThreatModelForge.Cli
         /// <returns>The unchanged text.</returns>
         public static string ValidateResponse(string text)
         {
-            if (text.Length > MaxResponseCharacters)
-            {
-                throw new InvalidDataException($"MCP response exceeds the limit of {MaxResponseCharacters} characters.");
-            }
-
+            ValidateStructuredResponse(text);
             return text;
         }
 
@@ -168,6 +178,21 @@ namespace ThreatModelForge.Cli
                 throw new InvalidDataException($"MCP response exceeds the limit of {MaxGeneratedItems} merge conflicts.");
             }
 
+            Budget budget = new Budget();
+            foreach (MergeConflictDto conflict in result.Conflicts ?? Array.Empty<MergeConflictDto>())
+            {
+                budget.AddText(conflict.ElementId);
+                budget.AddText(conflict.ElementKind);
+                budget.AddText(conflict.Name);
+                budget.AddText(conflict.DiagramName);
+                budget.AddText(conflict.Kind);
+                budget.AddText(conflict.Property);
+                budget.AddText(conflict.Base);
+                budget.AddText(conflict.Ours);
+                budget.AddText(conflict.Theirs);
+            }
+
+            ValidateStructuredResponse(result);
             return result;
         }
 
@@ -217,6 +242,22 @@ namespace ThreatModelForge.Cli
                     budget.AddProperties(flow.Props);
                 }
             }
+
+            int boundaries = manifest.Boundaries?.Count ?? 0;
+            int elements = manifest.Elements?.Count ?? 0;
+            int flows = manifest.Flows?.Count ?? 0;
+            long endpointScans = checked((2L * flows * (boundaries + elements)) + ((long)flows * (flows - 1)));
+            budget.AddOperationWork(endpointScans);
+        }
+
+        /// <summary>Validates an exported manifest and returns the same result.</summary>
+        /// <param name="result">The manifest to validate.</param>
+        /// <returns>The unchanged manifest.</returns>
+        public static Manifest ValidateResult(Manifest result)
+        {
+            ValidateManifest(result);
+            ValidateStructuredResponse(result);
+            return result;
         }
 
         /// <summary>Validates direct string and property arguments before an MCP tool processes them.</summary>
@@ -241,6 +282,7 @@ namespace ThreatModelForge.Cli
         public static AuthoringResultDto ValidateResult(AuthoringResultDto result)
         {
             ValidateModel(result.Model);
+            ValidateStructuredResponse(result);
             return result;
         }
 
@@ -250,6 +292,7 @@ namespace ThreatModelForge.Cli
         public static ApplyResultDto ValidateResult(ApplyResultDto result)
         {
             ValidateModel(result.Model);
+            ValidateStructuredResponse(result);
             return result;
         }
 
@@ -262,8 +305,9 @@ namespace ThreatModelForge.Cli
 
             budget.AddText(model.Schema);
             budget.AddText(model.Version);
-            AddElements(budget, model.Elements);
-            AddFlows(budget, model.Flows);
+            (int topLevelElements, int topLevelBoundaries) = AddElements(budget, model.Elements);
+            int topLevelFlows = AddFlows(budget, model.Flows);
+            budget.AddAnalysisWork(topLevelElements - topLevelBoundaries, topLevelBoundaries, topLevelFlows);
             if (model.Diagrams != null && model.Diagrams.Count > 0)
             {
                 budget.AddPages(model.Diagrams.Count);
@@ -271,8 +315,9 @@ namespace ThreatModelForge.Cli
                 {
                     budget.AddText(diagram.Id);
                     budget.AddText(diagram.Name);
-                    AddElements(budget, diagram.Elements);
-                    AddFlows(budget, diagram.Flows);
+                    (int elements, int boundaries) = AddElements(budget, diagram.Elements);
+                    int flows = AddFlows(budget, diagram.Flows);
+                    budget.AddAnalysisWork(elements - boundaries, boundaries, flows);
                 }
             }
 
@@ -301,28 +346,35 @@ namespace ThreatModelForge.Cli
             }
         }
 
-        private static void AddElements(Budget budget, IReadOnlyList<TmForgeElementDto>? elements)
+        private static (int Elements, int Boundaries) AddElements(Budget budget, IReadOnlyList<TmForgeElementDto>? elements)
         {
             if (elements == null)
             {
-                return;
+                return (0, 0);
             }
 
             budget.AddElements(elements.Count);
+            int boundaries = 0;
             foreach (TmForgeElementDto element in elements)
             {
                 budget.AddText(element.Id);
                 budget.AddText(element.Kind);
                 budget.AddText(element.Name);
                 budget.AddProperties(element.Properties);
+                if (string.Equals(element.Kind, "boundary", StringComparison.OrdinalIgnoreCase))
+                {
+                    boundaries++;
+                }
             }
+
+            return (elements.Count, boundaries);
         }
 
-        private static void AddFlows(Budget budget, IReadOnlyList<TmForgeFlowDto>? flows)
+        private static int AddFlows(Budget budget, IReadOnlyList<TmForgeFlowDto>? flows)
         {
             if (flows == null)
             {
-                return;
+                return 0;
             }
 
             budget.AddFlows(flows.Count);
@@ -334,6 +386,14 @@ namespace ThreatModelForge.Cli
                 budget.AddText(flow.Name);
                 budget.AddProperties(flow.Properties);
             }
+
+            return flows.Count;
+        }
+
+        private static void ValidateStructuredResponse<T>(T value)
+        {
+            using CountingWriteStream stream = new CountingWriteStream(MaxStructuredResponseBytes);
+            JsonSerializer.Serialize(stream, value, ResponseJsonOptions);
         }
 
         private sealed class Budget
@@ -343,6 +403,7 @@ namespace ThreatModelForge.Cli
             private int listItems;
             private int pages;
             private int properties;
+            private long operationWork;
             private long textCharacters;
             private int threats;
 
@@ -373,12 +434,34 @@ namespace ThreatModelForge.Cli
                     return;
                 }
 
+                if (values.Count > MaxPropertiesPerObject)
+                {
+                    throw new InvalidDataException($"MCP model object exceeds the limit of {MaxPropertiesPerObject} properties.");
+                }
+
                 this.properties = CheckedTotal(this.properties, values.Count, MaxProperties, "properties");
+                this.AddOperationWork(checked((long)values.Count * (values.Count + 1) / 2));
                 foreach (KeyValuePair<string, string> value in values)
                 {
                     this.AddText(value.Key);
                     this.AddText(value.Value);
                 }
+            }
+
+            public void AddAnalysisWork(int components, int boundaries, int flows)
+            {
+                long scansPerFlow = checked((5L * components) + (6L * boundaries));
+                this.AddOperationWork(checked(scansPerFlow * flows));
+            }
+
+            public void AddOperationWork(long added)
+            {
+                if (added < 0 || added > MaxOperationWork - this.operationWork)
+                {
+                    throw new InvalidDataException($"MCP operation exceeds the work limit of {MaxOperationWork} steps.");
+                }
+
+                this.operationWork += added;
             }
 
             public void AddTexts(IEnumerable<string>? values)
@@ -422,6 +505,61 @@ namespace ThreatModelForge.Cli
                 }
 
                 return current + added;
+            }
+        }
+
+        private sealed class CountingWriteStream : Stream
+        {
+            private readonly long limit;
+            private long length;
+
+            public CountingWriteStream(long limit)
+            {
+                this.limit = limit;
+            }
+
+            public override bool CanRead => false;
+
+            public override bool CanSeek => false;
+
+            public override bool CanWrite => true;
+
+            public override long Length => this.length;
+
+            public override long Position
+            {
+                get => this.length;
+                set => throw new NotSupportedException();
+            }
+
+            public override void Flush()
+            {
+            }
+
+            public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+            public override void SetLength(long value) => throw new NotSupportedException();
+
+            public override void Write(byte[] buffer, int offset, int count)
+            {
+                this.Add(count);
+            }
+
+            public override void Write(ReadOnlySpan<byte> buffer)
+            {
+                this.Add(buffer.Length);
+            }
+
+            private void Add(int count)
+            {
+                if (count < 0 || count > this.limit - this.length)
+                {
+                    throw new InvalidDataException($"MCP response exceeds the limit of {this.limit} bytes.");
+                }
+
+                this.length += count;
             }
         }
     }

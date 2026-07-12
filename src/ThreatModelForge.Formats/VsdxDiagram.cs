@@ -252,11 +252,17 @@ namespace ThreatModelForge.Formats
             return block.Replace("<Rel r:id='rId1'/>", "<Rel r:id='rId" + (index + 1).ToString(CultureInfo.InvariantCulture) + "'/>");
         }
 
-        private static string AttrEsc(string s) =>
-            (s ?? string.Empty).Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("'", "&apos;").Replace("\"", "&quot;");
+        private static string AttrEsc(string s)
+        {
+            EnsureValidXmlText(s);
+            return (s ?? string.Empty).Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("'", "&apos;").Replace("\"", "&quot;");
+        }
 
-        private static string Esc(string s) =>
-            (s ?? string.Empty).Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+        private static string Esc(string s)
+        {
+            EnsureValidXmlText(s);
+            return (s ?? string.Empty).Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+        }
 
         private static string S(double v) => v.ToString("0.0000", CultureInfo.InvariantCulture);
 
@@ -307,26 +313,88 @@ namespace ThreatModelForge.Formats
             return $"<Section N='Connection'>{rows}</Section>";
         }
 
-        private static string PropertySection(IReadOnlyList<(string Label, string Value)> data)
+        private static void WritePropertySection(TextWriter writer, IReadOnlyList<(string Label, string Value)> data)
         {
             if (data == null || data.Count == 0)
             {
-                return string.Empty;
+                return;
             }
 
-            StringBuilder rows = new StringBuilder();
+            writer.Write("<Section N='Property'>");
             for (int i = 0; i < data.Count; i++)
             {
-                rows.Append($"<Row N='Prop{(i + 1).ToString(CultureInfo.InvariantCulture)}'>")
-                    .Append($"<Cell N='Label' V='{AttrEsc(data[i].Label)}'/>")
-                    .Append($"<Cell N='Value' V='{AttrEsc(data[i].Value)}'/>")
-                    .Append("<Cell N='Type' V='0'/></Row>");
+                writer.Write("<Row N='Prop");
+                writer.Write((i + 1).ToString(CultureInfo.InvariantCulture));
+                writer.Write("'><Cell N='Label' V='");
+                WriteAttributeEscaped(writer, data[i].Label);
+                writer.Write("'/><Cell N='Value' V='");
+                WriteAttributeEscaped(writer, data[i].Value);
+                writer.Write("'/><Cell N='Type' V='0'/></Row>");
             }
 
-            return $"<Section N='Property'>{rows}</Section>";
+            writer.Write("</Section>");
         }
 
-        private static string Box(
+        private static void WriteAttributeEscaped(TextWriter writer, string value)
+        {
+            EnsureValidXmlText(value);
+            foreach (char character in value ?? string.Empty)
+            {
+                switch (character)
+                {
+                    case '&':
+                        writer.Write("&amp;");
+                        break;
+                    case '<':
+                        writer.Write("&lt;");
+                        break;
+                    case '>':
+                        writer.Write("&gt;");
+                        break;
+                    case '\'':
+                        writer.Write("&apos;");
+                        break;
+                    case '"':
+                        writer.Write("&quot;");
+                        break;
+                    default:
+                        writer.Write(character);
+                        break;
+                }
+            }
+        }
+
+        private static void EnsureValidXmlText(string value)
+        {
+            string text = value ?? string.Empty;
+            for (int index = 0; index < text.Length; index++)
+            {
+                char character = text[index];
+                if ((character < 0x20 && character != '\t' && character != '\n' && character != '\r')
+                    || character == 0xfffe
+                    || character == 0xffff)
+                {
+                    throw new InvalidDataException("Visio text contains a character that is not valid in XML 1.0.");
+                }
+
+                if (char.IsHighSurrogate(character))
+                {
+                    if (index + 1 >= text.Length || !char.IsLowSurrogate(text[index + 1]))
+                    {
+                        throw new InvalidDataException("Visio text contains an invalid Unicode surrogate pair.");
+                    }
+
+                    index++;
+                }
+                else if (char.IsLowSurrogate(character))
+                {
+                    throw new InvalidDataException("Visio text contains an invalid Unicode surrogate pair.");
+                }
+            }
+        }
+
+        private static void WriteBox(
+            TextWriter writer,
             int sid,
             double cx,
             double cyv,
@@ -342,7 +410,8 @@ namespace ThreatModelForge.Formats
             bool bold,
             string textColor,
             int valign,
-            string conn)
+            string conn,
+            IReadOnlyList<(string Label, string Value)>? shapeData = null)
         {
             string para = valign == 0
                 ? "<Section N='Paragraph'><Row IX='0'><Cell N='HorzAlign' V='0'/></Row></Section>"
@@ -356,7 +425,7 @@ namespace ThreatModelForge.Formats
                 + $"<Row T='LineTo' IX='4'><Cell N='X' V='0'/><Cell N='Y' V='{S(h)}'/></Row>"
                 + "<Row T='LineTo' IX='5'><Cell N='X' V='0'/><Cell N='Y' V='0'/></Row></Section>";
 
-            return $"<Shape ID='{sid.ToString(CultureInfo.InvariantCulture)}' Type='Shape'>"
+            writer.Write($"<Shape ID='{sid.ToString(CultureInfo.InvariantCulture)}' Type='Shape'>"
                 + $"<Cell N='PinX' V='{S(cx)}'/><Cell N='PinY' V='{S(cyv)}'/>"
                 + $"<Cell N='Width' V='{S(w)}'/><Cell N='Height' V='{S(h)}'/>"
                 + $"<Cell N='LocPinX' V='{S(w / 2)}'/><Cell N='LocPinY' V='{S(h / 2)}'/>"
@@ -365,8 +434,13 @@ namespace ThreatModelForge.Formats
                 + $"<Cell N='LineColor' V='{line}'/><Cell N='LinePattern' V='{linePattern.ToString(CultureInfo.InvariantCulture)}'/>"
                 + $"<Cell N='LineWeight' V='{S(lineWeight)}'/><Cell N='Rounding' V='0'/>"
                 + $"<Cell N='VerticalAlign' V='{valign.ToString(CultureInfo.InvariantCulture)}'/>"
-                + $"{eventCell}{geometry}{conn}{CharSection(size, textColor, bold)}{para}"
-                + $"<Text><cp IX='0'/>{Esc(text)}</Text></Shape>";
+                + eventCell + geometry + conn);
+            WritePropertySection(writer, shapeData ?? Array.Empty<(string, string)>());
+            writer.Write(CharSection(size, textColor, bold));
+            writer.Write(para);
+            writer.Write("<Text><cp IX='0'/>");
+            writer.Write(Esc(text));
+            writer.Write("</Text></Shape>");
         }
 
         private static string Connector(
@@ -591,7 +665,7 @@ namespace ThreatModelForge.Formats
             {
                 double cx = (x0 + x1) / 2;
                 double cy = (y0 + y1) / 2;
-                writer.Write(Box(New(), cx, Yv(cy), x1 - x0, y1 - y0, "#FFFFFF", color, label, 0, 2, 0.02, 0.15, true, color, 0, string.Empty));
+                WriteBox(writer, New(), cx, Yv(cy), x1 - x0, y1 - y0, "#FFFFFF", color, label, 0, 2, 0.02, 0.15, true, color, 0, string.Empty);
             }
 
             foreach ((double x0, double y0, double hx, double hy, double x1, double y1, string label, string color) in this.boundaryLines)
@@ -633,14 +707,16 @@ namespace ThreatModelForge.Formats
 
             foreach ((string name, double x, double y, double w, double h, string label, string fill, string line, bool bold) in this.nodes)
             {
-                string sections = ConnSection(w, h)
-                    + PropertySection(this.nodeShapeData.TryGetValue(name, out IReadOnlyList<(string Label, string Value)>? data) ? data : Array.Empty<(string, string)>());
-                writer.Write(Box(ids[name], x, Yv(y), w, h, fill, line, label, 1, 1, 0.0104, 0.115, bold, "#000000", 1, sections));
+                string connections = ConnSection(w, h);
+                IReadOnlyList<(string Label, string Value)> data = this.nodeShapeData.TryGetValue(name, out IReadOnlyList<(string Label, string Value)>? found)
+                    ? found
+                    : Array.Empty<(string, string)>();
+                WriteBox(writer, ids[name], x, Yv(y), w, h, fill, line, label, 1, 1, 0.0104, 0.115, bold, "#000000", 1, connections, data);
             }
 
             foreach ((double x, double y, double w, string label, double size, string color) in this.texts)
             {
-                writer.Write(Box(New(), x, Yv(y), w, 0.5, "#FFFFFF", "#FFFFFF", label, 0, 0, 0.0104, size, true, color, 1, string.Empty));
+                WriteBox(writer, New(), x, Yv(y), w, 0.5, "#FFFFFF", "#FFFFFF", label, 0, 0, 0.0104, size, true, color, 1, string.Empty);
             }
 
             writer.Write("</Shapes><Connects>");

@@ -142,51 +142,7 @@ namespace ThreatModelForge.Formats
         /// <inheritdoc/>
         public ThreatModel Read(Stream stream)
         {
-            if (stream == null)
-            {
-                throw new ArgumentNullException(nameof(stream));
-            }
-
-            string text;
-            using (StreamReader reader = new StreamReader(
-                stream,
-                Encoding.UTF8,
-                detectEncodingFromByteOrderMarks: true,
-                bufferSize: 1024,
-                leaveOpen: true))
-            {
-                text = reader.ReadToEnd();
-            }
-
-            TmForgeJsonModel document = JsonSerializer.Deserialize<TmForgeJsonModel>(text, SerializerOptions)
-                ?? new TmForgeJsonModel();
-
-            ThreatModel model = new ThreatModel { Version = "1.0" };
-            DiagramEditor editor = new DiagramEditor(model);
-
-            if (document.Diagrams != null && document.Diagrams.Count > 0)
-            {
-                int index = 1;
-                foreach (TmForgeJsonDiagram page in document.Diagrams)
-                {
-                    string header = string.IsNullOrEmpty(page.Name)
-                        ? "Diagram " + index.ToString(CultureInfo.InvariantCulture)
-                        : page.Name;
-                    DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = ResolveSurfaceGuid(page.Id), Header = header };
-                    model.DrawingSurfaceList.Add(surface);
-                    PopulateSurface(editor, surface, page.Elements, page.Flows);
-                    index++;
-                }
-            }
-            else
-            {
-                DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = DefaultSurfaceGuid, Header = "Diagram 1" };
-                model.DrawingSurfaceList.Add(surface);
-                PopulateSurface(editor, surface, document.Elements, document.Flows);
-            }
-
-            SeedRegister(model, document.Threats);
-            return model;
+            return ReadCore(stream, null);
         }
 
         /// <inheritdoc/>
@@ -253,6 +209,69 @@ namespace ThreatModelForge.Formats
             {
                 writer.Write(json);
             }
+        }
+
+        /// <summary>Reads a model while recording each internal GUID's original wire identifier.</summary>
+        /// <param name="stream">The canonical JSON input.</param>
+        /// <param name="originalIds">The map populated with internal GUID to wire identifier entries.</param>
+        /// <returns>The parsed threat model.</returns>
+        internal static ThreatModel ReadWithOriginalIds(Stream stream, IDictionary<Guid, string> originalIds)
+        {
+            if (originalIds == null)
+            {
+                throw new ArgumentNullException(nameof(originalIds));
+            }
+
+            return ReadCore(stream, originalIds);
+        }
+
+        private static ThreatModel ReadCore(Stream stream, IDictionary<Guid, string>? originalIds)
+        {
+            if (stream == null)
+            {
+                throw new ArgumentNullException(nameof(stream));
+            }
+
+            string text;
+            using (StreamReader reader = new StreamReader(
+                stream,
+                Encoding.UTF8,
+                detectEncodingFromByteOrderMarks: true,
+                bufferSize: 1024,
+                leaveOpen: true))
+            {
+                text = reader.ReadToEnd();
+            }
+
+            TmForgeJsonModel document = JsonSerializer.Deserialize<TmForgeJsonModel>(text, SerializerOptions)
+                ?? new TmForgeJsonModel();
+
+            ThreatModel model = new ThreatModel { Version = "1.0" };
+            DiagramEditor editor = new DiagramEditor(model);
+
+            if (document.Diagrams != null && document.Diagrams.Count > 0)
+            {
+                int index = 1;
+                foreach (TmForgeJsonDiagram page in document.Diagrams)
+                {
+                    string header = string.IsNullOrEmpty(page.Name)
+                        ? "Diagram " + index.ToString(CultureInfo.InvariantCulture)
+                        : page.Name;
+                    DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = ResolveSurfaceGuid(page.Id), Header = header };
+                    model.DrawingSurfaceList.Add(surface);
+                    PopulateSurface(editor, surface, page.Elements, page.Flows, originalIds);
+                    index++;
+                }
+            }
+            else
+            {
+                DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = DefaultSurfaceGuid, Header = "Diagram 1" };
+                model.DrawingSurfaceList.Add(surface);
+                PopulateSurface(editor, surface, document.Elements, document.Flows, originalIds);
+            }
+
+            SeedRegister(model, document.Threats);
+            return model;
         }
 
         /// <summary>
@@ -500,7 +519,8 @@ namespace ThreatModelForge.Formats
             DiagramEditor editor,
             DrawingSurfaceModel surface,
             IReadOnlyList<TmForgeJsonElement>? elements,
-            IReadOnlyList<TmForgeJsonFlow>? flows)
+            IReadOnlyList<TmForgeJsonFlow>? flows,
+            IDictionary<Guid, string>? originalIds)
         {
             Dictionary<string, Guid> idMap = new Dictionary<string, Guid>(StringComparer.Ordinal);
 
@@ -527,6 +547,7 @@ namespace ThreatModelForge.Formats
                 if (!string.IsNullOrEmpty(element.Id))
                 {
                     idMap[element.Id] = guid;
+                    originalIds?[guid] = element.Id;
                 }
             }
 
@@ -540,6 +561,10 @@ namespace ThreatModelForge.Formats
                     connector = PreserveId(surface.Lines, connector, flow.Id);
                     editor.SetElementName(surface, connector, flow.Name ?? string.Empty);
                     ApplyProperties(surface.Lines[connector] as Entity, flow.Properties);
+                    if (!string.IsNullOrEmpty(flow.Id))
+                    {
+                        originalIds?[connector] = flow.Id;
+                    }
                 }
             }
         }

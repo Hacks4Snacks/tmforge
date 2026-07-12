@@ -75,6 +75,35 @@ namespace ThreatModelForge.Api.Tests
             Assert.IsTrue(flagged.Contains("b1"), "Expected a finding on page two's element.");
         }
 
+        /// <summary>
+        /// Duplicate display names do not fan each finding out to every same-named element; the
+        /// stable target identity carried by the rule message resolves to exactly one caller id.
+        /// </summary>
+        [TestMethod]
+        public void Analyze_DuplicateNamesResolveToExactElementIds()
+        {
+            string[] ids = Enumerable.Range(0, 64).Select(index => "worker-" + index).ToArray();
+            TmForgeModelDto model = new TmForgeModelDto
+            {
+                Elements = ids.Select((id, index) => new TmForgeElementDto
+                {
+                    Id = id,
+                    Kind = "process",
+                    Name = "Worker",
+                    X = index * 10,
+                    Y = 100,
+                }).ToArray(),
+            };
+
+            List<FindingDto> findings = EngineService.Analyze(model)
+                .Where(finding => string.Equals(finding.RuleId, "TM1000", StringComparison.Ordinal))
+                .ToList();
+
+            Assert.AreEqual(ids.Length, findings.Count);
+            Assert.IsTrue(findings.All(finding => finding.ElementIds.Count == 1));
+            CollectionAssert.AreEquivalent(ids, findings.Select(finding => finding.ElementIds[0]).ToArray());
+        }
+
         private static bool HasRule(IReadOnlyList<FindingDto> findings, string ruleId)
         {
             return findings.Any(finding => string.Equals(finding.RuleId, ruleId, StringComparison.Ordinal));

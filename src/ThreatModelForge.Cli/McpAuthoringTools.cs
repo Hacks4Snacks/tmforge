@@ -42,7 +42,7 @@ namespace ThreatModelForge.Cli
         public static Manifest ExportManifest([Description("The tmforge-json model to capture.")] TmForgeModelDto model)
         {
             McpToolSupport.ValidateModel(model);
-            return AuthoringService.ExportManifest(model);
+            return McpToolSupport.ValidateResult(AuthoringService.ExportManifest(model));
         }
 
         /// <summary>

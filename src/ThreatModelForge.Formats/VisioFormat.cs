@@ -6,6 +6,7 @@ namespace ThreatModelForge.Formats
     using System.IO.Compression;
     using System.Linq;
     using System.Reflection;
+    using System.Text;
     using System.Text.RegularExpressions;
     using System.Xml.Linq;
     using ThreatModelForge.Editing;
@@ -36,6 +37,11 @@ namespace ThreatModelForge.Formats
         private const double MarginInches = 0.6;
         private const double PixelsPerInch = 96.0;
         private const double DefaultPageHeightInches = 8.5;
+        private const int MaxPageReferences = 128;
+        private const long MaxPageCatalogBytes = 1024L * 1024;
+        private const long MaxMastersBytes = 16L * 1024 * 1024;
+        private const long MaxPageContentBytes = 64L * 1024 * 1024;
+        private const string PageRelationshipType = "http://schemas.microsoft.com/visio/2010/relationships/page";
 
         private static readonly IReadOnlyList<string> SupportedExtensions = new[] { ".vsdx" };
 
@@ -118,50 +124,75 @@ namespace ThreatModelForge.Formats
 
             using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true))
             {
-                ZipArchiveEntry? pagesEntry = archive.GetEntry("visio/pages/pages.xml");
-                string pagesXml = pagesEntry != null ? ReadEntry(pagesEntry) : string.Empty;
-                ZipArchiveEntry? pagesRelsEntry = archive.GetEntry("visio/pages/_rels/pages.xml.rels");
-                string pagesRels = pagesRelsEntry != null ? ReadEntry(pagesRelsEntry) : string.Empty;
-                ZipArchiveEntry? mastersEntry = archive.GetEntry("visio/masters/masters.xml");
-                string mastersXml = mastersEntry != null ? ReadEntry(mastersEntry) : string.Empty;
+                List<string> physicalPages = archive.Entries
+                    .Select(entry => Regex.Match(entry.FullName, "^visio/pages/(page\\d+\\.xml)$"))
+                    .Where(match => match.Success)
+                    .Select(match => match.Groups[1].Value)
+                    .ToList();
+                if (physicalPages.Count > MaxPageReferences)
+                {
+                    throw new InvalidDataException($"The Visio package exceeds the limit of {MaxPageReferences} page content parts.");
+                }
 
+                HashSet<string> physicalPageSet = new HashSet<string>(physicalPages, StringComparer.Ordinal);
+                if (physicalPageSet.Count != physicalPages.Count)
+                {
+                    throw new InvalidDataException("The Visio package contains duplicate page content parts.");
+                }
+
+                ZipArchiveEntry? pagesEntry = archive.GetEntry("visio/pages/pages.xml");
+                string pagesXml = pagesEntry != null
+                    ? ReadEntry(pagesEntry, MaxPageCatalogBytes, "page catalog")
+                    : string.Empty;
+                ZipArchiveEntry? pagesRelsEntry = archive.GetEntry("visio/pages/_rels/pages.xml.rels");
+                List<(string Name, string File, double Height)> pageInfos = ParsePageInfos(pagesXml, pagesRelsEntry, physicalPageSet);
+                if (pageInfos.Count == 0)
+                {
+                    // Legacy arbitrary Visio inputs can carry one page part without a relationship.
+                    // With more than one physical page, guessing would silently drop model content.
+                    if (physicalPages.Count != 1)
+                    {
+                        throw new InvalidDataException("The Visio package has no unambiguous page catalog.");
+                    }
+
+                    pageInfos.Add((string.Empty, physicalPages[0], DefaultPageHeightInches));
+                }
+
+                Dictionary<string, ZipArchiveEntry> pageEntries = new Dictionary<string, ZipArchiveEntry>(StringComparer.Ordinal);
+                long expandedPageBytes = 0;
+                foreach ((_, string file, _) in pageInfos)
+                {
+                    ZipArchiveEntry pageEntry = archive.GetEntry("visio/pages/" + file)
+                        ?? throw new InvalidDataException("The Visio package references a missing page content part.");
+                    if (pageEntry.Length > MaxPageContentBytes - expandedPageBytes)
+                    {
+                        throw new InvalidDataException($"The Visio page content exceeds the cumulative limit of {MaxPageContentBytes} bytes.");
+                    }
+
+                    expandedPageBytes += pageEntry.Length;
+                    pageEntries.Add(file, pageEntry);
+                }
+
+                ZipArchiveEntry? mastersEntry = archive.GetEntry("visio/masters/masters.xml");
+                string mastersXml = mastersEntry != null
+                    ? ReadEntry(mastersEntry, MaxMastersBytes, "masters catalog")
+                    : string.Empty;
                 IReadOnlyDictionary<int, string> masterNames = ParseMasters(mastersXml);
                 ThreatModel model = new ThreatModel { Version = "1.0" };
                 DiagramEditor editor = new DiagramEditor(model);
-
-                List<(string Name, string File, double Height)> pageInfos = ParsePageInfos(pagesXml, pagesRels);
-                if (pageInfos.Count == 0)
-                {
-                    // No usable pages.xml (or its pages carry no relationship): fall back to the
-                    // lowest-numbered page part on its own, matching the previous single-page read.
-                    string? file = archive.Entries
-                        .Select(entry => Regex.Match(entry.FullName, "^visio/pages/(page\\d+\\.xml)$"))
-                        .Where(match => match.Success)
-                        .Select(match => match.Groups[1].Value)
-                        .OrderBy(name => name, StringComparer.Ordinal)
-                        .FirstOrDefault();
-                    if (file != null)
-                    {
-                        pageInfos.Add((string.Empty, file, DefaultPageHeightInches));
-                    }
-                }
 
                 int number = 0;
                 foreach ((string name, string file, double height) in pageInfos)
                 {
                     number++;
-                    ZipArchiveEntry? pageEntry = archive.GetEntry("visio/pages/" + file);
-                    if (pageEntry == null)
-                    {
-                        continue;
-                    }
+                    ZipArchiveEntry pageEntry = pageEntries[file];
 
                     string header = string.IsNullOrWhiteSpace(name)
                         ? "Diagram " + number.ToString(System.Globalization.CultureInfo.InvariantCulture)
                         : name;
                     DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = header };
                     model.DrawingSurfaceList.Add(surface);
-                    ReadPageInto(editor, surface, ReadEntry(pageEntry), height, masterNames);
+                    ReadPageInto(editor, surface, ReadEntry(pageEntry, MaxPageContentBytes, "page content"), height, masterNames);
                 }
 
                 if (model.DrawingSurfaceList.Count == 0)
@@ -277,7 +308,10 @@ namespace ThreatModelForge.Formats
             BuildConnectors(editor, surface, connectorSource, connectorTarget, nodeGuids, connectorLabels);
         }
 
-        private static List<(string Name, string File, double Height)> ParsePageInfos(string pagesXml, string pagesRels)
+        private static List<(string Name, string File, double Height)> ParsePageInfos(
+            string pagesXml,
+            ZipArchiveEntry? pagesRelsEntry,
+            ISet<string> physicalPages)
         {
             List<(string Name, string File, double Height)> result = new List<(string Name, string File, double Height)>();
             if (string.IsNullOrEmpty(pagesXml))
@@ -285,38 +319,126 @@ namespace ThreatModelForge.Formats
                 return result;
             }
 
-            Dictionary<string, string> rels = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (Match relationship in Regex.Matches(pagesRels, "<Relationship\\b[^>]*>"))
-            {
-                Match id = Regex.Match(relationship.Value, "Id=['\"]([^'\"]+)['\"]");
-                Match target = Regex.Match(relationship.Value, "Target=['\"]([^'\"]+)['\"]");
-                if (id.Success && target.Success)
-                {
-                    string file = target.Groups[1].Value;
-                    int slash = file.LastIndexOf('/');
-                    rels[id.Groups[1].Value] = slash >= 0 ? file.Substring(slash + 1) : file;
-                }
-            }
-
             XDocument document;
             try
             {
                 document = XDocument.Parse(pagesXml);
             }
-            catch (System.Xml.XmlException)
+            catch (System.Xml.XmlException ex)
             {
+                throw new InvalidDataException("The Visio page catalog is malformed.", ex);
+            }
+
+            List<XElement> pageElements = document.Descendants().Where(e => e.Name.LocalName == "Page").ToList();
+            if (pageElements.Count > MaxPageReferences)
+            {
+                throw new InvalidDataException($"The Visio package exceeds the limit of {MaxPageReferences} page references.");
+            }
+
+            List<(XElement Page, string Name, string RelationshipId)> references = new List<(XElement, string, string)>();
+            HashSet<string> referencedRelationships = new HashSet<string>(StringComparer.Ordinal);
+            bool hasRelationships = pageElements.Any(page => page.Descendants().Any(e => e.Name.LocalName == "Rel"));
+            foreach (XElement pageElement in pageElements)
+            {
+                string name = pageElement.Attribute("Name")?.Value ?? pageElement.Attribute("NameU")?.Value ?? string.Empty;
+                List<XElement> relElements = pageElement.Descendants().Where(e => e.Name.LocalName == "Rel").ToList();
+                if (!hasRelationships && relElements.Count == 0)
+                {
+                    continue;
+                }
+
+                if (relElements.Count != 1)
+                {
+                    throw new InvalidDataException("Every Visio page must have exactly one page relationship.");
+                }
+
+                string relId = relElements[0].Attributes().FirstOrDefault(a => a.Name.LocalName == "id")?.Value ?? string.Empty;
+                if (string.IsNullOrEmpty(relId))
+                {
+                    throw new InvalidDataException("Every Visio page relationship must have an id.");
+                }
+
+                if (!referencedRelationships.Add(relId))
+                {
+                    throw new InvalidDataException("The Visio package references a page relationship more than once.");
+                }
+
+                references.Add((pageElement, name, relId));
+            }
+
+            if (references.Count == 0)
+            {
+                if (pageElements.Count > 1)
+                {
+                    throw new InvalidDataException("A multi-page Visio catalog must relate every page to its content part.");
+                }
+
                 return result;
             }
 
-            foreach (XElement pageElement in document.Descendants().Where(e => e.Name.LocalName == "Page"))
+            if (references.Count != pageElements.Count || pagesRelsEntry == null)
             {
-                string name = pageElement.Attribute("Name")?.Value ?? pageElement.Attribute("NameU")?.Value ?? string.Empty;
-                XElement? relElement = pageElement.Descendants().FirstOrDefault(e => e.Name.LocalName == "Rel");
-                string relId = relElement?.Attributes().FirstOrDefault(a => a.Name.LocalName == "id")?.Value ?? string.Empty;
-                if (rels.TryGetValue(relId, out string? file) && !string.IsNullOrEmpty(file))
+                throw new InvalidDataException("Every Visio page must resolve through the page relationships catalog.");
+            }
+
+            string pagesRels = ReadEntry(pagesRelsEntry, MaxPageCatalogBytes, "page relationships catalog");
+            XDocument relationships;
+            try
+            {
+                relationships = XDocument.Parse(pagesRels);
+            }
+            catch (System.Xml.XmlException ex)
+            {
+                throw new InvalidDataException("The Visio page relationships catalog is malformed.", ex);
+            }
+
+            Dictionary<string, string> resolved = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (XElement relationship in relationships.Descendants().Where(e => e.Name.LocalName == "Relationship"))
+            {
+                string id = relationship.Attribute("Id")?.Value ?? string.Empty;
+                if (!referencedRelationships.Contains(id))
                 {
-                    result.Add((name, file, ReadPageSheetHeight(pageElement)));
+                    continue;
                 }
+
+                if (resolved.ContainsKey(id))
+                {
+                    throw new InvalidDataException("The Visio package contains a duplicate page relationship id.");
+                }
+
+                string type = relationship.Attribute("Type")?.Value ?? string.Empty;
+                string targetMode = relationship.Attribute("TargetMode")?.Value ?? string.Empty;
+                string target = relationship.Attribute("Target")?.Value ?? string.Empty;
+                Match targetMatch = Regex.Match(target, "^(?:/visio/pages/)?(page\\d+\\.xml)$", RegexOptions.IgnoreCase);
+                if (!string.Equals(type, PageRelationshipType, StringComparison.Ordinal)
+                    || !string.IsNullOrEmpty(targetMode)
+                    || !targetMatch.Success)
+                {
+                    throw new InvalidDataException("The Visio package contains an invalid page relationship target.");
+                }
+
+                resolved.Add(id, targetMatch.Groups[1].Value);
+            }
+
+            HashSet<string> referencedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach ((XElement page, string name, string relationshipId) in references)
+            {
+                if (!resolved.TryGetValue(relationshipId, out string? file) || !physicalPages.Contains(file))
+                {
+                    throw new InvalidDataException("The Visio package references a missing page content part.");
+                }
+
+                if (!referencedFiles.Add(file))
+                {
+                    throw new InvalidDataException("The Visio package references a page more than once.");
+                }
+
+                result.Add((name, file, ReadPageSheetHeight(page)));
+            }
+
+            if (referencedFiles.Count != physicalPages.Count)
+            {
+                throw new InvalidDataException("The Visio package contains unreferenced page content parts.");
             }
 
             return result;
@@ -742,11 +864,31 @@ namespace ThreatModelForge.Formats
             return cell?.Attribute("V")?.Value ?? string.Empty;
         }
 
-        private static string ReadEntry(ZipArchiveEntry entry)
+        private static string ReadEntry(ZipArchiveEntry entry, long limit, string description)
         {
+            if (entry.Length > limit)
+            {
+                throw new InvalidDataException($"The Visio {description} exceeds the limit of {limit} bytes.");
+            }
+
             using Stream entryStream = entry.Open();
             using StreamReader reader = new StreamReader(entryStream);
-            return reader.ReadToEnd();
+            StringBuilder result = new StringBuilder((int)Math.Min(entry.Length, int.MaxValue));
+            char[] buffer = new char[4096];
+            int total = 0;
+            int count;
+            while ((count = reader.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                total = checked(total + count);
+                if (total > limit)
+                {
+                    throw new InvalidDataException($"The Visio {description} exceeds the limit of {limit} bytes.");
+                }
+
+                result.Append(buffer, 0, count);
+            }
+
+            return result.ToString();
         }
 
         private static Dictionary<string, string> TopLevelCells(XElement shape)

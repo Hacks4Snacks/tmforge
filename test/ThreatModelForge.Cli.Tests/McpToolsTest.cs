@@ -218,12 +218,98 @@ namespace ThreatModelForge.Cli.Tests
             _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Analyze(model));
         }
 
+        /// <summary>Verifies that one object cannot concentrate a quadratic property-update workload.</summary>
+        [TestMethod]
+        public void Analyze_RejectsExcessivePropertiesOnOneObject()
+        {
+            TmForgeModelDto model = new TmForgeModelDto
+            {
+                Elements = new[]
+                {
+                    new TmForgeElementDto
+                    {
+                        Id = "p1",
+                        Kind = "process",
+                        Properties = Enumerable.Range(0, 257).ToDictionary(index => "key" + index, index => "value" + index),
+                    },
+                },
+            };
+
+            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Analyze(model));
+        }
+
+        /// <summary>Verifies that property-update work is cumulative across otherwise valid objects.</summary>
+        [TestMethod]
+        public void Analyze_RejectsDistributedPropertyWork()
+        {
+            Dictionary<string, string> properties = Enumerable.Range(0, 256)
+                .ToDictionary(index => "key" + index, index => "value" + index);
+            TmForgeModelDto model = new TmForgeModelDto
+            {
+                Elements = Enumerable.Range(0, 129).Select(index => new TmForgeElementDto
+                {
+                    Id = "p" + index,
+                    Kind = "process",
+                    Properties = properties,
+                }).ToArray(),
+            };
+
+            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Analyze(model));
+        }
+
+        /// <summary>Verifies that valid collection counts cannot create excessive cross-product work.</summary>
+        [TestMethod]
+        public void Analyze_RejectsExcessiveRelationshipWork()
+        {
+            TmForgeModelDto model = new TmForgeModelDto
+            {
+                Elements = Enumerable.Range(0, 2049)
+                    .Select(index => new TmForgeElementDto { Id = "p" + index, Kind = "process" })
+                    .ToArray(),
+                Flows = Enumerable.Range(0, 2049)
+                    .Select(index => new TmForgeFlowDto { Id = "f" + index, Source = "p0", Target = "p1" })
+                    .ToArray(),
+            };
+
+            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Analyze(model));
+        }
+
+        /// <summary>Verifies that repeated flow-to-boundary checks share the operation work budget.</summary>
+        [TestMethod]
+        public void Analyze_RejectsExcessiveBoundaryFlowWork()
+        {
+            TmForgeModelDto model = new TmForgeModelDto
+            {
+                Elements = Enumerable.Range(0, 700)
+                    .Select(index => new TmForgeElementDto { Id = "b" + index, Kind = "boundary" })
+                    .ToArray(),
+                Flows = Enumerable.Range(0, 1000)
+                    .Select(index => new TmForgeFlowDto { Id = "f" + index, Source = "missing", Target = "missing" })
+                    .ToArray(),
+            };
+
+            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Analyze(model));
+        }
+
         /// <summary>Verifies that merge operands share one pre-execution complexity budget.</summary>
         [TestMethod]
         public void Merge_RejectsCombinedOversizedInputs()
         {
             TmForgeModelDto ours = ModelWithElements(6000, "ours");
             TmForgeModelDto theirs = ModelWithElements(6000, "theirs");
+
+            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Merge(ours, theirs));
+        }
+
+        /// <summary>Verifies that repeated conflict metadata is budgeted cumulatively in merge output.</summary>
+        [TestMethod]
+        public void Merge_RejectsCumulativeOversizedResponse()
+        {
+            string diagramId = Guid.NewGuid().ToString();
+            string diagramName = new string('d', 60000);
+            string[] elementIds = Enumerable.Range(0, 600).Select(_ => Guid.NewGuid().ToString()).ToArray();
+            TmForgeModelDto ours = ModelWithConflicts(diagramId, diagramName, elementIds, "ours");
+            TmForgeModelDto theirs = ModelWithConflicts(diagramId, diagramName, elementIds, "theirs");
 
             _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Merge(ours, theirs));
         }
@@ -250,6 +336,65 @@ namespace ThreatModelForge.Cli.Tests
             };
 
             _ = Assert.Throws<InvalidDataException>(() => McpAuthoringTools.Apply(manifest));
+        }
+
+        /// <summary>Verifies that manifest flow resolution cannot create excessive cumulative scan work.</summary>
+        [TestMethod]
+        public void Apply_RejectsExcessiveRelationshipWork()
+        {
+            Manifest manifest = new Manifest
+            {
+                Elements = Enumerable.Range(0, 2048)
+                    .Select(index => new ManifestElement { Alias = "p" + index, Kind = "process" })
+                    .ToList(),
+                Flows = Enumerable.Range(0, 1024)
+                    .Select(_ => new ManifestFlow { From = "p0", To = "p1" })
+                    .ToList(),
+            };
+
+            _ = Assert.Throws<InvalidDataException>(() => McpAuthoringTools.Apply(manifest));
+        }
+
+        /// <summary>Verifies that repeated endpoint names are budgeted cumulatively in manifest output.</summary>
+        [TestMethod]
+        public void ExportManifest_RejectsCumulativeOversizedResponse()
+        {
+            string sourceId = Guid.NewGuid().ToString();
+            string targetId = Guid.NewGuid().ToString();
+            TmForgeModelDto model = new TmForgeModelDto
+            {
+                Elements = new[]
+                {
+                    new TmForgeElementDto { Id = sourceId, Kind = "process", Name = new string('s', 60000) },
+                    new TmForgeElementDto { Id = targetId, Kind = "process", Name = new string('t', 60000) },
+                },
+                Flows = Enumerable.Range(0, 300)
+                    .Select(index => new TmForgeFlowDto { Id = "f" + index, Source = sourceId, Target = targetId })
+                    .ToArray(),
+            };
+
+            _ = Assert.Throws<InvalidDataException>(() => McpAuthoringTools.ExportManifest(model));
+        }
+
+        /// <summary>Verifies that JSON escaping is included in the structured response budget.</summary>
+        [TestMethod]
+        public void ExportManifest_RejectsEscapeAmplifiedResponse()
+        {
+            string sourceId = Guid.NewGuid().ToString();
+            string targetId = Guid.NewGuid().ToString();
+            TmForgeModelDto model = new TmForgeModelDto
+            {
+                Elements = new[]
+                {
+                    new TmForgeElementDto { Id = sourceId, Kind = "process", Name = new string('"', 60000) },
+                    new TmForgeElementDto { Id = targetId, Kind = "process", Name = new string('"', 60000) },
+                },
+                Flows = Enumerable.Range(0, 70)
+                    .Select(index => new TmForgeFlowDto { Id = "f" + index, Source = sourceId, Target = targetId })
+                    .ToArray(),
+            };
+
+            _ = Assert.Throws<InvalidDataException>(() => McpAuthoringTools.ExportManifest(model));
         }
 
         /// <summary>Verifies that a sibling whose name starts with the root name is still outside.</summary>
@@ -344,6 +489,26 @@ namespace ThreatModelForge.Cli.Tests
             _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Read("large.vsdx", services, "vsdx"));
         }
 
+        /// <summary>Verifies that an empty format still applies the detected VSDX expansion budget.</summary>
+        [TestMethod]
+        public void Read_RejectsVsdxExpansionBombWhenFormatIsEmpty()
+        {
+            AuthoringResultDto added = McpAuthoringTools.Add(model: null, kind: "process", name: "Web");
+            ServiceProvider writeServices = CreateServices(this.WorkingDirectory);
+            _ = McpModelTools.Save(added.Model!, "large.vsdx", writeServices);
+            string path = Path.Join(this.WorkingDirectory, "large.vsdx");
+            using (FileStream package = File.Open(path, FileMode.Open, FileAccess.ReadWrite))
+            using (ZipArchive archive = new ZipArchive(package, ZipArchiveMode.Update))
+            {
+                WriteZipEntry(archive, "unreferenced-large.xml", new string('x', 1024 * 1024));
+            }
+
+            long compressedBytes = new FileInfo(path).Length;
+            ServiceProvider services = CreateServices(this.WorkingDirectory, maxReadBytes: compressedBytes);
+
+            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Read("large.vsdx", services, string.Empty));
+        }
+
         /// <summary>Verifies that prefixed ZIP packages are rejected before package parsing.</summary>
         [TestMethod]
         public void Detect_RejectsPrefixedZipPackage()
@@ -368,6 +533,50 @@ namespace ThreatModelForge.Cli.Tests
 
             _ = Assert.Throws<IOException>(() => McpModelTools.Save(added.Model!, "model.tm7", services));
             Assert.IsFalse(File.Exists(Path.Join(this.WorkingDirectory, "model.tm7")));
+        }
+
+        /// <summary>Verifies that excessive per-shape data is rejected before VSDX serialization starts.</summary>
+        [TestMethod]
+        public void Save_RejectsExcessiveShapeDataBeforeVsdxWrite()
+        {
+            TmForgeModelDto model = new TmForgeModelDto
+            {
+                Elements = new[]
+                {
+                    new TmForgeElementDto
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        Kind = "process",
+                        Properties = Enumerable.Range(0, 257).ToDictionary(index => "key" + index, index => "value" + index),
+                    },
+                },
+            };
+            ServiceProvider services = CreateServices(this.WorkingDirectory);
+
+            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Save(model, "model.vsdx", services));
+            Assert.IsFalse(File.Exists(Path.Join(this.WorkingDirectory, "model.vsdx")));
+        }
+
+        /// <summary>Verifies that Shape Data cannot produce malformed XML through control characters.</summary>
+        [TestMethod]
+        public void Save_RejectsInvalidXmlCharacterInShapeData()
+        {
+            TmForgeModelDto model = new TmForgeModelDto
+            {
+                Elements = new[]
+                {
+                    new TmForgeElementDto
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        Kind = "process",
+                        Properties = new Dictionary<string, string> { ["note"] = "invalid\u0001value" },
+                    },
+                },
+            };
+            ServiceProvider services = CreateServices(this.WorkingDirectory);
+
+            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Save(model, "model.vsdx", services));
+            Assert.IsFalse(File.Exists(Path.Join(this.WorkingDirectory, "model.vsdx")));
         }
 
         /// <summary>Verifies that VSDX save streams through the bounded output and reads back.</summary>
@@ -576,6 +785,31 @@ namespace ThreatModelForge.Cli.Tests
                         Kind = "process",
                     })
                     .ToArray(),
+            };
+        }
+
+        private static TmForgeModelDto ModelWithConflicts(
+            string diagramId,
+            string diagramName,
+            IEnumerable<string> elementIds,
+            string elementName)
+        {
+            return new TmForgeModelDto
+            {
+                Diagrams = new[]
+                {
+                    new TmForgeDiagramDto
+                    {
+                        Id = diagramId,
+                        Name = diagramName,
+                        Elements = elementIds.Select(id => new TmForgeElementDto
+                        {
+                            Id = id,
+                            Kind = "process",
+                            Name = elementName,
+                        }).ToArray(),
+                    },
+                },
             };
         }
 
