@@ -116,68 +116,61 @@ namespace ThreatModelForge.Formats
                 throw new ArgumentNullException(nameof(stream));
             }
 
-            string pagesXml;
-            string pagesRels;
-            string mastersXml;
-            Dictionary<string, string> pageXmlByFile = new Dictionary<string, string>(StringComparer.Ordinal);
             using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true))
             {
                 ZipArchiveEntry? pagesEntry = archive.GetEntry("visio/pages/pages.xml");
-                pagesXml = pagesEntry != null ? ReadEntry(pagesEntry) : string.Empty;
+                string pagesXml = pagesEntry != null ? ReadEntry(pagesEntry) : string.Empty;
                 ZipArchiveEntry? pagesRelsEntry = archive.GetEntry("visio/pages/_rels/pages.xml.rels");
-                pagesRels = pagesRelsEntry != null ? ReadEntry(pagesRelsEntry) : string.Empty;
+                string pagesRels = pagesRelsEntry != null ? ReadEntry(pagesRelsEntry) : string.Empty;
                 ZipArchiveEntry? mastersEntry = archive.GetEntry("visio/masters/masters.xml");
-                mastersXml = mastersEntry != null ? ReadEntry(mastersEntry) : string.Empty;
+                string mastersXml = mastersEntry != null ? ReadEntry(mastersEntry) : string.Empty;
 
-                foreach (ZipArchiveEntry entry in archive.Entries)
+                IReadOnlyDictionary<int, string> masterNames = ParseMasters(mastersXml);
+                ThreatModel model = new ThreatModel { Version = "1.0" };
+                DiagramEditor editor = new DiagramEditor(model);
+
+                List<(string Name, string File, double Height)> pageInfos = ParsePageInfos(pagesXml, pagesRels);
+                if (pageInfos.Count == 0)
                 {
-                    Match match = Regex.Match(entry.FullName, "^visio/pages/(page\\d+\\.xml)$");
-                    if (match.Success)
+                    // No usable pages.xml (or its pages carry no relationship): fall back to the
+                    // lowest-numbered page part on its own, matching the previous single-page read.
+                    string? file = archive.Entries
+                        .Select(entry => Regex.Match(entry.FullName, "^visio/pages/(page\\d+\\.xml)$"))
+                        .Where(match => match.Success)
+                        .Select(match => match.Groups[1].Value)
+                        .OrderBy(name => name, StringComparer.Ordinal)
+                        .FirstOrDefault();
+                    if (file != null)
                     {
-                        pageXmlByFile[match.Groups[1].Value] = ReadEntry(entry);
+                        pageInfos.Add((string.Empty, file, DefaultPageHeightInches));
                     }
                 }
-            }
 
-            IReadOnlyDictionary<int, string> masterNames = ParseMasters(mastersXml);
-            ThreatModel model = new ThreatModel { Version = "1.0" };
-            DiagramEditor editor = new DiagramEditor(model);
-
-            List<(string Name, string File, double Height)> pageInfos = ParsePageInfos(pagesXml, pagesRels);
-            if (pageInfos.Count == 0)
-            {
-                // No usable pages.xml (or its pages carry no relationship): fall back to the
-                // lowest-numbered page part on its own, matching the previous single-page read.
-                string? file = pageXmlByFile.Keys.OrderBy(k => k, StringComparer.Ordinal).FirstOrDefault();
-                if (file != null)
+                int number = 0;
+                foreach ((string name, string file, double height) in pageInfos)
                 {
-                    pageInfos.Add((string.Empty, file, DefaultPageHeightInches));
-                }
-            }
+                    number++;
+                    ZipArchiveEntry? pageEntry = archive.GetEntry("visio/pages/" + file);
+                    if (pageEntry == null)
+                    {
+                        continue;
+                    }
 
-            int number = 0;
-            foreach ((string name, string file, double height) in pageInfos)
-            {
-                number++;
-                if (!pageXmlByFile.TryGetValue(file, out string? pageXml))
-                {
-                    continue;
+                    string header = string.IsNullOrWhiteSpace(name)
+                        ? "Diagram " + number.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        : name;
+                    DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = header };
+                    model.DrawingSurfaceList.Add(surface);
+                    ReadPageInto(editor, surface, ReadEntry(pageEntry), height, masterNames);
                 }
 
-                string header = string.IsNullOrWhiteSpace(name)
-                    ? "Diagram " + number.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                    : name;
-                DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = header };
-                model.DrawingSurfaceList.Add(surface);
-                ReadPageInto(editor, surface, pageXml, height, masterNames);
-            }
+                if (model.DrawingSurfaceList.Count == 0)
+                {
+                    throw new InvalidDataException("The Visio package has no page content part.");
+                }
 
-            if (model.DrawingSurfaceList.Count == 0)
-            {
-                throw new InvalidDataException("The Visio package has no page content part.");
+                return model;
             }
-
-            return model;
         }
 
         /// <inheritdoc/>
@@ -193,10 +186,11 @@ namespace ThreatModelForge.Formats
                 throw new ArgumentNullException(nameof(stream));
             }
 
-            List<(string Name, VsdxDiagram Page)> pages = new List<(string Name, VsdxDiagram Page)>();
+            IReadOnlyDictionary<Guid, IReadOnlyList<Threat>> threatsByElement = IndexThreats(model);
+            List<(string Name, Func<VsdxDiagram> Build)> pages = new List<(string Name, Func<VsdxDiagram>)>();
             if (model.DrawingSurfaceList.Count == 0)
             {
-                pages.Add(("Diagram 1", BuildDiagram(model, new DrawingSurfaceModel())));
+                pages.Add(("Diagram 1", () => BuildDiagram(new DrawingSurfaceModel(), threatsByElement)));
             }
             else
             {
@@ -207,12 +201,11 @@ namespace ThreatModelForge.Formats
                     string name = string.IsNullOrWhiteSpace(surface.Header)
                         ? "Diagram " + number.ToString(System.Globalization.CultureInfo.InvariantCulture)
                         : surface.Header!;
-                    pages.Add((name, BuildDiagram(model, surface)));
+                    pages.Add((name, () => BuildDiagram(surface, threatsByElement)));
                 }
             }
 
-            byte[] vsdx = VsdxDiagram.ToVsdx(LoadTemplate(), pages);
-            stream.Write(vsdx, 0, vsdx.Length);
+            VsdxDiagram.WriteVsdx(LoadTemplate(), pages, stream);
         }
 
         private static void ReadPageInto(
@@ -343,7 +336,9 @@ namespace ThreatModelForge.Formats
             return DefaultPageHeightInches;
         }
 
-        private static VsdxDiagram BuildDiagram(ThreatModel model, DrawingSurfaceModel surface)
+        private static VsdxDiagram BuildDiagram(
+            DrawingSurfaceModel surface,
+            IReadOnlyDictionary<Guid, IReadOnlyList<Threat>> threatsByElement)
         {
             List<double> xs = new List<double>();
             List<double> ys = new List<double>();
@@ -426,7 +421,7 @@ namespace ThreatModelForge.Formats
                     Sz(e.Height),
                     GetElementName(e),
                     Kind(e),
-                    NodeShapeData(e, model));
+                    NodeShapeData(e, threatsByElement));
                 nodeGuids.Add(e.Guid);
             }
 
@@ -620,7 +615,46 @@ namespace ThreatModelForge.Formats
             return false;
         }
 
-        private static IReadOnlyList<(string Label, string Value)> NodeShapeData(DrawingElement element, ThreatModel model)
+        private static IReadOnlyDictionary<Guid, IReadOnlyList<Threat>> IndexThreats(ThreatModel model)
+        {
+            Dictionary<Guid, List<Threat>> mutable = new Dictionary<Guid, List<Threat>>();
+            foreach (Threat threat in model.AllThreatsDictionary.Values)
+            {
+                AddThreat(mutable, threat.SourceGuid, threat);
+                if (threat.TargetGuid != threat.SourceGuid)
+                {
+                    AddThreat(mutable, threat.TargetGuid, threat);
+                }
+            }
+
+            Dictionary<Guid, IReadOnlyList<Threat>> result = new Dictionary<Guid, IReadOnlyList<Threat>>();
+            foreach (KeyValuePair<Guid, List<Threat>> entry in mutable)
+            {
+                result[entry.Key] = entry.Value;
+            }
+
+            return result;
+        }
+
+        private static void AddThreat(Dictionary<Guid, List<Threat>> index, Guid elementId, Threat threat)
+        {
+            if (elementId == Guid.Empty)
+            {
+                return;
+            }
+
+            if (!index.TryGetValue(elementId, out List<Threat>? threats))
+            {
+                threats = new List<Threat>();
+                index[elementId] = threats;
+            }
+
+            threats.Add(threat);
+        }
+
+        private static IReadOnlyList<(string Label, string Value)> NodeShapeData(
+            DrawingElement element,
+            IReadOnlyDictionary<Guid, IReadOnlyList<Threat>> threatsByElement)
         {
             List<(string Label, string Value)> data = new List<(string Label, string Value)>();
             foreach (KeyValuePair<string, string> property in DiagramElementHelper.GetCustomProperties(element))
@@ -628,9 +662,9 @@ namespace ThreatModelForge.Formats
                 data.Add((property.Key, property.Value));
             }
 
-            List<Threat> threats = model.AllThreatsDictionary.Values
-                .Where(t => t.SourceGuid == element.Guid || t.TargetGuid == element.Guid)
-                .ToList();
+            IReadOnlyList<Threat> threats = threatsByElement.TryGetValue(element.Guid, out IReadOnlyList<Threat>? found)
+                ? found
+                : Array.Empty<Threat>();
             if (threats.Count > 0)
             {
                 data.Add(("Threats", threats.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)));

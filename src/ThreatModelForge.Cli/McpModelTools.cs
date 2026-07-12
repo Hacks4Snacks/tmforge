@@ -1,9 +1,10 @@
 namespace ThreatModelForge.Cli
 {
+    using System;
     using System.Collections.Generic;
     using System.ComponentModel;
-    using System.IO;
     using System.Text;
+    using Microsoft.Extensions.DependencyInjection;
     using ModelContextProtocol.Server;
     using ThreatModelForge.Engine;
 
@@ -19,28 +20,43 @@ namespace ThreatModelForge.Cli
         /// Reads a threat model file from a local path and returns the canonical tmforge-json model.
         /// </summary>
         /// <param name="path">The local file path to read.</param>
+        /// <param name="services">The MCP request services.</param>
         /// <param name="format">An optional explicit format id; omit to auto-detect by content.</param>
         /// <returns>The canonical model.</returns>
         [McpServerTool(Name = "read")]
-        [Description("Reads a threat model file (.tm7, .tmforge.json, .drawio, .vsdx) from a local path and returns the canonical tmforge-json model.")]
+        [Description("Reads a threat model file (.tm7, .tmforge.json, .drawio, .vsdx) from a path inside the configured MCP workspace root and returns the canonical tmforge-json model.")]
         public static TmForgeModelDto Read(
-            [Description("The local file path to read.")] string path,
+            [Description("The file path to read, relative to (or contained by) the configured MCP workspace root.")] string path,
+            IServiceProvider services,
             [Description("Optional explicit format id (tm7, tmforge-json, drawio, vsdx); omit to auto-detect.")] string? format = null)
         {
-            byte[] content = File.ReadAllBytes(path);
-            return EngineService.ReadModel(content, format);
+            McpToolSupport.ValidateArguments(new[] { path, format });
+            McpPathPolicy pathPolicy = services.GetRequiredService<McpPathPolicy>();
+            byte[] content = pathPolicy.ReadAllBytes(path);
+            pathPolicy.ValidateArchiveContainer(content);
+            string? effectiveFormat = format ?? EngineService.Detect(content)?.Id;
+            pathPolicy.ValidateExpandedContent(content, effectiveFormat);
+            TmForgeModelDto model = EngineService.ReadModel(content, format);
+            McpToolSupport.ValidateModel(model);
+            return model;
         }
 
         /// <summary>
         /// Detects the file format of a local threat model document by content sniffing.
         /// </summary>
         /// <param name="path">The local file path to inspect.</param>
+        /// <param name="services">The MCP request services.</param>
         /// <returns>The detected format, or <see langword="null"/> when none matches.</returns>
         [McpServerTool(Name = "detect")]
-        [Description("Detects the file format of a local threat model document by content sniffing.")]
-        public static FormatDto? Detect([Description("The local file path to inspect.")] string path)
+        [Description("Detects the format of a threat model document inside the configured MCP workspace root by content sniffing.")]
+        public static FormatDto? Detect(
+            [Description("The file path to inspect, relative to (or contained by) the configured MCP workspace root.")] string path,
+            IServiceProvider services)
         {
-            byte[] content = File.ReadAllBytes(path);
+            McpToolSupport.ValidateArguments(new[] { path });
+            McpPathPolicy pathPolicy = services.GetRequiredService<McpPathPolicy>();
+            byte[] content = pathPolicy.ReadAllBytes(path);
+            pathPolicy.ValidateArchiveContainer(content);
             return EngineService.Detect(content);
         }
 
@@ -49,19 +65,25 @@ namespace ThreatModelForge.Cli
         /// </summary>
         /// <param name="model">The tmforge-json model to write.</param>
         /// <param name="path">The local file path to write.</param>
+        /// <param name="services">The MCP request services.</param>
         /// <param name="format">An optional format id; omit to infer from the path extension.</param>
         /// <returns>Where the model was written, in what format, and how many bytes.</returns>
         [McpServerTool(Name = "save")]
-        [Description("Writes a tmforge-json model to a local file (default format inferred from the extension). Use this to materialize .tm7/.vsdx/.drawio.")]
+        [Description("Writes a tmforge-json model to a file inside the configured MCP workspace root (format inferred from its registered model extension). Use this to materialize .tm7/.tmforge.json/.vsdx/.drawio.")]
         public static McpSaveResult Save(
             [Description("The tmforge-json model to write.")] TmForgeModelDto model,
-            [Description("The local file path to write.")] string path,
+            [Description("The destination path, relative to (or contained by) the configured MCP workspace root.")] string path,
+            IServiceProvider services,
             [Description("Optional format id (tm7, tmforge-json, drawio, vsdx); omit to infer from the path extension.")] string? format = null)
         {
-            string formatId = string.IsNullOrEmpty(format) ? InferFormat(path) : format!;
-            byte[] content = EngineService.Convert(model, formatId);
-            File.WriteAllBytes(path, content);
-            return new McpSaveResult { Path = path, Format = formatId, Bytes = content.Length };
+            McpToolSupport.ValidateModel(model);
+            McpToolSupport.ValidateArguments(new[] { path, format });
+            McpPathPolicy pathPolicy = services.GetRequiredService<McpPathPolicy>();
+            (string resolvedPath, string formatId) = pathPolicy.ResolveWriteTarget(path, format);
+            int bytes = pathPolicy.WriteAtomically(
+                resolvedPath,
+                output => EngineService.WriteConverted(model, formatId, output));
+            return new McpSaveResult { Path = path, Format = formatId, Bytes = bytes };
         }
 
         /// <summary>
@@ -72,7 +94,10 @@ namespace ThreatModelForge.Cli
         [McpServerTool(Name = "analyze")]
         [Description("Runs the analysis rule set over the model and returns the findings (rule id, severity, message, affected element ids).")]
         public static IReadOnlyList<FindingDto> Analyze([Description("The tmforge-json model to analyze.")] TmForgeModelDto model)
-            => EngineService.Analyze(model);
+        {
+            McpToolSupport.ValidateModel(model);
+            return McpToolSupport.ValidateResponse(EngineService.Analyze(model));
+        }
 
         /// <summary>
         /// Projects the model's findings into STRIDE threats (the persistable, triaged view).
@@ -82,7 +107,10 @@ namespace ThreatModelForge.Cli
         [McpServerTool(Name = "threats")]
         [Description("Projects the model's findings into STRIDE threats (the persistable, triaged view with title, mitigation, and references).")]
         public static IReadOnlyList<ThreatDto> Threats([Description("The tmforge-json model.")] TmForgeModelDto model)
-            => EngineService.GenerateThreats(model);
+        {
+            McpToolSupport.ValidateModel(model);
+            return McpToolSupport.ValidateResponse(EngineService.GenerateThreats(model));
+        }
 
         /// <summary>
         /// Renders a self-contained report for the model as text (HTML or SVG).
@@ -95,7 +123,11 @@ namespace ThreatModelForge.Cli
         public static string Report(
             [Description("The tmforge-json model.")] TmForgeModelDto model,
             [Description("The report format: html or svg.")] string format = "html")
-            => Encoding.UTF8.GetString(EngineService.Report(model, format));
+        {
+            McpToolSupport.ValidateModel(model);
+            McpToolSupport.ValidateArguments(new[] { format });
+            return McpToolSupport.ValidateResponse(Encoding.UTF8.GetString(EngineService.Report(model, format)));
+        }
 
         /// <summary>
         /// Merges two edited models by element identity, reporting conflicts (resolved to <c>ours</c>).
@@ -110,22 +142,10 @@ namespace ThreatModelForge.Cli
             [Description("The local model.")] TmForgeModelDto ours,
             [Description("The incoming model.")] TmForgeModelDto theirs,
             [Description("Optional common ancestor for a three-way merge; omit for two-way.")] TmForgeModelDto? baseModel = null)
-            => EngineService.Merge(baseModel, ours, theirs);
-
-        private static string InferFormat(string path)
         {
-            string extension = Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
-            switch (extension)
-            {
-                case "vsdx":
-                    return "vsdx";
-                case "drawio":
-                    return "drawio";
-                case "json":
-                    return "tmforge-json";
-                default:
-                    return "tm7";
-            }
+            McpToolSupport.ValidateModels(baseModel, ours, theirs);
+            MergeResultDto result = EngineService.Merge(baseModel, ours, theirs);
+            return McpToolSupport.ValidateResult(result);
         }
     }
 }

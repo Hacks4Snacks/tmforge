@@ -27,7 +27,10 @@ namespace ThreatModelForge.Cli
         public static ApplyResultDto Apply(
             [Description("The declarative manifest.")] Manifest manifest,
             [Description("Store unknown/invalid property values instead of rejecting them.")] bool force = false)
-            => AuthoringService.Apply(manifest, force);
+        {
+            McpToolSupport.ValidateManifest(manifest);
+            return McpToolSupport.ValidateResult(AuthoringService.Apply(manifest, force));
+        }
 
         /// <summary>
         /// Extracts a declarative manifest from a model.
@@ -37,7 +40,10 @@ namespace ThreatModelForge.Cli
         [McpServerTool(Name = "export_manifest")]
         [Description("Extracts a declarative manifest from a model, so a model authored any way becomes a review-friendly source that round-trips with apply.")]
         public static Manifest ExportManifest([Description("The tmforge-json model to capture.")] TmForgeModelDto model)
-            => AuthoringService.ExportManifest(model);
+        {
+            McpToolSupport.ValidateModel(model);
+            return AuthoringService.ExportManifest(model);
+        }
 
         /// <summary>
         /// Adds a process, data store, external interactor, or trust boundary to the model.
@@ -65,6 +71,8 @@ namespace ThreatModelForge.Cli
             [Description("Typed properties to stamp (validated against property_schema).")] IReadOnlyDictionary<string, string>? properties = null,
             [Description("Store unknown/invalid property values instead of rejecting them.")] bool force = false)
         {
+            McpToolSupport.ValidateModel(model);
+            McpToolSupport.ValidateArguments(new[] { kind, name, stencilId, page, alias, boundary }, properties);
             if (!AuthoringSupport.TryResolveKind(kind, stencilId, out StencilKind resolvedKind, out StencilDto? stencil, out string? error))
             {
                 return new AuthoringResultDto { Success = false, Error = error };
@@ -81,7 +89,7 @@ namespace ThreatModelForge.Cli
                 Properties = McpToolSupport.ToAssignments(properties),
                 Force = force,
             };
-            return AuthoringService.Add(model, request);
+            return McpToolSupport.ValidateResult(AuthoringService.Add(model, request));
         }
 
         /// <summary>
@@ -106,6 +114,8 @@ namespace ThreatModelForge.Cli
             [Description("Typed flow properties, e.g. Protocol, Port, DataType.")] IReadOnlyDictionary<string, string>? properties = null,
             [Description("Store unknown/invalid property values instead of rejecting them.")] bool force = false)
         {
+            McpToolSupport.ValidateModel(model);
+            McpToolSupport.ValidateArguments(new[] { source, target, name, page }, properties);
             ConnectRequest request = new ConnectRequest
             {
                 Source = source,
@@ -115,7 +125,7 @@ namespace ThreatModelForge.Cli
                 Properties = McpToolSupport.ToAssignments(properties),
                 Force = force,
             };
-            return AuthoringService.Connect(model, request);
+            return McpToolSupport.ValidateResult(AuthoringService.Connect(model, request));
         }
 
         /// <summary>
@@ -138,6 +148,8 @@ namespace ThreatModelForge.Cli
             [Description("Typed properties to set (validated against property_schema).")] IReadOnlyDictionary<string, string>? properties = null,
             [Description("Store unknown/invalid property values instead of rejecting them.")] bool force = false)
         {
+            McpToolSupport.ValidateModel(model);
+            McpToolSupport.ValidateArguments(new[] { id, name, page }, properties);
             SetRequest request = new SetRequest
             {
                 Id = id,
@@ -146,7 +158,7 @@ namespace ThreatModelForge.Cli
                 Properties = McpToolSupport.ToAssignments(properties),
                 Force = force,
             };
-            return AuthoringService.Set(model, request);
+            return McpToolSupport.ValidateResult(AuthoringService.Set(model, request));
         }
 
         /// <summary>
@@ -164,7 +176,11 @@ namespace ThreatModelForge.Cli
             [Description("The element reference (id, alias, or unique name).")] string id,
             [Description("The new display name.")] string name,
             [Description("The page (1-based index or page name).")] string? page = null)
-            => AuthoringService.Rename(model, new RenameRequest { Id = id, Name = name, Page = page });
+        {
+            McpToolSupport.ValidateModel(model);
+            McpToolSupport.ValidateArguments(new[] { id, name, page });
+            return McpToolSupport.ValidateResult(AuthoringService.Rename(model, new RenameRequest { Id = id, Name = name, Page = page }));
+        }
 
         /// <summary>
         /// Removes an element and any data flows attached to it.
@@ -179,7 +195,11 @@ namespace ThreatModelForge.Cli
             [Description("The tmforge-json model to edit.")] TmForgeModelDto model,
             [Description("The element reference (id, alias, or unique name).")] string id,
             [Description("The page (1-based index or page name).")] string? page = null)
-            => AuthoringService.Remove(model, new RemoveRequest { Id = id, Page = page });
+        {
+            McpToolSupport.ValidateModel(model);
+            McpToolSupport.ValidateArguments(new[] { id, page });
+            return McpToolSupport.ValidateResult(AuthoringService.Remove(model, new RemoveRequest { Id = id, Page = page }));
+        }
 
         /// <summary>
         /// Adds a manually-authored STRIDE threat the rules do not detect.
@@ -204,7 +224,10 @@ namespace ThreatModelForge.Cli
             [Description("The priority: High, Medium, or Low.")] string? priority = null,
             [Description("A description of the threat.")] string? description = null,
             [Description("The suggested mitigation.")] string? mitigation = null)
-            => AuthoringService.AddThreat(model, new AddThreatRequest
+        {
+            McpToolSupport.ValidateModel(model);
+            McpToolSupport.ValidateArguments(new[] { title, category, scope, state, priority, description, mitigation });
+            return McpToolSupport.ValidateResult(AuthoringService.AddThreat(model, new AddThreatRequest
             {
                 Title = title,
                 Category = category,
@@ -213,7 +236,8 @@ namespace ThreatModelForge.Cli
                 Priority = priority,
                 Description = description,
                 Mitigation = mitigation,
-            });
+            }));
+        }
 
         /// <summary>
         /// Edits a threat's author-owned state and notes.
@@ -236,7 +260,10 @@ namespace ThreatModelForge.Cli
             [Description("The suggested mitigation.")] string? mitigation = null,
             [Description("A description of the threat.")] string? description = null,
             [Description("A justification or state note (for example, why a risk is accepted).")] string? justification = null)
-            => AuthoringService.EditThreat(model, new EditThreatRequest
+        {
+            McpToolSupport.ValidateModel(model);
+            McpToolSupport.ValidateArguments(new[] { id, state, priority, mitigation, description, justification });
+            return McpToolSupport.ValidateResult(AuthoringService.EditThreat(model, new EditThreatRequest
             {
                 Id = id,
                 State = state,
@@ -244,7 +271,8 @@ namespace ThreatModelForge.Cli
                 Mitigation = mitigation,
                 Description = description,
                 Justification = justification,
-            });
+            }));
+        }
 
         /// <summary>
         /// Removes a manually-authored threat (or resets an edited rule threat) from the model's overlay.
@@ -257,6 +285,10 @@ namespace ThreatModelForge.Cli
         public static AuthoringResultDto RemoveThreat(
             [Description("The tmforge-json model to edit.")] TmForgeModelDto model,
             [Description("The threat id to remove.")] string id)
-            => AuthoringService.RemoveThreat(model, new RemoveThreatRequest { Id = id });
+        {
+            McpToolSupport.ValidateModel(model);
+            McpToolSupport.ValidateArguments(new[] { id });
+            return McpToolSupport.ValidateResult(AuthoringService.RemoveThreat(model, new RemoveThreatRequest { Id = id }));
+        }
     }
 }
