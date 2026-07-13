@@ -139,6 +139,13 @@ namespace ThreatModelForge.Analysis.Reporting
             }
         }
 
+        private static bool IsSafeHelpUri(Uri uri)
+        {
+            return uri.IsAbsoluteUri &&
+                (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase));
+        }
+
         private static string? SeverityToRowCssClass(MessageSeverity severity)
         {
             string? result = null;
@@ -438,7 +445,7 @@ namespace ThreatModelForge.Analysis.Reporting
 
             public override void Write(XmlWriter writer)
             {
-                if (this.HelpUri == null)
+                if (this.HelpUri == null || !IsSafeHelpUri(this.HelpUri))
                 {
                     writer.WriteString(this.RuleID);
                     return;

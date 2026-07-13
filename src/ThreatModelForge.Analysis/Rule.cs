@@ -3,6 +3,8 @@ namespace ThreatModelForge.Analysis
     using System;
     using System.Collections.Generic;
     using System.ComponentModel;
+    using System.IO;
+    using System.Text;
     using ThreatModelForge.Model;
     using ThreatModelForge.Model.Abstracts;
 
@@ -11,6 +13,8 @@ namespace ThreatModelForge.Analysis
     /// </summary>
     public abstract class Rule : IDisposable
     {
+        private const int MaxExpandedMessageCharacters = 65536;
+
         private readonly string ruleId;
 
         /// <summary>
@@ -111,6 +115,15 @@ namespace ThreatModelForge.Analysis
         /// </summary>
         public virtual IReadOnlyList<ThreatReference> ThreatReferences => Array.Empty<ThreatReference>();
 
+        /// <summary>
+        /// Gets the validated versioned pack definition that supplied this rule, or
+        /// <see langword="null"/> for built-in and legacy declarative rules.
+        /// </summary>
+        public virtual RulePackDefinition? PackDefinition => null;
+
+        /// <summary>Gets the preserved source identity and expressions for an imported rule.</summary>
+        public virtual RuleProvenance? Provenance => null;
+
         /// <inheritdoc/>
         public void Dispose()
         {
@@ -133,6 +146,43 @@ namespace ThreatModelForge.Analysis
         protected static string GetEntityDisplayText(Entity entity)
         {
             return entity.DisplayText();
+        }
+
+        /// <summary>Expands known message tokens without allowing unbounded output allocation.</summary>
+        /// <param name="template">The message template.</param>
+        /// <param name="resolveToken">Resolves known token names; unknown tokens return <see langword="null"/>.</param>
+        /// <returns>The expanded message.</returns>
+        protected static string ExpandMessageTemplate(string template, Func<string, string?> resolveToken)
+        {
+            _ = template ?? throw new ArgumentNullException(nameof(template));
+            _ = resolveToken ?? throw new ArgumentNullException(nameof(resolveToken));
+
+            StringBuilder result = new StringBuilder(Math.Min(template.Length, MaxExpandedMessageCharacters));
+            int index = 0;
+            while (index < template.Length)
+            {
+                int start = template.IndexOf('{', index);
+                if (start < 0)
+                {
+                    AppendBounded(result, template.Substring(index));
+                    break;
+                }
+
+                AppendBounded(result, template.Substring(index, start - index));
+                int end = template.IndexOf('}', start + 1);
+                if (end < 0)
+                {
+                    AppendBounded(result, template.Substring(start));
+                    break;
+                }
+
+                string token = template.Substring(start + 1, end - start - 1);
+                string? replacement = resolveToken(token);
+                AppendBounded(result, replacement ?? template.Substring(start, end - start + 1));
+                index = end + 1;
+            }
+
+            return result.ToString();
         }
 
         /// <summary>
@@ -189,6 +239,17 @@ namespace ThreatModelForge.Analysis
         /// </param>
         protected virtual void Dispose(bool disposing)
         {
+        }
+
+        private static void AppendBounded(StringBuilder result, string value)
+        {
+            if (result.Length > MaxExpandedMessageCharacters - value.Length)
+            {
+                throw new InvalidDataException(
+                    $"Expanded message exceeds the limit of {MaxExpandedMessageCharacters} characters.");
+            }
+
+            result.Append(value);
         }
     }
 }

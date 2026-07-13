@@ -23,6 +23,8 @@ namespace ThreatModelForge.Analysis
         private readonly IReadOnlyList<PropertyBinding> propertyBindings;
         private readonly DeclarativeCondition? whenCondition;
         private readonly DeclarativeCondition? assertCondition;
+        private readonly RulePackDefinition? packDefinition;
+        private readonly RuleProvenance? provenance;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="DeclarativeRule"/> class.
@@ -39,6 +41,8 @@ namespace ThreatModelForge.Analysis
         /// <param name="threatReferences">The external references.</param>
         /// <param name="when">The optional guard condition.</param>
         /// <param name="assert">The optional requirement condition.</param>
+        /// <param name="packDefinition">The validated v2 pack definition, or <see langword="null"/>.</param>
+        /// <param name="provenance">The original source identity and expressions, or <see langword="null"/>.</param>
         internal DeclarativeRule(
             string id,
             string pack,
@@ -51,7 +55,9 @@ namespace ThreatModelForge.Analysis
             StrideCategory? stride,
             IReadOnlyList<ThreatReference> threatReferences,
             DeclarativeCondition? when,
-            DeclarativeCondition? assert)
+            DeclarativeCondition? assert,
+            RulePackDefinition? packDefinition,
+            RuleProvenance? provenance)
             : base(id, severity, pack)
         {
             this.appliesTo = appliesTo;
@@ -63,6 +69,8 @@ namespace ThreatModelForge.Analysis
             this.threatReferences = threatReferences;
             this.whenCondition = when;
             this.assertCondition = assert;
+            this.packDefinition = packDefinition;
+            this.provenance = provenance;
             this.propertyBindings = BuildBindings(appliesTo, when, assert);
         }
 
@@ -76,27 +84,39 @@ namespace ThreatModelForge.Analysis
         public override IReadOnlyList<PropertyBinding> PropertyBindings => this.propertyBindings;
 
         /// <inheritdoc/>
+        public override RulePackDefinition? PackDefinition => this.packDefinition;
+
+        /// <inheritdoc/>
+        public override RuleProvenance? Provenance => this.provenance;
+
+        /// <inheritdoc/>
         public override void Evaluate(RuleEvaluationContext context)
         {
             _ = context ?? throw new ArgumentNullException(nameof(context));
 
             foreach (DrawingSurfaceModel diagram in context.Model.DrawingSurfaceList)
             {
-                foreach (Entity element in this.Candidates(diagram))
+                foreach (Entity element in this.Candidates(diagram, context))
                 {
-                    if (this.whenCondition != null && !EvaluateCondition(this.whenCondition, diagram, element))
+                    context.AccountDeclarativeOperations();
+                    if (this.whenCondition != null && !EvaluateCondition(this.whenCondition, diagram, element, context))
                     {
                         continue;
                     }
 
                     // A finding is raised when the guard matches and the requirement is not satisfied.
                     // A rule with no requirement flags every guard match unconditionally.
-                    if (this.assertCondition != null && EvaluateCondition(this.assertCondition, diagram, element))
+                    if (this.assertCondition != null && EvaluateCondition(this.assertCondition, diagram, element, context))
                     {
                         continue;
                     }
 
-                    string text = this.messageTemplate.Replace("{name}", GetEntityDisplayText(element));
+                    context.AccountDeclarativeOperations(element.Properties.Count);
+                    context.AccountDeclarativeOperations(element.Properties.Count);
+                    string name = GetEntityDisplayText(element);
+                    string text = ExpandMessageTemplate(
+                        this.messageTemplate,
+                        token => string.Equals(token, "name", StringComparison.Ordinal) ? name : null);
                     context.Writer.Write(this.CreateMessage(element, diagram, text));
                 }
             }
@@ -122,29 +142,57 @@ namespace ThreatModelForge.Analysis
             return false;
         }
 
-        private static bool EvaluateCondition(DeclarativeCondition condition, DrawingSurfaceModel diagram, Entity element)
+        private static bool EvaluateCondition(
+            DeclarativeCondition condition,
+            DrawingSurfaceModel diagram,
+            Entity element,
+            RuleEvaluationContext context)
         {
             if (condition.Property != null &&
-                !MatchProperty(element, condition.Property, condition.AnyOf, condition.NotAnyOf, condition.EqualTo, condition.Present))
+                !MatchProperty(
+                    element,
+                    condition.Property,
+                    condition.AnyOf,
+                    condition.NotAnyOf,
+                    condition.EqualTo,
+                    condition.Present,
+                    context))
             {
                 return false;
             }
 
             if (condition.CrossesTrustBoundary.HasValue)
             {
-                bool crosses = element is Connector connector && diagram.TrustBoundaryCrossings(connector).Any();
+                bool crosses = false;
+                if (element is Connector connector)
+                {
+                    context.AccountDeclarativeOperations(diagram.Borders.Count);
+                    context.AccountDeclarativeOperations(diagram.Lines.Count);
+                    foreach (Entity boundary in diagram.TrustBoundaryBorders().OfType<Entity>()
+                        .Concat(diagram.TrustBoundaryLines().OfType<Entity>()))
+                    {
+                        crosses = boundary is BorderBoundary border
+                            ? connector.Crosses(border)
+                            : boundary is LineBoundary line && connector.Crosses(line);
+                        if (crosses)
+                        {
+                            break;
+                        }
+                    }
+                }
+
                 if (crosses != condition.CrossesTrustBoundary.Value)
                 {
                     return false;
                 }
             }
 
-            if (condition.Source != null && !MatchEndpoint(diagram, element, condition.Source, isSource: true))
+            if (condition.Source != null && !MatchEndpoint(diagram, element, condition.Source, isSource: true, context))
             {
                 return false;
             }
 
-            if (condition.Target != null && !MatchEndpoint(diagram, element, condition.Target, isSource: false))
+            if (condition.Target != null && !MatchEndpoint(diagram, element, condition.Target, isSource: false, context))
             {
                 return false;
             }
@@ -152,7 +200,12 @@ namespace ThreatModelForge.Analysis
             return true;
         }
 
-        private static bool MatchEndpoint(DrawingSurfaceModel diagram, Entity element, DeclarativeEndpoint endpoint, bool isSource)
+        private static bool MatchEndpoint(
+            DrawingSurfaceModel diagram,
+            Entity element,
+            DeclarativeEndpoint endpoint,
+            bool isSource,
+            RuleEvaluationContext context)
         {
             if (element is not Connector connector)
             {
@@ -165,13 +218,24 @@ namespace ThreatModelForge.Analysis
                 return false;
             }
 
-            if (endpoint.Kind != null && !MatchesKind(endpointEntity, endpoint.Kind))
+            if (endpoint.Kind != null)
             {
-                return false;
+                context.AccountDeclarativeOperations();
+                if (!MatchesKind(endpointEntity, endpoint.Kind))
+                {
+                    return false;
+                }
             }
 
             if (endpoint.Property != null &&
-                !MatchProperty(endpointEntity, endpoint.Property, endpoint.AnyOf, endpoint.NotAnyOf, endpoint.EqualTo, endpoint.Present))
+                !MatchProperty(
+                    endpointEntity,
+                    endpoint.Property,
+                    endpoint.AnyOf,
+                    endpoint.NotAnyOf,
+                    endpoint.EqualTo,
+                    endpoint.Present,
+                    context))
             {
                 return false;
             }
@@ -185,8 +249,11 @@ namespace ThreatModelForge.Analysis
             IReadOnlyList<string>? anyOf,
             IReadOnlyList<string>? notAnyOf,
             string? equalTo,
-            bool? present)
+            bool? present,
+            RuleEvaluationContext context)
         {
+            context.AccountDeclarativeOperations(entity.Properties.Count);
+            context.AccountDeclarativeOperations(entity.Properties.Count);
             bool defined = entity.TryGetCustomPropertyValue(property, out string? raw);
             string value = raw ?? string.Empty;
             bool isPresent = defined && !string.IsNullOrWhiteSpace(value);
@@ -207,22 +274,46 @@ namespace ThreatModelForge.Analysis
                 return false;
             }
 
-            if (equalTo != null && (!isPresent || !string.Equals(value, equalTo, StringComparison.OrdinalIgnoreCase)))
+            if (equalTo != null)
             {
-                return false;
+                context.AccountDeclarativeOperations();
+                if (!isPresent || !string.Equals(value, equalTo, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
             }
 
-            if (anyOf != null && anyOf.Count > 0 && (!isPresent || !anyOf.Contains(value, StringComparer.OrdinalIgnoreCase)))
+            if (anyOf != null && anyOf.Count > 0)
             {
-                return false;
+                if (!isPresent || !ContainsValue(anyOf, value, context))
+                {
+                    return false;
+                }
             }
 
-            if (notAnyOf != null && notAnyOf.Count > 0 && isPresent && notAnyOf.Contains(value, StringComparer.OrdinalIgnoreCase))
+            if (notAnyOf != null && notAnyOf.Count > 0 && isPresent && ContainsValue(notAnyOf, value, context))
             {
                 return false;
             }
 
             return true;
+        }
+
+        private static bool ContainsValue(
+            IEnumerable<string> candidates,
+            string value,
+            RuleEvaluationContext context)
+        {
+            foreach (string candidate in candidates)
+            {
+                context.AccountDeclarativeOperations();
+                if (string.Equals(candidate, value, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static IReadOnlyList<PropertyBinding> BuildBindings(string appliesTo, DeclarativeCondition? when, DeclarativeCondition? assert)
@@ -261,14 +352,16 @@ namespace ThreatModelForge.Analysis
             bindings.Add(new PropertyBinding(endpoint.Kind, endpoint.Property, flagged));
         }
 
-        private IEnumerable<Entity> Candidates(DrawingSurfaceModel diagram)
+        private IEnumerable<Entity> Candidates(DrawingSurfaceModel diagram, RuleEvaluationContext context)
         {
             if (string.Equals(this.appliesTo, "flow", StringComparison.OrdinalIgnoreCase))
             {
-                return diagram.Lines.Values.OfType<Connector>();
+                context.AccountDeclarativeOperations(diagram.Lines.Count);
+                return diagram.Lines.Values.OfType<Connector>().ToList();
             }
 
-            return diagram.Components().Where(entity => MatchesKind(entity, this.appliesTo));
+            context.AccountDeclarativeOperations(diagram.Borders.Count);
+            return diagram.Components().Where(entity => MatchesKind(entity, this.appliesTo)).ToList();
         }
     }
 }

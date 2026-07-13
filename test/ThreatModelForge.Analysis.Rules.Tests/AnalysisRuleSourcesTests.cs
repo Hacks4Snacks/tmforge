@@ -88,6 +88,37 @@ namespace ThreatModelForge.Analysis.Rules.Tests
             }
         }
 
+        /// <summary>
+        /// Legacy v1 files retain their established file-order behavior when two custom rules share
+        /// an id: the first declaration loads and the later declaration is dropped by the composition
+        /// seam. Version 2 packs use namespaced, order-independent duplicate validation instead.
+        /// </summary>
+        [TestMethod]
+        public void CreatePreservesLegacyDuplicatePrecedence()
+        {
+            string first = WriteSpec(
+                "{\"rules\":[{\"id\":\"ACME-DUP\",\"severity\":\"error\",\"appliesTo\":\"datastore\"," +
+                "\"message\":\"first\",\"assert\":{\"property\":\"Encrypted\",\"present\":true}}]}");
+            string second = WriteSpec(
+                "{\"rules\":[{\"id\":\"ACME-DUP\",\"severity\":\"warning\",\"appliesTo\":\"datastore\"," +
+                "\"message\":\"second\",\"assert\":{\"property\":\"Encrypted\",\"present\":true}}]}");
+            try
+            {
+                List<string> diagnostics = new List<string>();
+                using (RuleSet set = AnalysisRuleSources.Create(new RuleSourceOptions(new[] { first, second }, diagnostics.Add)))
+                {
+                    Rule loaded = set.Rules.Single(rule => string.Equals(rule.ID, "ACME-DUP", StringComparison.Ordinal));
+                    Assert.AreEqual(MessageSeverity.Error, loaded.Severity);
+                    Assert.IsTrue(diagnostics.Any(message => message.Contains("ACME-DUP")));
+                }
+            }
+            finally
+            {
+                File.Delete(first);
+                File.Delete(second);
+            }
+        }
+
         private static string WriteSpec(string json)
         {
             string path = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".tmrules.json");

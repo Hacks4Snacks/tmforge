@@ -181,8 +181,145 @@ them: `--rules` loads your rules *alongside* the full built-in set and both are 
 `properties --explain`). To narrow the built-ins, use the existing controls independently of
 `--rules`: a model's embedded `disabledPacks`, an `--ruleset` override, or `--max-severity`.
 
-A spec is a `rules` array. A finding is raised for each element of `appliesTo` that matches `when`
-(the guard) and fails `assert` (the requirement); at least one of `when`/`assert` is required:
+A version 2 pack is a strict, self-describing envelope. The envelope is importer-neutral and names a
+rule-language `dialect`; source-specific concepts belong in the optional generic `source` and
+`provenance` records. It also carries the category, element-type, and property catalogs needed by
+compiled rules. The runtime computes the pack's `sha256:` fingerprint from the exact file bytes;
+authors do not declare it.
+
+```jsonc
+{
+  "schema": "tmforge-rules",
+  "version": 2,
+  "dialect": "urn:tmforge:rules:flat-v1",
+  "pack": {
+    "id": "azure-template-a1b2c3d4",
+    "name": "Azure Threat Model Template",
+    "version": "1.0.0.33",
+    "source": {
+      "type": "urn:tmforge:source:mtmt-tb7",
+      "name": "Azure Cloud Services.tb7",
+      "id": "11111111-1111-1111-1111-111111111111",
+      "version": "1.0.0.33"
+    }
+  },
+  "categories": [
+    { "id": "D", "name": "Denial of Service" }
+  ],
+  "elementTypes": [
+    { "id": "GE.P", "name": "Process", "parentId": "ROOT" }
+  ],
+  "properties": [
+    {
+      "name": "Cache Type",
+      "aliases": ["cacheType", "cache-type"],
+      "allowedValues": ["Static", "Distributed"],
+      "elementTypeIds": ["GE.P"]
+    }
+  ],
+  "rules": [
+    {
+      "id": "TH112",
+      "severity": "error",
+      "appliesTo": "process",
+      "message": "{name} uses an unsafe cache.",
+      "assert": { "property": "Cache Type", "equals": "Distributed" },
+      "provenance": {
+        "sourceId": "TH112",
+        "categoryId": "D",
+        "expressions": [
+          {
+            "role": "include",
+            "language": "urn:tmforge:source:mtmt-generation-filter",
+            "text": "target is 'GE.P'"
+          }
+        ]
+      }
+    }
+  ]
+}
+```
+
+The authoritative Draft 2020-12 schema is packaged as `schemas/tmforge-rules-v2.schema.json` and is
+available in-process through `RulePackSchema.VersionTwo`. Version 2 rejects unknown fields and
+dialects, ambiguous property aliases, duplicate catalog ids, hierarchy cycles, unresolved catalog
+links, and caller-supplied fingerprints. `source.type` and provenance expression `language` values
+must be namespaced identifiers; the base schema does not reserve an importer vocabulary.
+Rule `helpUri` values must use HTTP or HTTPS; HTML reports independently refuse other URI schemes.
+Pack, category, element-type, and rule identity segments are printable ASCII without `/` or
+surrounding whitespace so effective rule ids remain safe in persisted TM7 threat keys.
+
+`urn:tmforge:rules:interaction-v1` evaluates rules over an interaction containing `source`, `target`,
+`flow`, and crossed trust boundaries. Its recursive expression nodes are:
+
+```jsonc
+{
+  "schema": "tmforge-rules",
+  "version": 2,
+  "dialect": "urn:tmforge:rules:interaction-v1",
+  "pack": { "id": "interaction-example", "name": "Interaction example" },
+  "elementTypes": [
+    { "id": "GE.P", "name": "Process", "parentId": "ROOT" },
+    { "id": "SE.P.Web", "name": "Web process", "parentId": "GE.P" },
+    { "id": "GE.TB.B", "name": "Trust boundary", "parentId": "ROOT" }
+  ],
+  "properties": [
+    { "name": "Protocol", "allowedValues": ["HTTP", "TLS"] }
+  ],
+  "rules": [
+    {
+      "id": "CLEAR-TEXT",
+      "message": "{source.Name} sends {flow.Name} to {target.Name} without TLS.",
+      "expression": {
+        "allOf": [
+          { "subject": "source", "type": "GE.P" },
+          { "crosses": "GE.TB.B" },
+          {
+            "not": {
+              "subject": "flow",
+              "property": "Protocol",
+              "valueIn": ["TLS"]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
+```
+
+Type predicates walk `elementTypes.parentId` transitively. Property membership checks all stored
+values. `crosses` matches the declared boundary type or one of its descendants. A
+`source is ROOT` expression is evaluated once per diagram; ordinary expressions are evaluated once
+per flow. `{source}`, `{target}`, and `{flow}` message tokens, with or without `.Name`, are replaced
+case-insensitively.
+
+The MTMT GenerationFilters compiler resolves source property aliases and element types against the
+source TB7 catalog. Values for static attributes must appear in that attribute's declared value set;
+dynamic attributes remain open to runtime-defined values. Include and Exclude are validated again
+after composition, so node and depth limits apply to the final evaluator tree.
+
+An effective v2 rule id is `pack.id/rule.id` (for example
+`azure-template-a1b2c3d4/TH112`). This lets two imported templates retain the same source ThreatType
+id without colliding in SARIF, suppressions, or generated threat keys. Duplicate effective ids that
+involve a v2 rule reject every contender, so changing file or declaration order cannot choose a
+winner. `RulePackIdentity.CreatePackId` provides the deterministic
+`normalized-name-<32 hex chars>` convention used by importers (128 fingerprint bits). The full
+fingerprint remains available on `RulePackDefinition.Fingerprint`; persisting and comparing expected
+fingerprints across models and transports is part of the later cross-surface rule-bundle work.
+
+The loader bounds untrusted input per pack to 8 MiB, 4,096 rules, 512 categories, 4,096 element
+types, 8,192 property definitions, and 65,536 aggregate catalog/expression nodes and values. A single
+load is additionally capped at 128 files, 32 MiB, 16,384 rules, 2,048 categories, 16,384 element
+types, 32,768 properties, and 262,144 catalog/expression entries. Interaction expressions are limited
+to 64 levels; evaluation is bounded to 100,000 interaction contexts and 1,000,000 expression
+operations per rule, with 10,000,000 declarative operations shared across the full analysis
+invocation. Analysis output is capped at 100,000 messages and 64 MiB of message text; individual
+expanded messages in either dialect are capped at 65,536 characters. Strings are limited to 65,536
+characters and identity segments to 512 characters.
+
+The original unversioned shape remains supported unchanged for hand-authored packs. It is a `rules`
+array, and each rule may declare its own `pack` value:
 
 ```jsonc
 {
@@ -212,6 +349,9 @@ A spec is a `rules` array. A finding is raised for each element of `appliesTo` t
 }
 ```
 
+For both versions, a finding is raised for each element of `appliesTo` that matches `when` (the
+guard) and fails `assert` (the requirement); at least one of `when`/`assert` is required.
+
 The `{name}` token in `message` is replaced with the element's display text. **Conditions** (`when`
 and `assert`) are facets that must *all* hold; a bare `property` with no value matcher means "must be
 present":
@@ -225,13 +365,15 @@ present":
 | `crossesTrustBoundary` | `flow` | The flow crosses (`true`) or does not cross (`false`) a trust boundary. |
 | `source` / `target` | `flow` | A condition on the flow's endpoint: its `kind` (`process`/`datastore`/`external`) and/or a property matcher. |
 
-- **Ids are your namespace.** A custom rule whose id collides with an already-loaded rule is dropped
-  with a warning, so the built-in `TM####` namespace always wins (ids appear in SARIF and suppressions).
+- **Ids persist.** Legacy ids are preserved verbatim. Version 2 ids are pack-qualified as described
+  above. A collision with an already-loaded built-in is dropped with a warning, so the built-in
+  `TM####` namespace always wins.
 - **Property names are validated** against the typed [property schema](cli-reference.md#properties).
   An unknown property is a warning, not an error — but it catches a typo (`Encryption` vs `Encrypted`)
   that would otherwise make a rule silently never match.
-- **Resilient loading.** A malformed spec file or an individual invalid rule is reported to standard
-  error and skipped; the rest still load.
+- **Resilient loading.** A malformed legacy file or individual invalid legacy rule is reported to
+  standard error and skipped. Version 2 validates its envelope as a unit, then compiles valid rules;
+  an invalid envelope/catalog is skipped rather than partially interpreted.
 - **Threats.** A custom rule that declares a `stride` category is projected into
   [`threats`](cli-reference.md#threats) exactly like a built-in threat-bearing rule.
 - **CLI only (and why).** `--rules` works on the CLI; the HTTP API (`/v1`) and the in-browser
