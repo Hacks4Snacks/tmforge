@@ -109,5 +109,18 @@ namespace ThreatModelForge.Analysis.Tests
                 Assert.AreEqual(1, inner.Messages.Count);
             }
         }
+
+        /// <summary>Aggregate analysis output is bounded before forwarding to an inner writer.</summary>
+        [TestMethod]
+        public void RejectsExcessiveMessageOutput()
+        {
+            string oversized = new string('x', (64 * 1024 * 1024) + 1);
+            SuppressedMessageWriter messageWriter = new SuppressedMessageWriter(new MockMessageWriter());
+            SuppressedMessageWriter coreWriter = new SuppressedMessageWriter(new MockMessageWriter());
+
+            Assert.Throws<InvalidDataException>(() => messageWriter.Write(new Message { Text = oversized }));
+            Assert.Throws<InvalidDataException>(() =>
+                coreWriter.WriteCore(MessageSeverity.Error, "TM0000", oversized));
+        }
     }
 }

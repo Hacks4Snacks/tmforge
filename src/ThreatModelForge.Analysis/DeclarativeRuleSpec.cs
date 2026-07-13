@@ -40,10 +40,73 @@ namespace ThreatModelForge.Analysis
         /// <summary>Gets or sets the optional external references (for example <c>CWE:319</c>, <c>CAPEC:157</c>, <c>ATTACK:T1040</c>).</summary>
         public List<string>? ThreatReferences { get; set; }
 
+        /// <summary>Gets or sets the original source identity and filter expressions.</summary>
+        public RuleProvenanceSpec? Provenance { get; set; }
+
+        /// <summary>Gets or sets the recursive interaction expression for interaction-v1.</summary>
+        public InteractionExpressionSpec? Expression { get; set; }
+
         /// <summary>Gets or sets the optional guard; the rule only evaluates elements that match it.</summary>
         public DeclarativeCondition? When { get; set; }
 
         /// <summary>Gets or sets the requirement; a matching element that fails it produces a finding.</summary>
         public DeclarativeCondition? Assert { get; set; }
+
+        /// <summary>The mutable JSON shape of imported-rule provenance.</summary>
+        internal sealed class RuleProvenanceSpec
+        {
+            /// <summary>Gets or sets the source-local rule id.</summary>
+            public string? SourceId { get; set; }
+
+            /// <summary>Gets or sets the source-local category id.</summary>
+            public string? CategoryId { get; set; }
+
+            /// <summary>Gets or sets the optional source location.</summary>
+            public string? Location { get; set; }
+
+            /// <summary>Gets or sets preserved source expressions.</summary>
+            public List<SourceExpressionSpec>? Expressions { get; set; }
+        }
+
+        /// <summary>The mutable JSON shape of one preserved source expression.</summary>
+        internal sealed class SourceExpressionSpec
+        {
+            /// <summary>Gets or sets the source-defined role.</summary>
+            public string? Role { get; set; }
+
+            /// <summary>Gets or sets the namespaced source expression language.</summary>
+            public string? Language { get; set; }
+
+            /// <summary>Gets or sets the original expression text.</summary>
+            public string? Text { get; set; }
+        }
+
+        /// <summary>The recursive JSON shape used by the interaction-v1 dialect.</summary>
+        internal sealed class InteractionExpressionSpec
+        {
+            /// <summary>Gets or sets a logical conjunction.</summary>
+            public List<InteractionExpressionSpec>? AllOf { get; set; }
+
+            /// <summary>Gets or sets a logical disjunction.</summary>
+            public List<InteractionExpressionSpec>? AnyOf { get; set; }
+
+            /// <summary>Gets or sets a logical negation.</summary>
+            public InteractionExpressionSpec? Not { get; set; }
+
+            /// <summary>Gets or sets the interaction subject.</summary>
+            public string? Subject { get; set; }
+
+            /// <summary>Gets or sets the expected element type.</summary>
+            public string? Type { get; set; }
+
+            /// <summary>Gets or sets the property to read.</summary>
+            public string? Property { get; set; }
+
+            /// <summary>Gets or sets accepted property values.</summary>
+            public List<string>? ValueIn { get; set; }
+
+            /// <summary>Gets or sets the specific crossed-boundary type.</summary>
+            public string? Crosses { get; set; }
+        }
     }
 }

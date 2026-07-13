@@ -158,6 +158,7 @@ namespace ThreatModelForge.KnowledgeBase
             {
                 Id = Text(source, Names.Id),
                 Label = Text(source, Names.Label),
+                Description = Text(source, Names.Description),
                 HideFromUI = ReadBool(source, Names.HideFromUI),
                 AttributeType = ReadInt(source, Names.AttributeType),
                 Name = Text(source, Names.Name),
@@ -195,6 +196,8 @@ namespace ThreatModelForge.KnowledgeBase
                 Description = (Text(source, Names.Description) ?? string.Empty).Trim(),
                 Name = Text(source, Names.Name),
                 Hidden = ReadBool(source, Names.Hidden),
+                Behavior = Text(source, Names.Behavior),
+                Shape = Text(source, Names.Shape),
                 Id = Text(source, Names.ElementId),
                 ImageLocation = Text(source, Names.ImageLocation),
                 ImageSource = Text(source, Names.Image),
@@ -224,8 +227,14 @@ namespace ThreatModelForge.KnowledgeBase
                 DisplayName = Text(source, Names.DisplayName),
                 Name = Text(source, Names.Name),
                 Type = ReadEnum(source, Names.Type, AttributeType.List),
-                Inheritance = ReadEnum(source, Names.AttributeInheritance, AttributeInheritance.Virtual),
-                Mode = ReadEnum(source, Names.AttributeMode, AttributeMode.Dynamic),
+                Inheritance = ReadEnum(
+                    source,
+                    Names.Inheritance,
+                    ReadEnum(source, Names.AttributeInheritance, AttributeInheritance.Virtual)),
+                Mode = ReadEnum(
+                    source,
+                    Names.Mode,
+                    ReadEnum(source, Names.AttributeMode, AttributeMode.Dynamic)),
                 IsInherited = ReadBool(source, Names.IsInherited),
                 IsOverrided = ReadBool(source, Names.IsOverrided),
             };
@@ -365,6 +374,11 @@ namespace ThreatModelForge.KnowledgeBase
                 BoolElement(Names.HideFromUI, datum.HideFromUI),
                 values);
 
+            if (datum.Description is not null)
+            {
+                element.Add(new XElement(Names.Description, datum.Description));
+            }
+
             if (!string.IsNullOrEmpty(datum.Id))
             {
                 element.Add(new XElement(Names.Id, datum.Id));
@@ -393,18 +407,47 @@ namespace ThreatModelForge.KnowledgeBase
                 attributes.Add(WriteKnowledgeBaseAttribute(attribute));
             }
 
-            return new XElement(
+            XElement result = new XElement(
                 Names.ElementType,
                 new XElement(Names.Name, element.Name ?? string.Empty),
                 new XElement(Names.ElementId, element.Id ?? string.Empty),
                 new XElement(Names.Description, element.Description ?? string.Empty),
-                new XElement(Names.ParentElement, element.ParentId ?? string.Empty),
-                new XElement(Names.Image, element.ImageSource ?? string.Empty),
-                BoolElement(Names.Hidden, element.Hidden),
+                new XElement(Names.ParentElement, element.ParentId ?? string.Empty));
+
+            if (element.ImageSource is not null)
+            {
+                result.Add(new XElement(Names.Image, element.ImageSource));
+            }
+
+            result.Add(BoolElement(Names.Hidden, element.Hidden));
+
+            if (element.Behavior is not null)
+            {
+                result.Add(new XElement(Names.Behavior, element.Behavior));
+            }
+
+            if (element.Shape is not null)
+            {
+                result.Add(new XElement(Names.Shape, element.Shape));
+            }
+
+            result.Add(
                 new XElement(Names.Representation, element.Representation.ToString()),
-                new XElement(Names.StrokeThickness, element.StrokeThickness.ToString(CultureInfo.InvariantCulture)),
-                new XElement(Names.ImageLocation, element.ImageLocation ?? string.Empty),
-                attributes);
+                new XElement(Names.StrokeThickness, element.StrokeThickness.ToString(CultureInfo.InvariantCulture)));
+
+            if (element.StrokeDashArray is not null)
+            {
+                result.Add(new XElement(Names.StrokeDashArray, element.StrokeDashArray));
+            }
+
+            if (element.ImageLocation is not null)
+            {
+                result.Add(new XElement(Names.ImageLocation, element.ImageLocation));
+            }
+
+            result.Add(attributes);
+
+            return result;
         }
 
         private static XElement WriteKnowledgeBaseAttribute(KnowledgeBaseAttribute attribute)
@@ -422,9 +465,9 @@ namespace ThreatModelForge.KnowledgeBase
                 BoolElement(Names.IsOverrided, attribute.IsOverrided),
                 new XElement(Names.Name, attribute.Name ?? string.Empty),
                 new XElement(Names.DisplayName, attribute.DisplayName ?? string.Empty),
-                new XElement(Names.AttributeMode, attribute.Mode.ToString()),
+                new XElement(Names.Mode, attribute.Mode.ToString()),
                 new XElement(Names.Type, attribute.Type.ToString()),
-                new XElement(Names.AttributeInheritance, attribute.Inheritance.ToString()),
+                new XElement(Names.Inheritance, attribute.Inheritance.ToString()),
                 values);
         }
 
@@ -455,7 +498,7 @@ namespace ThreatModelForge.KnowledgeBase
                     properties.Add(WriteThreatMetaDatum(datum));
                 }
 
-                container.Add(new XElement(
+                XElement element = new XElement(
                     Names.ThreatType,
                     new XElement(
                         Names.GenerationFilters,
@@ -463,9 +506,17 @@ namespace ThreatModelForge.KnowledgeBase
                         new XElement(Names.Exclude, threatType.GenerationFilters.Exclude)),
                     new XElement(Names.Id, threatType.Id ?? string.Empty),
                     new XElement(Names.ShortTitle, threatType.ShortTitle ?? string.Empty),
-                    new XElement(Names.Category, threatType.Category ?? string.Empty),
+                    new XElement(Names.Category, threatType.Category ?? string.Empty));
+
+                if (threatType.RelatedCategory is not null)
+                {
+                    element.Add(new XElement(Names.RelatedCategory, threatType.RelatedCategory));
+                }
+
+                element.Add(
                     new XElement(Names.Description, threatType.Description ?? string.Empty),
-                    properties));
+                    properties);
+                container.Add(element);
             }
 
             return container;
@@ -514,6 +565,8 @@ namespace ThreatModelForge.KnowledgeBase
             public const string ParentElement = "ParentElement";
             public const string Image = "Image";
             public const string ImageLocation = "ImageLocation";
+            public const string Behavior = "Behavior";
+            public const string Shape = "Shape";
             public const string Representation = "Representation";
             public const string StrokeThickness = "StrokeThickness";
             public const string StrokeDashArray = "StrokeDashArray";
@@ -526,6 +579,8 @@ namespace ThreatModelForge.KnowledgeBase
             public const string AttributeType = "AttributeType";
             public const string Label = "Label";
             public const string Type = "Type";
+            public const string Mode = "Mode";
+            public const string Inheritance = "Inheritance";
             public const string AttributeMode = "AttributeMode";
             public const string AttributeInheritance = "AttributeInheritance";
             public const string NameAttribute = "name";

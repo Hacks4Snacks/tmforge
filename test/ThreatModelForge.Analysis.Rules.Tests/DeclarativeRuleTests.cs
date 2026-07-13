@@ -105,21 +105,79 @@ namespace ThreatModelForge.Analysis.Rules.Tests
             Assert.AreEqual(0, EvaluateFlow(spec, border, CreateFlow("Call", crossing: false)).Messages.Count);
         }
 
+        /// <summary>Flat rule token expansion is bounded before constructing the result.</summary>
+        [TestMethod]
+        public void RejectsOversizedExpandedMessage()
+        {
+            string spec = "{\"rules\":[{\"id\":\"MESSAGE-LIMIT\",\"appliesTo\":\"process\"," +
+                "\"message\":\"{name}\",\"when\":{\"property\":\"Marker\"}}]}";
+            StencilEllipse process = CreateProcess(new string('x', 65537));
+            AddProperties(process, new[] { ("Marker", "set") });
+
+            Assert.Throws<InvalidDataException>(() => Evaluate(spec, ModelWithComponents(process)));
+        }
+
+        /// <summary>Malformed and unknown message tokens remain literal without repeated suffix scanning.</summary>
+        [TestMethod]
+        public void PreservesMalformedAndUnknownMessageTokens()
+        {
+            string spec = "{\"rules\":[{\"id\":\"TOKENS\",\"appliesTo\":\"process\"," +
+                "\"message\":\"{unknown} {name} {{{\",\"when\":{\"property\":\"Marker\"}}]}";
+            StencilEllipse process = CreateProcess("Worker");
+            AddProperties(process, new[] { ("Marker", "set") });
+
+            MockMessageWriter writer = Evaluate(spec, ModelWithComponents(process));
+
+            Assert.AreEqual("{unknown} " + process.DisplayText() + " {{{", writer.Messages.Single().Text);
+        }
+
+        /// <summary>
+        /// A v2 property id or alias is canonicalized to the runtime display name before evaluation.
+        /// </summary>
+        [TestMethod]
+        public void VersionTwoPropertyAliasEvaluatesRuntimeDisplayName()
+        {
+            string spec =
+                "{\"schema\":\"tmforge-rules\",\"version\":2," +
+                "\"dialect\":\"urn:tmforge:rules:flat-v1\"," +
+                "\"pack\":{\"id\":\"alias-pack\",\"name\":\"Alias pack\"}," +
+                "\"categories\":[],\"elementTypes\":[]," +
+                "\"properties\":[{\"name\":\"Cache Type\",\"aliases\":[\"cacheType\",\"cache-type\"]}]," +
+                "\"rules\":[{\"id\":\"CACHE001\",\"appliesTo\":\"process\",\"message\":\"bad cache\"," +
+                "\"assert\":{\"property\":\"cache-type\",\"equals\":\"Distributed\"}}]}";
+
+            StencilEllipse distributed = CreateProcess("Worker");
+            AddProperties(distributed, new[] { ("Cache Type", "Distributed") });
+            Assert.AreEqual(0, Evaluate(spec, ModelWithComponents(distributed)).Messages.Count);
+
+            StencilEllipse local = CreateProcess("Worker");
+            AddProperties(local, new[] { ("Cache Type", "Static") });
+            Assert.AreEqual(1, Evaluate(spec, ModelWithComponents(local)).Messages.Count);
+
+            IReadOnlyList<Rule> rules = LoadRules(spec);
+            Assert.AreEqual("Cache Type", rules.Single().PropertyBindings.Single().PropertyName);
+        }
+
         private static MockMessageWriter Evaluate(string specJson, ThreatModel model)
+        {
+            IReadOnlyList<Rule> rules = LoadRules(specJson);
+            MockMessageWriter writer = new MockMessageWriter();
+            RuleEvaluationContext context = new RuleEvaluationContext(model, writer);
+            foreach (Rule rule in rules)
+            {
+                rule.Evaluate(context);
+            }
+
+            return writer;
+        }
+
+        private static IReadOnlyList<Rule> LoadRules(string specJson)
         {
             string path = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".tmrules.json");
             File.WriteAllText(path, specJson);
             try
             {
-                IReadOnlyList<Rule> rules = DeclarativeRuleProvider.Load(new[] { path });
-                MockMessageWriter writer = new MockMessageWriter();
-                RuleEvaluationContext context = new RuleEvaluationContext(model, writer);
-                foreach (Rule rule in rules)
-                {
-                    rule.Evaluate(context);
-                }
-
-                return writer;
+                return DeclarativeRuleProvider.Load(new[] { path });
             }
             finally
             {

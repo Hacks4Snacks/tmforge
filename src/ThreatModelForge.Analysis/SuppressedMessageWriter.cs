@@ -2,12 +2,19 @@ namespace ThreatModelForge.Analysis
 {
     using System;
     using System.Collections.ObjectModel;
+    using System.IO;
 
     /// <summary>
     /// A message writer that filters for suppressed messages.
     /// </summary>
     internal class SuppressedMessageWriter : MessageWriter
     {
+        private const int MaxMessages = 100000;
+        private const long MaxMessageCharacters = 64L * 1024 * 1024;
+
+        private int messageCount;
+        private long messageCharacters;
+
         /// <summary>
         /// Initializes a new instance of the <see cref="SuppressedMessageWriter"/> class.
         /// </summary>
@@ -45,6 +52,8 @@ namespace ThreatModelForge.Analysis
                 throw new ArgumentNullException(nameof(message));
             }
 
+            this.AccountForOutput(message.Text);
+
             if (!this.IsSuppressed(message))
             {
                 this.Messages.Add(message);
@@ -65,7 +74,24 @@ namespace ThreatModelForge.Analysis
             string messageID,
             string text)
         {
+            this.AccountForOutput(text);
             this.Inner.WriteCore(severity, messageID, text);
+        }
+
+        private void AccountForOutput(string? text)
+        {
+            this.messageCount++;
+            this.messageCharacters += text?.Length ?? 0;
+            if (this.messageCount > MaxMessages)
+            {
+                throw new InvalidDataException($"Analysis exceeded the message limit of {MaxMessages}.");
+            }
+
+            if (this.messageCharacters > MaxMessageCharacters)
+            {
+                throw new InvalidDataException(
+                    $"Analysis exceeded the message-output limit of {MaxMessageCharacters} characters.");
+            }
         }
 
         private bool IsSuppressed(Message message)

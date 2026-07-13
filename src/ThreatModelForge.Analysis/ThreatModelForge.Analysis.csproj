@@ -33,6 +33,8 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Stencils\*.png" />
+    <EmbeddedResource Include="Schemas\*.json" />
+    <None Include="Schemas\*.json" Pack="true" PackagePath="schemas/" />
   </ItemGroup>
 
   <PropertyGroup>

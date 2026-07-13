@@ -27,6 +27,14 @@ namespace ThreatModelForge.Cli.Tests
             "{\"rules\":[{\"id\":\"ACME901\",\"severity\":\"error\",\"appliesTo\":\"external\"," +
             "\"message\":\"{name} must authenticate\",\"assert\":{\"property\":\"AuthenticatesItself\",\"equals\":\"Yes\"}}]}";
 
+        private const string VersionTwoEncryptionSpec =
+            "{\"schema\":\"tmforge-rules\",\"version\":2," +
+            "\"dialect\":\"urn:tmforge:rules:flat-v1\"," +
+            "\"pack\":{\"id\":\"acme-v2\",\"name\":\"ACME v2\"}," +
+            "\"categories\":[],\"elementTypes\":[],\"properties\":[]," +
+            "\"rules\":[{\"id\":\"ENC001\",\"severity\":\"error\",\"appliesTo\":\"datastore\"," +
+            "\"message\":\"{name} must declare encryption\",\"assert\":{\"property\":\"Encrypted\",\"present\":true}}]}";
+
         /// <summary>
         /// Gets or sets the working directory created for each test.
         /// </summary>
@@ -96,6 +104,22 @@ namespace ThreatModelForge.Cli.Tests
             (int exit, _) = Run(new[] { "--rules", spec, model });
 
             Assert.AreEqual(0, exit);
+        }
+
+        /// <summary>
+        /// A version 2 pack is loaded through the same CLI option and gates with its namespaced rule
+        /// id, proving the envelope still feeds the existing single analysis pipeline.
+        /// </summary>
+        [TestMethod]
+        public void VersionTwoRuleFiresViaRulesOption()
+        {
+            string model = this.Write("model.tmforge.json", ModelAllPacksDisabled);
+            string spec = this.Write("rules-v2.tmrules.json", VersionTwoEncryptionSpec);
+
+            (int exit, string stdout) = Run(new[] { "--rules", spec, "--json", model });
+
+            Assert.AreEqual(2, exit);
+            StringAssert.Contains(stdout, "acme-v2/ENC001");
         }
 
         private static (int Exit, string Stdout) Run(string[] args)

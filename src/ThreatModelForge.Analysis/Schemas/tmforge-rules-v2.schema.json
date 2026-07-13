@@ -1,0 +1,470 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:tmforge:schema:rules:v2",
+  "title": "Threat Model Forge rule pack version 2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "version", "dialect", "pack", "rules"],
+  "properties": {
+    "schema": { "const": "tmforge-rules" },
+    "version": { "const": 2 },
+    "dialect": {
+      "enum": [
+        "urn:tmforge:rules:flat-v1",
+        "urn:tmforge:rules:interaction-v1"
+      ]
+    },
+    "pack": { "$ref": "#/$defs/pack" },
+    "categories": {
+      "type": "array",
+      "maxItems": 512,
+      "items": { "$ref": "#/$defs/category" }
+    },
+    "elementTypes": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": { "$ref": "#/$defs/elementType" }
+    },
+    "properties": {
+      "type": "array",
+      "maxItems": 8192,
+      "items": { "$ref": "#/$defs/property" }
+    },
+    "rules": {
+      "type": "array",
+      "maxItems": 4096
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "dialect": { "const": "urn:tmforge:rules:flat-v1" } },
+        "required": ["dialect"]
+      },
+      "then": {
+        "properties": {
+          "rules": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/flatRule" }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "dialect": { "const": "urn:tmforge:rules:interaction-v1" } },
+        "required": ["dialect"]
+      },
+      "then": {
+        "properties": {
+          "rules": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/interactionRule" }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "boundedString": {
+      "type": "string",
+      "maxLength": 65536
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536,
+      "pattern": ".*\\S.*"
+    },
+    "identity": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?! )(?!.*[/])(?!.* $)[ -~]+$"
+    },
+    "namespacedIdentifier": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 65536,
+      "pattern": "^[^\\s:]+:.+$"
+    },
+    "absoluteUri": {
+      "type": "string",
+      "maxLength": 65536,
+      "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:"
+    },
+    "httpUri": {
+      "type": "string",
+      "maxLength": 65536,
+      "pattern": "^[Hh][Tt][Tt][Pp][Ss]?://"
+    },
+    "propertyName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536,
+      "pattern": "^(?!\\s)(?=.*\\S)(?!.*\\s$).+$"
+    },
+    "pack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identity" },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "description": { "$ref": "#/$defs/boundedString" },
+        "version": { "$ref": "#/$defs/boundedString" },
+        "source": { "$ref": "#/$defs/source" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "$ref": "#/$defs/namespacedIdentifier" },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "version": { "$ref": "#/$defs/nonEmptyString" },
+        "uri": { "$ref": "#/$defs/absoluteUri" },
+        "fingerprint": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "category": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identity" },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "shortDescription": { "$ref": "#/$defs/boundedString" },
+        "longDescription": { "$ref": "#/$defs/boundedString" }
+      }
+    },
+    "elementType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "allOf": [
+            { "$ref": "#/$defs/identity" },
+            {
+              "not": {
+                "type": "string",
+                "pattern": "^[Rr][Oo][Oo][Tt]$"
+              }
+            }
+          ]
+        },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "parentId": { "$ref": "#/$defs/identity" }
+      }
+    },
+    "property": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "$ref": "#/$defs/propertyName" },
+        "aliases": {
+          "type": "array",
+          "maxItems": 65536,
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        },
+        "allowedValues": {
+          "type": "array",
+          "maxItems": 65536,
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        },
+        "elementTypeIds": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": { "$ref": "#/$defs/identity" }
+        }
+      }
+    },
+    "sourceExpression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "language", "text"],
+      "properties": {
+        "role": { "$ref": "#/$defs/nonEmptyString" },
+        "language": { "$ref": "#/$defs/namespacedIdentifier" },
+        "text": { "$ref": "#/$defs/boundedString" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sourceId": { "$ref": "#/$defs/nonEmptyString" },
+        "categoryId": { "$ref": "#/$defs/nonEmptyString" },
+        "location": { "$ref": "#/$defs/nonEmptyString" },
+        "expressions": {
+          "type": "array",
+          "maxItems": 65536,
+          "items": { "$ref": "#/$defs/sourceExpression" }
+        }
+      }
+    },
+    "threatReferences": {
+      "type": "array",
+      "maxItems": 65536,
+      "items": { "$ref": "#/$defs/nonEmptyString" }
+    },
+    "severity": {
+      "enum": ["error", "warning", "info"]
+    },
+    "stride": {
+      "enum": [
+        "Spoofing",
+        "Tampering",
+        "Repudiation",
+        "InformationDisclosure",
+        "DenialOfService",
+        "ElevationOfPrivilege"
+      ]
+    },
+    "flatRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "appliesTo", "message"],
+      "anyOf": [
+        {
+          "type": "object",
+          "required": ["when"],
+          "properties": { "when": {} }
+        },
+        {
+          "type": "object",
+          "required": ["assert"],
+          "properties": { "assert": {} }
+        }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "appliesTo": { "enum": ["process", "datastore", "external"] }
+            },
+            "required": ["appliesTo"]
+          },
+          "then": {
+            "properties": {
+              "when": { "$ref": "#/$defs/nonRelationalCondition" },
+              "assert": { "$ref": "#/$defs/nonRelationalCondition" }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/identity" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "appliesTo": { "enum": ["process", "datastore", "external", "flow"] },
+        "message": { "$ref": "#/$defs/nonEmptyString" },
+        "fullDescription": { "$ref": "#/$defs/boundedString" },
+        "helpText": { "$ref": "#/$defs/boundedString" },
+        "helpUri": { "$ref": "#/$defs/httpUri" },
+        "stride": { "$ref": "#/$defs/stride" },
+        "threatReferences": { "$ref": "#/$defs/threatReferences" },
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "when": { "$ref": "#/$defs/condition" },
+        "assert": { "$ref": "#/$defs/condition" }
+      }
+    },
+    "interactionRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "message", "expression"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identity" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "message": { "$ref": "#/$defs/nonEmptyString" },
+        "fullDescription": { "$ref": "#/$defs/boundedString" },
+        "helpText": { "$ref": "#/$defs/boundedString" },
+        "helpUri": { "$ref": "#/$defs/httpUri" },
+        "stride": { "$ref": "#/$defs/stride" },
+        "threatReferences": { "$ref": "#/$defs/threatReferences" },
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "expression": { "$ref": "#/$defs/interactionExpression" }
+      }
+    },
+    "interactionExpression": {
+      "oneOf": [
+        { "$ref": "#/$defs/allExpression" },
+        { "$ref": "#/$defs/anyExpression" },
+        { "$ref": "#/$defs/notExpression" },
+        { "$ref": "#/$defs/typeExpression" },
+        { "$ref": "#/$defs/propertyExpression" },
+        { "$ref": "#/$defs/crossesExpression" }
+      ]
+    },
+    "allExpression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allOf"],
+      "properties": {
+        "allOf": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 65536,
+          "items": { "$ref": "#/$defs/interactionExpression" }
+        }
+      }
+    },
+    "anyExpression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anyOf"],
+      "properties": {
+        "anyOf": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 65536,
+          "items": { "$ref": "#/$defs/interactionExpression" }
+        }
+      }
+    },
+    "notExpression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["not"],
+      "properties": {
+        "not": { "$ref": "#/$defs/interactionExpression" }
+      }
+    },
+    "typeExpression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "type"],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "type": "string",
+                "pattern": "^[Rr][Oo][Oo][Tt]$"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": { "subject": { "const": "source" } }
+          }
+        }
+      ],
+      "properties": {
+        "subject": { "enum": ["source", "target", "flow"] },
+        "type": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "propertyExpression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "property", "valueIn"],
+      "properties": {
+        "subject": { "enum": ["source", "target", "flow"] },
+        "property": { "$ref": "#/$defs/nonEmptyString" },
+        "valueIn": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 65536,
+          "items": { "$ref": "#/$defs/boundedString" }
+        }
+      }
+    },
+    "crossesExpression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["crosses"],
+      "properties": {
+        "crosses": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "dependentRequired": {
+        "anyOf": ["property"],
+        "notAnyOf": ["property"],
+        "equals": ["property"],
+        "present": ["property"]
+      },
+      "properties": {
+        "property": { "$ref": "#/$defs/nonEmptyString" },
+        "anyOf": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 65536,
+          "items": { "$ref": "#/$defs/boundedString" }
+        },
+        "notAnyOf": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 65536,
+          "items": { "$ref": "#/$defs/boundedString" }
+        },
+        "equals": { "$ref": "#/$defs/boundedString" },
+        "present": { "type": "boolean" },
+        "crossesTrustBoundary": { "type": "boolean" },
+        "source": { "$ref": "#/$defs/endpoint" },
+        "target": { "$ref": "#/$defs/endpoint" }
+      }
+    },
+    "nonRelationalCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "dependentRequired": {
+        "anyOf": ["property"],
+        "notAnyOf": ["property"],
+        "equals": ["property"],
+        "present": ["property"]
+      },
+      "properties": {
+        "property": { "$ref": "#/$defs/nonEmptyString" },
+        "anyOf": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 65536,
+          "items": { "$ref": "#/$defs/boundedString" }
+        },
+        "notAnyOf": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 65536,
+          "items": { "$ref": "#/$defs/boundedString" }
+        },
+        "equals": { "$ref": "#/$defs/boundedString" },
+        "present": { "type": "boolean" }
+      }
+    },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "dependentRequired": {
+        "anyOf": ["property"],
+        "notAnyOf": ["property"],
+        "equals": ["property"],
+        "present": ["property"]
+      },
+      "properties": {
+        "kind": { "enum": ["process", "datastore", "external"] },
+        "property": { "$ref": "#/$defs/nonEmptyString" },
+        "anyOf": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 65536,
+          "items": { "$ref": "#/$defs/boundedString" }
+        },
+        "notAnyOf": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 65536,
+          "items": { "$ref": "#/$defs/boundedString" }
+        },
+        "equals": { "$ref": "#/$defs/boundedString" },
+        "present": { "type": "boolean" }
+      }
+    }
+  }
+}

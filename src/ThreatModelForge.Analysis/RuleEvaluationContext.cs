@@ -11,10 +11,15 @@ namespace ThreatModelForge.Analysis
     /// </summary>
     public class RuleEvaluationContext
     {
+        private const long DefaultDeclarativeOperationLimit = 10000000;
+
         private readonly Dictionary<string, string> variables = new Dictionary<string, string>(
             StringComparer.OrdinalIgnoreCase);
 
         private readonly SuppressedMessageWriter writer;
+
+        private long declarativeOperationCount;
+        private long declarativeOperationLimit = DefaultDeclarativeOperationLimit;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="RuleEvaluationContext"/> class.
@@ -191,6 +196,38 @@ namespace ThreatModelForge.Analysis
             }
 
             return result;
+        }
+
+        /// <summary>Charges declarative work to the shared invocation budget.</summary>
+        /// <param name="operations">The number of operations to charge.</param>
+        internal void AccountDeclarativeOperations(int operations = 1)
+        {
+            if (operations < 0 || this.declarativeOperationCount > this.declarativeOperationLimit - operations)
+            {
+                throw new InvalidDataException(
+                    $"Analysis exceeded the declarative operation limit of {this.declarativeOperationLimit}.");
+            }
+
+            this.declarativeOperationCount += operations;
+        }
+
+        /// <summary>Gets the declarative operations consumed by this analysis invocation.</summary>
+        /// <returns>The consumed operation count.</returns>
+        internal long GetDeclarativeOperationCount()
+        {
+            return this.declarativeOperationCount;
+        }
+
+        /// <summary>Sets the declarative operation limit for this analysis invocation.</summary>
+        /// <param name="value">The new non-negative limit.</param>
+        internal void SetDeclarativeOperationLimit(long value)
+        {
+            if (value < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+
+            this.declarativeOperationLimit = value;
         }
 
         private static void CollectRuleReportMessages(
