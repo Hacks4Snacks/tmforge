@@ -21,8 +21,8 @@ namespace ThreatModelForge.Analysis
         private readonly StrideCategory? stride;
         private readonly IReadOnlyList<ThreatReference> threatReferences;
         private readonly IReadOnlyList<PropertyBinding> propertyBindings;
-        private readonly DeclarativeCondition? whenCondition;
-        private readonly DeclarativeCondition? assertCondition;
+        private readonly InteractionExpression expression;
+        private readonly InteractionExpression.Evaluator evaluator;
         private readonly RulePackDefinition? packDefinition;
         private readonly RuleProvenance? provenance;
 
@@ -67,8 +67,12 @@ namespace ThreatModelForge.Analysis
             this.HelpUri = helpUri;
             this.stride = stride;
             this.threatReferences = threatReferences;
-            this.whenCondition = when;
-            this.assertCondition = assert;
+            this.expression = CompileFindingExpression(appliesTo, when, assert);
+            this.evaluator = new InteractionExpression.Evaluator(
+                id,
+                new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
+                operationLimit: null,
+                accountExpressionNodes: false);
             this.packDefinition = packDefinition;
             this.provenance = provenance;
             this.propertyBindings = BuildBindings(appliesTo, when, assert);
@@ -89,24 +93,22 @@ namespace ThreatModelForge.Analysis
         /// <inheritdoc/>
         public override RuleProvenance? Provenance => this.provenance;
 
+        /// <summary>Gets the immutable expression compiled from the flat guard and requirement.</summary>
+        internal InteractionExpression CompiledExpression => this.expression;
+
         /// <inheritdoc/>
         public override void Evaluate(RuleEvaluationContext context)
         {
             _ = context ?? throw new ArgumentNullException(nameof(context));
+            int operations = 0;
 
             foreach (DrawingSurfaceModel diagram in context.Model.DrawingSurfaceList)
             {
                 foreach (Entity element in this.Candidates(diagram, context))
                 {
                     context.AccountDeclarativeOperations();
-                    if (this.whenCondition != null && !EvaluateCondition(this.whenCondition, diagram, element, context))
-                    {
-                        continue;
-                    }
-
-                    // A finding is raised when the guard matches and the requirement is not satisfied.
-                    // A rule with no requirement flags every guard match unconditionally.
-                    if (this.assertCondition != null && EvaluateCondition(this.assertCondition, diagram, element, context))
+                    InteractionExpression.EvaluationContext evaluationContext = CreateEvaluationContext(diagram, element);
+                    if (!this.evaluator.Evaluate(this.expression, evaluationContext, context, ref operations))
                     {
                         continue;
                     }
@@ -122,198 +124,143 @@ namespace ThreatModelForge.Analysis
             }
         }
 
-        private static bool MatchesKind(Entity entity, string kind)
+        private static InteractionExpression.EvaluationContext CreateEvaluationContext(
+            DrawingSurfaceModel diagram,
+            Entity element)
         {
-            if (string.Equals(kind, "external", StringComparison.OrdinalIgnoreCase))
+            if (element is Connector flow)
             {
-                return entity.IsExternalInteractor();
+                Entity? source = diagram.Borders.TryGetValue(flow.SourceGuid, out object? sourceValue)
+                    ? sourceValue as Entity
+                    : null;
+                Entity? target = diagram.Borders.TryGetValue(flow.TargetGuid, out object? targetValue)
+                    ? targetValue as Entity
+                    : null;
+                return new InteractionExpression.EvaluationContext(diagram, source, target, flow, isRoot: false);
             }
 
-            if (string.Equals(kind, "datastore", StringComparison.OrdinalIgnoreCase))
-            {
-                return entity.IsStorageComponent();
-            }
-
-            if (string.Equals(kind, "process", StringComparison.OrdinalIgnoreCase))
-            {
-                return entity.IsComponent() && !entity.IsExternalInteractor() && !entity.IsStorageComponent();
-            }
-
-            return false;
+            return new InteractionExpression.EvaluationContext(diagram, element, null, null, isRoot: false);
         }
 
-        private static bool EvaluateCondition(
-            DeclarativeCondition condition,
-            DrawingSurfaceModel diagram,
-            Entity element,
-            RuleEvaluationContext context)
+        private static InteractionExpression CompileFindingExpression(
+            string appliesTo,
+            DeclarativeCondition? when,
+            DeclarativeCondition? assert)
         {
-            if (condition.Property != null &&
-                !MatchProperty(
-                    element,
+            string candidateSubject = string.Equals(appliesTo, "flow", StringComparison.OrdinalIgnoreCase)
+                ? "flow"
+                : "source";
+            List<InteractionExpression> expressions = new List<InteractionExpression>();
+            if (when != null)
+            {
+                expressions.Add(CompileCondition(when, candidateSubject));
+            }
+
+            if (assert != null)
+            {
+                expressions.Add(InteractionExpression.Negate(CompileCondition(assert, candidateSubject)));
+            }
+
+            return Conjunction(expressions, candidateSubject);
+        }
+
+        private static InteractionExpression CompileCondition(
+            DeclarativeCondition condition,
+            string candidateSubject)
+        {
+            List<InteractionExpression> expressions = new List<InteractionExpression>();
+            if (condition.Property != null)
+            {
+                AddPropertyExpressions(
+                    expressions,
+                    candidateSubject,
                     condition.Property,
                     condition.AnyOf,
                     condition.NotAnyOf,
                     condition.EqualTo,
-                    condition.Present,
-                    context))
-            {
-                return false;
+                    condition.Present);
             }
 
             if (condition.CrossesTrustBoundary.HasValue)
             {
-                bool crosses = false;
-                if (element is Connector connector)
-                {
-                    context.AccountDeclarativeOperations(diagram.Borders.Count);
-                    context.AccountDeclarativeOperations(diagram.Lines.Count);
-                    foreach (Entity boundary in diagram.TrustBoundaryBorders().OfType<Entity>()
-                        .Concat(diagram.TrustBoundaryLines().OfType<Entity>()))
-                    {
-                        crosses = boundary is BorderBoundary border
-                            ? connector.Crosses(border)
-                            : boundary is LineBoundary line && connector.Crosses(line);
-                        if (crosses)
-                        {
-                            break;
-                        }
-                    }
-                }
-
-                if (crosses != condition.CrossesTrustBoundary.Value)
-                {
-                    return false;
-                }
+                InteractionExpression crosses = InteractionExpression.CrossesAnyBoundary();
+                expressions.Add(condition.CrossesTrustBoundary.Value
+                    ? crosses
+                    : InteractionExpression.Negate(crosses));
             }
 
-            if (condition.Source != null && !MatchEndpoint(diagram, element, condition.Source, isSource: true, context))
+            if (condition.Source != null)
             {
-                return false;
+                expressions.Add(CompileEndpoint(condition.Source, "source"));
             }
 
-            if (condition.Target != null && !MatchEndpoint(diagram, element, condition.Target, isSource: false, context))
+            if (condition.Target != null)
             {
-                return false;
+                expressions.Add(CompileEndpoint(condition.Target, "target"));
             }
 
-            return true;
+            return Conjunction(expressions, candidateSubject);
         }
 
-        private static bool MatchEndpoint(
-            DrawingSurfaceModel diagram,
-            Entity element,
+        private static InteractionExpression CompileEndpoint(
             DeclarativeEndpoint endpoint,
-            bool isSource,
-            RuleEvaluationContext context)
+            string subject)
         {
-            if (element is not Connector connector)
+            List<InteractionExpression> expressions = new List<InteractionExpression>
             {
-                return false;
-            }
-
-            Guid guid = isSource ? connector.SourceGuid : connector.TargetGuid;
-            if (!diagram.Borders.TryGetValue(guid, out object? value) || value is not Entity endpointEntity)
-            {
-                return false;
-            }
+                InteractionExpression.SubjectExists(subject),
+            };
 
             if (endpoint.Kind != null)
             {
-                context.AccountDeclarativeOperations();
-                if (!MatchesKind(endpointEntity, endpoint.Kind))
-                {
-                    return false;
-                }
+                expressions.Add(InteractionExpression.KindIs(subject, endpoint.Kind));
             }
 
-            if (endpoint.Property != null &&
-                !MatchProperty(
-                    endpointEntity,
+            if (endpoint.Property != null)
+            {
+                AddPropertyExpressions(
+                    expressions,
+                    subject,
                     endpoint.Property,
                     endpoint.AnyOf,
                     endpoint.NotAnyOf,
                     endpoint.EqualTo,
-                    endpoint.Present,
-                    context))
-            {
-                return false;
+                    endpoint.Present);
             }
 
-            return true;
+            return Conjunction(expressions, subject);
         }
 
-        private static bool MatchProperty(
-            Entity entity,
+        private static void AddPropertyExpressions(
+            ICollection<InteractionExpression> expressions,
+            string subject,
             string property,
             IReadOnlyList<string>? anyOf,
             IReadOnlyList<string>? notAnyOf,
             string? equalTo,
-            bool? present,
-            RuleEvaluationContext context)
+            bool? present)
         {
-            context.AccountDeclarativeOperations(entity.Properties.Count);
-            context.AccountDeclarativeOperations(entity.Properties.Count);
-            bool defined = entity.TryGetCustomPropertyValue(property, out string? raw);
-            string value = raw ?? string.Empty;
-            bool isPresent = defined && !string.IsNullOrWhiteSpace(value);
-
-            bool hasMatcher = present.HasValue ||
-                equalTo != null ||
-                (anyOf != null && anyOf.Count > 0) ||
-                (notAnyOf != null && notAnyOf.Count > 0);
-
-            // A bare property with no value matcher means "the property must be present".
-            if (!hasMatcher)
-            {
-                return isPresent;
-            }
-
-            if (present.HasValue && isPresent != present.Value)
-            {
-                return false;
-            }
-
-            if (equalTo != null)
-            {
-                context.AccountDeclarativeOperations();
-                if (!isPresent || !string.Equals(value, equalTo, StringComparison.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
-            }
-
-            if (anyOf != null && anyOf.Count > 0)
-            {
-                if (!isPresent || !ContainsValue(anyOf, value, context))
-                {
-                    return false;
-                }
-            }
-
-            if (notAnyOf != null && notAnyOf.Count > 0 && isPresent && ContainsValue(notAnyOf, value, context))
-            {
-                return false;
-            }
-
-            return true;
+            expressions.Add(InteractionExpression.FlatPropertyCondition(
+                subject,
+                property,
+                anyOf,
+                notAnyOf,
+                equalTo,
+                present));
         }
 
-        private static bool ContainsValue(
-            IEnumerable<string> candidates,
-            string value,
-            RuleEvaluationContext context)
+        private static InteractionExpression Conjunction(
+            IReadOnlyList<InteractionExpression> expressions,
+            string candidateSubject)
         {
-            foreach (string candidate in candidates)
+            if (expressions.Count == 0)
             {
-                context.AccountDeclarativeOperations();
-                if (string.Equals(candidate, value, StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
+                return InteractionExpression.SubjectExists(candidateSubject);
             }
 
-            return false;
+            return expressions.Count == 1
+                ? expressions[0]
+                : InteractionExpression.All(expressions);
         }
 
         private static IReadOnlyList<PropertyBinding> BuildBindings(string appliesTo, DeclarativeCondition? when, DeclarativeCondition? assert)
@@ -361,7 +308,9 @@ namespace ThreatModelForge.Analysis
             }
 
             context.AccountDeclarativeOperations(diagram.Borders.Count);
-            return diagram.Components().Where(entity => MatchesKind(entity, this.appliesTo)).ToList();
+            return diagram.Components()
+                .Where(entity => InteractionExpression.MatchesPrimitiveKind(entity, this.appliesTo))
+                .ToList();
         }
     }
 }

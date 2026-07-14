@@ -158,6 +158,50 @@ namespace ThreatModelForge.Analysis.Rules.Tests
             Assert.AreEqual("Cache Type", rules.Single().PropertyBindings.Single().PropertyName);
         }
 
+        /// <summary>Lowered flat predicates retain first-value and absent-property behavior.</summary>
+        [TestMethod]
+        public void LoweredFlatPropertiesPreserveLegacyValueSemantics()
+        {
+            string firstValueSpec =
+                "{\"rules\":[{\"id\":\"FIRST\",\"appliesTo\":\"process\",\"message\":\"x\"," +
+                "\"when\":{\"property\":\"Marker\",\"anyOf\":[\"second\"]}}]}";
+            StencilEllipse multiValue = CreateProcess("Worker");
+            AddProperties(multiValue, new[] { ("Marker", "first"), ("Marker", "second") });
+            Assert.AreEqual(0, Evaluate(firstValueSpec, ModelWithComponents(multiValue)).Messages.Count);
+
+            string absentSpec =
+                "{\"rules\":[{\"id\":\"ABSENT\",\"appliesTo\":\"process\",\"message\":\"x\"," +
+                "\"when\":{\"property\":\"Marker\",\"present\":false," +
+                "\"notAnyOf\":[\"blocked\"]}}]}";
+            Assert.AreEqual(1, Evaluate(absentSpec, ModelWithComponents(CreateProcess("Worker"))).Messages.Count);
+        }
+
+        /// <summary>Lowered flow predicates retain endpoint and negative-boundary semantics.</summary>
+        [TestMethod]
+        public void LoweredFlatFlowsPreserveRelationalSemantics()
+        {
+            string spec =
+                "{\"rules\":[{\"id\":\"RELATIONAL\",\"appliesTo\":\"flow\",\"message\":\"x\"," +
+                "\"when\":{\"crossesTrustBoundary\":false," +
+                "\"target\":{\"kind\":\"external\",\"property\":\"Trust\",\"equals\":\"Partner\"}}}]}";
+            StencilRectangle external = CreateExternal("Partner");
+            AddProperties(external, new[] { ("Trust", "Partner") });
+            Connector local = FlowTo(external.Guid, "Push");
+            local.SourceX = 10;
+            local.SourceY = 11;
+            local.TargetX = 12;
+            local.TargetY = 15;
+            Connector crossing = FlowTo(external.Guid, "Push");
+            crossing.SourceX = 0;
+            crossing.SourceY = 0;
+            crossing.TargetX = 12;
+            crossing.TargetY = 15;
+            BorderBoundary boundary = CreateBoundary();
+
+            Assert.AreEqual(1, EvaluateEndpointWithBoundary(spec, external, boundary, local).Messages.Count);
+            Assert.AreEqual(0, EvaluateEndpointWithBoundary(spec, external, boundary, crossing).Messages.Count);
+        }
+
         private static MockMessageWriter Evaluate(string specJson, ThreatModel model)
         {
             IReadOnlyList<Rule> rules = LoadRules(specJson);
@@ -197,6 +241,19 @@ namespace ThreatModelForge.Analysis.Rules.Tests
         {
             DrawingSurfaceModel diagram = new DrawingSurfaceModel { Header = "DFD-0" };
             diagram.Borders.Add(endpoint.Guid, endpoint);
+            diagram.Lines.Add(flow.Guid, flow);
+            return Evaluate(specJson, new ThreatModel { DrawingSurfaceList = { diagram } });
+        }
+
+        private static MockMessageWriter EvaluateEndpointWithBoundary(
+            string specJson,
+            Entity endpoint,
+            BorderBoundary boundary,
+            Connector flow)
+        {
+            DrawingSurfaceModel diagram = new DrawingSurfaceModel { Header = "DFD-0" };
+            diagram.Borders.Add(endpoint.Guid, endpoint);
+            diagram.Borders.Add(boundary.Guid, boundary);
             diagram.Lines.Add(flow.Guid, flow);
             return Evaluate(specJson, new ThreatModel { DrawingSurfaceList = { diagram } });
         }
