@@ -76,6 +76,53 @@ namespace ThreatModelForge.Analysis.Tests
             Assert.AreEqual("CWE-311", rule.ThreatReferences[0].Id);
         }
 
+        /// <summary>Flat guards and requirements are lowered into the shared immutable AST.</summary>
+        [TestMethod]
+        public void FlatRulesCompileToInteractionExpressionTree()
+        {
+            string spec =
+                "{\"rules\":[{\"id\":\"LOWERED\",\"appliesTo\":\"process\"," +
+                "\"message\":\"x\",\"when\":{\"property\":\"Marker\"}," +
+                "\"assert\":{\"property\":\"Mode\",\"equals\":\"Safe\"}}]}";
+
+            DeclarativeRule rule = (DeclarativeRule)DeclarativeRuleProvider.Load(
+                new[] { this.WriteSpec(spec) }).Single();
+
+            Assert.AreEqual(InteractionExpression.OperationKind.All, rule.CompiledExpression.Operation);
+            Assert.AreEqual(2, rule.CompiledExpression.Children.Count);
+            Assert.AreEqual(InteractionExpression.OperationKind.FlatProperty, rule.CompiledExpression.Children[0].Operation);
+            Assert.AreEqual(InteractionExpression.OperationKind.Not, rule.CompiledExpression.Children[1].Operation);
+            Assert.AreEqual(
+                InteractionExpression.OperationKind.FlatProperty,
+                rule.CompiledExpression.Children[1].Child!.Operation);
+            Assert.IsTrue(rule.CompiledExpression.Children[1].Child!.FirstValueOnly);
+        }
+
+        /// <summary>Compound flat predicates retain the legacy one-scan operation accounting.</summary>
+        [TestMethod]
+        public void FlatCompoundPropertyPreservesOperationCount()
+        {
+            string spec =
+                "{\"rules\":[{\"id\":\"ACCOUNTING\",\"appliesTo\":\"process\",\"message\":\"x\"," +
+                "\"when\":{\"property\":\"Marker\",\"present\":true,\"equals\":\"set\"," +
+                "\"anyOf\":[\"other\",\"set\"],\"notAnyOf\":[\"blocked\",\"also-blocked\"]}}]}";
+            Rule rule = DeclarativeRuleProvider.Load(new[] { this.WriteSpec(spec) }).Single();
+            DrawingSurfaceModel diagram = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "DFD-0" };
+            StencilEllipse process = CreateEntity<StencilEllipse>("GE.P", "GE.P", "Worker");
+            process.Properties.Add(new CustomStringDisplayAttribute { Value = "Marker:set" });
+            process.Properties.Add(new CustomStringDisplayAttribute { Value = "Noise:value" });
+            diagram.Borders.Add(process.Guid, process);
+            MockMessageWriter writer = new MockMessageWriter();
+            RuleEvaluationContext context = new RuleEvaluationContext(
+                new ThreatModel { DrawingSurfaceList = { diagram } },
+                writer);
+
+            rule.Evaluate(context);
+
+            Assert.AreEqual(1, writer.Messages.Count);
+            Assert.AreEqual(19, context.GetDeclarativeOperationCount());
+        }
+
         /// <summary>Declarative evaluation work is bounded across every rule sharing one context.</summary>
         [TestMethod]
         public void SharesEvaluationBudgetAcrossRules()
@@ -253,6 +300,95 @@ namespace ThreatModelForge.Analysis.Tests
             Assert.AreSame(diagram, rootMessage.Target);
         }
 
+        /// <summary>ROOT creates exactly one synthetic finding for each diagram containing an interaction.</summary>
+        [TestMethod]
+        public void RootEvaluatesOncePerDiagram()
+        {
+            string spec =
+                "{\"schema\":\"tmforge-rules\",\"version\":2," +
+                "\"dialect\":\"urn:tmforge:rules:interaction-v1\"," +
+                "\"pack\":{\"id\":\"root-scope\",\"name\":\"ROOT scope\"}," +
+                "\"rules\":[{\"id\":\"ROOT\",\"message\":\"root\"," +
+                "\"expression\":{\"subject\":\"source\",\"type\":\"ROOT\"}}]}";
+            Rule rule = DeclarativeRuleProvider.LoadBundle(new[] { this.WriteSpec(spec) }).Rules.Single();
+            DrawingSurfaceModel first = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "First" };
+            DrawingSurfaceModel second = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "Second" };
+            foreach (DrawingSurfaceModel diagram in new[] { first, second })
+            {
+                StencilRectangle source = CreateEntity<StencilRectangle>("GE.EI", "GE.EI", "Client");
+                StencilEllipse target = CreateEntity<StencilEllipse>("GE.P", "GE.P", "Service");
+                Connector flow = CreateEntity<Connector>("GE.DF", "GE.DF", "Request");
+                flow.SourceGuid = source.Guid;
+                flow.TargetGuid = target.Guid;
+                diagram.Borders.Add(source.Guid, source);
+                diagram.Borders.Add(target.Guid, target);
+                diagram.Lines.Add(flow.Guid, flow);
+            }
+
+            Connector secondFlow = CreateEntity<Connector>("GE.DF", "GE.DF", "Response");
+            Connector existingFlow = (Connector)second.Lines.Values.Single();
+            secondFlow.SourceGuid = existingFlow.SourceGuid;
+            secondFlow.TargetGuid = existingFlow.TargetGuid;
+            second.Lines.Add(secondFlow.Guid, secondFlow);
+
+            MockMessageWriter writer = new MockMessageWriter();
+
+            rule.Evaluate(new RuleEvaluationContext(
+                new ThreatModel { DrawingSurfaceList = { first, second } },
+                writer));
+
+            Assert.AreEqual(2, writer.Messages.Count);
+            CollectionAssert.AreEquivalent(
+                new object[] { first, second },
+                writer.Messages.Select(message => message.Target).ToArray());
+        }
+
+        /// <summary>
+        /// A target-only MTMT filter evaluates once per matching interaction. Microsoft's public
+        /// <c>sample1.tm7</c> persists TH53 on both parallel flows between the same endpoints.
+        /// </summary>
+        [TestMethod]
+        public void EndpointOnlyMtmtFilterEvaluatesOncePerMatchingFlow()
+        {
+            string spec =
+                "{\"schema\":\"tmforge-rules\",\"version\":2," +
+                "\"dialect\":\"urn:tmforge:rules:interaction-v1\"," +
+                "\"pack\":{\"id\":\"mtmt-sample1\",\"name\":\"MTMT sample 1\"}," +
+                "\"elementTypes\":[" +
+                "{\"id\":\"GE.DS\",\"name\":\"Data store\",\"parentId\":\"ROOT\"}," +
+                "{\"id\":\"SE.P.TMCore.AzureDocumentDB\",\"name\":\"Azure Cosmos DB\"," +
+                "\"parentId\":\"GE.DS\"}]," +
+                "\"rules\":[{\"id\":\"TH53\",\"message\":\"Clear-text data in {target.Name}\"," +
+                "\"expression\":{\"subject\":\"target\",\"type\":\"SE.P.TMCore.AzureDocumentDB\"}}]}";
+            RuleBundle bundle = DeclarativeRuleProvider.LoadBundle(new[] { this.WriteSpec(spec) });
+
+            DrawingSurfaceModel diagram = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "Diagram 1" };
+            StencilParallelLines source = CreateEntity<StencilParallelLines>("GE.DS", "GE.DS", "Azure Key Vault");
+            StencilParallelLines target = CreateEntity<StencilParallelLines>(
+                "SE.P.TMCore.AzureDocumentDB",
+                "GE.DS",
+                "Azure Cosmos DB");
+            Connector request = CreateEntity<Connector>("GE.DF", "GE.DF", "Request");
+            request.SourceGuid = source.Guid;
+            request.TargetGuid = target.Guid;
+            Connector response = CreateEntity<Connector>("GE.DF", "GE.DF", "Response");
+            response.SourceGuid = source.Guid;
+            response.TargetGuid = target.Guid;
+            diagram.Borders.Add(source.Guid, source);
+            diagram.Borders.Add(target.Guid, target);
+            diagram.Lines.Add(request.Guid, request);
+            diagram.Lines.Add(response.Guid, response);
+
+            MockMessageWriter writer = new MockMessageWriter();
+            bundle.Rules.Single().Evaluate(new RuleEvaluationContext(
+                new ThreatModel { DrawingSurfaceList = { diagram } },
+                writer));
+
+            Assert.AreEqual(2, writer.Messages.Count);
+            Assert.IsTrue(writer.Messages.Any(message => ReferenceEquals(message.Target, request)));
+            Assert.IsTrue(writer.Messages.Any(message => ReferenceEquals(message.Target, response)));
+        }
+
         /// <summary>
         /// Crosses evaluates false on synthetic ROOT contexts without dereferencing a missing flow.
         /// </summary>
@@ -286,6 +422,49 @@ namespace ThreatModelForge.Analysis.Tests
             CollectionAssert.AreEquivalent(
                 new[] { "any1", "any2", "not" },
                 writer.Messages.Select(message => message.Text).ToArray());
+        }
+
+        /// <summary>Logical nodes do not spend operation budget on siblings after the result is known.</summary>
+        [TestMethod]
+        public void InteractionExpressionsShortCircuitWithinOperationLimit()
+        {
+            DrawingSurfaceModel diagram = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "DFD-0" };
+            RuleEvaluationContext context = new RuleEvaluationContext(
+                new ThreatModel { DrawingSurfaceList = { diagram } },
+                new MockMessageWriter());
+            InteractionExpression.Evaluator evaluator = new InteractionExpression.Evaluator(
+                "SHORT-CIRCUIT",
+                new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
+                operationLimit: 2,
+                accountExpressionNodes: true);
+            InteractionExpression skipped = InteractionExpression.CrossesAnyBoundary();
+
+            int allOperations = 0;
+            bool allResult = evaluator.Evaluate(
+                InteractionExpression.All(new[]
+                {
+                    InteractionExpression.SubjectExists("source"),
+                    skipped,
+                }),
+                InteractionExpression.EvaluationContext.Root(diagram),
+                context,
+                ref allOperations);
+
+            int anyOperations = 0;
+            bool anyResult = evaluator.Evaluate(
+                InteractionExpression.Any(new[]
+                {
+                    InteractionExpression.TypeIs("source", "ROOT"),
+                    skipped,
+                }),
+                InteractionExpression.EvaluationContext.Root(diagram),
+                context,
+                ref anyOperations);
+
+            Assert.IsFalse(allResult);
+            Assert.IsTrue(anyResult);
+            Assert.AreEqual(2, allOperations);
+            Assert.AreEqual(2, anyOperations);
         }
 
         /// <summary>Interaction token expansion is bounded before constructing the result.</summary>
