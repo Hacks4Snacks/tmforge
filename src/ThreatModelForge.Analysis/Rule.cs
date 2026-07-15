@@ -109,9 +109,24 @@ namespace ThreatModelForge.Analysis
         public virtual StrideCategory? Stride => null;
 
         /// <summary>
+        /// Gets the effective threat category represented by this rule, or <see langword="null"/>
+        /// when the rule is a structural or naming hygiene check. First-party rules inherit this
+        /// from <see cref="Stride"/>; imported rules may declare any validated pack category.
+        /// </summary>
+        public virtual RuleThreatCategory? ThreatCategory => this.Stride is StrideCategory stride && stride != StrideCategory.Unknown
+            ? RuleThreatCategory.FromStride(stride)
+            : null;
+
+        /// <summary>
+        /// Gets the default priority for generated threats independently of finding severity. When
+        /// unset, threat generation retains the legacy severity-derived priority.
+        /// </summary>
+        public virtual ThreatPriority? DefaultThreatPriority => null;
+
+        /// <summary>
         /// Gets the external catalog references (CWE / CAPEC / MITRE ATT&amp;CK) for the threat this
-        /// rule detects. Declared together with <see cref="Stride"/> on a threat-bearing rule; empty by
-        /// default. The mitigation is not duplicated here — it is the rule's <see cref="HelpText"/>.
+        /// rule detects. Declared together with <see cref="ThreatCategory"/> on a threat-bearing rule;
+        /// empty by default. The mitigation is not duplicated here — it is the rule's <see cref="HelpText"/>.
         /// </summary>
         public virtual IReadOnlyList<ThreatReference> ThreatReferences => Array.Empty<ThreatReference>();
 

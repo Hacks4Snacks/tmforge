@@ -1,6 +1,7 @@
 namespace ThreatModelForge.Analysis
 {
     using System;
+    using System.Collections.Generic;
     using System.Linq;
     using ThreatModelForge.Editing;
     using ThreatModelForge.KnowledgeBase;
@@ -38,9 +39,26 @@ namespace ThreatModelForge.Analysis
         /// <param name="model">The model to prepare; it is mutated in place.</param>
         public static void Prepare(ThreatModel model)
         {
+            using RuleSet ruleSet = AnalysisRuleSources.Create();
+            Prepare(model, ruleSet);
+        }
+
+        /// <summary>
+        /// Ensures the model carries a knowledge base built from the supplied effective rule set and
+        /// has its schema-backed properties typed, unless it already carries a foreign knowledge base.
+        /// </summary>
+        /// <param name="model">The model to prepare; it is mutated in place.</param>
+        /// <param name="ruleSet">The effective rules whose categories and threat types are embedded.</param>
+        public static void Prepare(ThreatModel model, RuleSet ruleSet)
+        {
             if (model == null)
             {
                 throw new ArgumentNullException(nameof(model));
+            }
+
+            if (ruleSet == null)
+            {
+                throw new ArgumentNullException(nameof(ruleSet));
             }
 
             // Shift each surface so no element sits below the tool's minimum drawing coordinate. This is
@@ -50,13 +68,194 @@ namespace ThreatModelForge.Analysis
 
             if (model.KnowledgeBase != null && !KnowledgeBaseCatalog.IsDefault(model.KnowledgeBase))
             {
+                MergeThreatCatalog(model.KnowledgeBase, KnowledgeBaseCatalog.CreateDefault(ruleSet), true);
                 return;
             }
 
-            KnowledgeBaseData knowledgeBase = KnowledgeBaseCatalog.CreateDefault();
+            KnowledgeBaseData? existingKnowledgeBase = model.KnowledgeBase;
+            KnowledgeBaseData knowledgeBase = KnowledgeBaseCatalog.CreateDefault(ruleSet);
+            if (existingKnowledgeBase != null)
+            {
+                MergeThreatCatalog(knowledgeBase, existingKnowledgeBase, false);
+            }
+
             SchemaBackedProperties.Apply(model, knowledgeBase);
             StencilSubtypeProjection.Apply(model, knowledgeBase);
             model.KnowledgeBase = knowledgeBase;
+        }
+
+        private static void MergeThreatCatalog(KnowledgeBaseData target, KnowledgeBaseData source, bool rejectConflicts)
+        {
+            ThreatMetaDatum? nativePriority = target.ThreatMetaData?.PropertiesMetaData.FirstOrDefault(IsPriorityMetadata);
+            Dictionary<string, string> categoryIds = target.ThreatCategories
+                .Where(category => !string.IsNullOrEmpty(category.Id))
+                .ToDictionary(category => category.Id!, category => category.Id!, StringComparer.OrdinalIgnoreCase);
+            foreach (ThreatCategory category in source.ThreatCategories)
+            {
+                ThreatCategory? existing = target.ThreatCategories.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Id, category.Id, StringComparison.OrdinalIgnoreCase));
+                if (existing == null)
+                {
+                    target.ThreatCategories.Add(category);
+                    if (!string.IsNullOrEmpty(category.Id))
+                    {
+                        categoryIds[category.Id!] = category.Id!;
+                    }
+
+                    continue;
+                }
+
+                if (rejectConflicts && !string.Equals(existing.Name, category.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException(
+                        $"Foreign knowledge base category '{category.Id}' conflicts with the effective rule set.");
+                }
+
+                if (!string.IsNullOrEmpty(category.Id) && !string.IsNullOrEmpty(existing.Id))
+                {
+                    categoryIds[category.Id!] = existing.Id!;
+                }
+            }
+
+            foreach (ThreatType threatType in source.ThreatTypes)
+            {
+                string? categoryId = threatType.Category != null && categoryIds.TryGetValue(threatType.Category, out string? retainedId)
+                    ? retainedId
+                    : threatType.Category;
+                ThreatType? existing = target.ThreatTypes.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Id, threatType.Id, StringComparison.OrdinalIgnoreCase));
+                if (existing == null)
+                {
+                    threatType.Category = categoryId;
+                    NormalizePriorityMetadata(threatType.PropertiesMetaData, nativePriority);
+                    target.ThreatTypes.Add(threatType);
+                    continue;
+                }
+
+                if (rejectConflicts &&
+                    (!string.Equals(existing.Category, categoryId, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(existing.ShortTitle, threatType.ShortTitle, StringComparison.Ordinal) ||
+                    !string.Equals(existing.Description, threatType.Description, StringComparison.Ordinal) ||
+                    !string.Equals(existing.RelatedCategory, threatType.RelatedCategory, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(existing.GenerationFilters.Include, threatType.GenerationFilters.Include, StringComparison.Ordinal) ||
+                    !string.Equals(existing.GenerationFilters.Exclude, threatType.GenerationFilters.Exclude, StringComparison.Ordinal)))
+                {
+                    throw new InvalidOperationException(
+                        $"Foreign knowledge base threat type '{threatType.Id}' conflicts with the effective rule set.");
+                }
+
+                NormalizePriorityMetadata(existing.PropertiesMetaData, nativePriority);
+                MergeThreatMetadata(
+                    existing.PropertiesMetaData,
+                    threatType.PropertiesMetaData,
+                    rejectConflicts,
+                    $"threat type '{threatType.Id}'",
+                    nativePriority);
+            }
+
+            if (source.ThreatMetaData == null)
+            {
+                return;
+            }
+
+            if (target.ThreatMetaData == null)
+            {
+                target.ThreatMetaData = source.ThreatMetaData;
+                return;
+            }
+
+            target.ThreatMetaData.IsPriorityUsed |= source.ThreatMetaData.IsPriorityUsed;
+            MergeThreatMetadata(
+                target.ThreatMetaData.PropertiesMetaData,
+                source.ThreatMetaData.PropertiesMetaData,
+                rejectConflicts,
+                "global threat metadata",
+                nativePriority);
+        }
+
+        private static void MergeThreatMetadata(
+            List<ThreatMetaDatum> target,
+            IEnumerable<ThreatMetaDatum> source,
+            bool rejectConflicts,
+            string owner,
+            ThreatMetaDatum? nativePriority)
+        {
+            foreach (ThreatMetaDatum sourceDatum in source)
+            {
+                ThreatMetaDatum datum = NormalizePriorityMetadata(sourceDatum, nativePriority);
+                List<ThreatMetaDatum> matches = string.IsNullOrEmpty(datum.Name)
+                    ? new List<ThreatMetaDatum>()
+                    : target.Where(existing =>
+                        string.Equals(existing.Name, datum.Name, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (matches.Count == 0 && !string.IsNullOrEmpty(datum.Id))
+                {
+                    matches = target.Where(existing =>
+                        string.Equals(existing.Id, datum.Id, StringComparison.OrdinalIgnoreCase)).ToList();
+                }
+
+                if (matches.Count == 0)
+                {
+                    target.Add(datum);
+                    continue;
+                }
+
+                if (rejectConflicts && (matches.Count != 1 || !ThreatMetadataMatches(matches[0], datum)))
+                {
+                    throw new InvalidOperationException(
+                        $"Foreign knowledge base {owner} conflicts with metadata '{datum.Id ?? datum.Name}'.");
+                }
+            }
+        }
+
+        private static void NormalizePriorityMetadata(
+            List<ThreatMetaDatum> metadata,
+            ThreatMetaDatum? nativePriority)
+        {
+            if (nativePriority == null)
+            {
+                return;
+            }
+
+            for (int index = 0; index < metadata.Count; index++)
+            {
+                metadata[index] = NormalizePriorityMetadata(metadata[index], nativePriority);
+            }
+        }
+
+        private static ThreatMetaDatum NormalizePriorityMetadata(
+            ThreatMetaDatum datum,
+            ThreatMetaDatum? nativePriority)
+        {
+            if (nativePriority == null || !IsPriorityMetadata(datum))
+            {
+                return datum;
+            }
+
+            ThreatMetaDatum normalized = new ThreatMetaDatum
+            {
+                Name = nativePriority.Name,
+                Label = nativePriority.Label,
+                HideFromUI = nativePriority.HideFromUI,
+                Description = nativePriority.Description,
+                Id = nativePriority.Id,
+                AttributeType = nativePriority.AttributeType,
+            };
+            normalized.Values.AddRange(datum.Values);
+            return normalized;
+        }
+
+        private static bool IsPriorityMetadata(ThreatMetaDatum datum)
+            => string.Equals(datum.Name, "Priority", StringComparison.OrdinalIgnoreCase);
+
+        private static bool ThreatMetadataMatches(ThreatMetaDatum left, ThreatMetaDatum right)
+        {
+            return string.Equals(left.Id, right.Id, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(left.Name, right.Name, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(left.Label, right.Label, StringComparison.Ordinal) &&
+                string.Equals(left.Description, right.Description, StringComparison.Ordinal) &&
+                left.HideFromUI == right.HideFromUI &&
+                left.AttributeType == right.AttributeType &&
+                left.Values.SequenceEqual(right.Values, StringComparer.Ordinal);
         }
 
         /// <summary>

@@ -27,6 +27,8 @@ namespace ThreatModelForge.Analysis
         private readonly Dictionary<string, string?> parents;
         private readonly bool evaluatesRoot;
         private readonly InteractionExpression.Evaluator evaluator;
+        private readonly RuleThreatCategory? threatCategory;
+        private readonly ThreatPriority? defaultThreatPriority;
 
         /// <summary>Initializes a new instance of the <see cref="InteractionRule"/> class.</summary>
         /// <param name="id">The effective rule identifier.</param>
@@ -36,6 +38,8 @@ namespace ThreatModelForge.Analysis
         /// <param name="helpText">The remediation guidance.</param>
         /// <param name="helpUri">The optional help URI.</param>
         /// <param name="stride">The optional STRIDE category.</param>
+        /// <param name="threatCategory">The optional generalized threat category.</param>
+        /// <param name="defaultThreatPriority">The optional default threat priority.</param>
         /// <param name="threatReferences">The external threat references.</param>
         /// <param name="expression">The compiled interaction expression.</param>
         /// <param name="packDefinition">The containing pack metadata.</param>
@@ -48,6 +52,8 @@ namespace ThreatModelForge.Analysis
             string helpText,
             Uri? helpUri,
             StrideCategory? stride,
+            RuleThreatCategory? threatCategory,
+            ThreatPriority? defaultThreatPriority,
             IReadOnlyList<ThreatReference> threatReferences,
             InteractionExpression expression,
             RulePackDefinition packDefinition,
@@ -59,6 +65,8 @@ namespace ThreatModelForge.Analysis
             this.HelpText = helpText;
             this.HelpUri = helpUri;
             this.stride = stride;
+            this.threatCategory = threatCategory;
+            this.defaultThreatPriority = defaultThreatPriority;
             this.threatReferences = threatReferences;
             this.expression = expression;
             this.evaluatesRoot = UsesRoot(expression);
@@ -78,6 +86,12 @@ namespace ThreatModelForge.Analysis
 
         /// <inheritdoc/>
         public override StrideCategory? Stride => this.stride;
+
+        /// <inheritdoc/>
+        public override RuleThreatCategory? ThreatCategory => this.threatCategory ?? base.ThreatCategory;
+
+        /// <inheritdoc/>
+        public override ThreatPriority? DefaultThreatPriority => this.defaultThreatPriority;
 
         /// <inheritdoc/>
         public override IReadOnlyList<ThreatReference> ThreatReferences => this.threatReferences;

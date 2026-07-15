@@ -100,12 +100,12 @@ namespace ThreatModelForge.Cli
         }
 
         /// <summary>
-        /// Projects the model's findings into STRIDE threats (the persistable, triaged view).
+        /// Projects the model's threat-bearing findings into threats (the persistable, triaged view).
         /// </summary>
         /// <param name="model">The tmforge-json model.</param>
         /// <returns>The generated threats.</returns>
         [McpServerTool(Name = "threats")]
-        [Description("Projects the model's findings into STRIDE threats (the persistable, triaged view with title, mitigation, and references).")]
+        [Description("Projects the model's threat-bearing findings into threats (the persistable, triaged view with category, title, mitigation, and references).")]
         public static IReadOnlyList<ThreatDto> Threats([Description("The tmforge-json model.")] TmForgeModelDto model)
         {
             McpToolSupport.ValidateModel(model);

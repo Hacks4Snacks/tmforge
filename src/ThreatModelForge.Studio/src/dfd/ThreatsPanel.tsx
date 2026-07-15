@@ -22,6 +22,15 @@ const STRIDE_LABEL: Record<string, string> = {
   ElevationOfPrivilege: 'Elevation of privilege',
 };
 
+const STRIDE_ID: Record<string, string> = {
+  Spoofing: 'S',
+  Tampering: 'T',
+  Repudiation: 'R',
+  InformationDisclosure: 'I',
+  DenialOfService: 'D',
+  ElevationOfPrivilege: 'E',
+};
+
 /** Builds a catalog deep-link for a CWE / CAPEC / ATT&CK reference id, or undefined when unrecognized. */
 function referenceUrl(id: string): string | undefined {
   const cwe = /^CWE-(\d+)$/i.exec(id);
@@ -260,7 +269,7 @@ function AddThreatForm({ scopeOptions, onAdd, onCancel }: { scopeOptions: Threat
 }
 
 export interface ThreatsPanelProps {
-  /** The generated STRIDE threat register for the current model (rule-derived + manual). */
+  /** The generated threat register for the current model (rule-derived + manual). */
   threats: Threat[];
   /** Non-threat hygiene findings (structural / naming rules), shown in a trailing section. */
   findings: Finding[];
@@ -279,7 +288,7 @@ export interface ThreatsPanelProps {
 }
 
 /**
- * The Studio analysis panel: one place for the model's analysis. It leads with the STRIDE threat
+ * The Studio analysis panel: one place for the model's analysis. It leads with the categorized threat
  * register (grouped by category, each threat editable inline — author its state, priority, mitigation,
  * and description, or create a threat by hand) and trails with any non-threat hygiene findings.
  * Threats and findings are the same detection — a threat is a threat-bearing finding with a lifecycle
@@ -299,14 +308,28 @@ export function ThreatsPanel({
   const [adding, setAdding] = useState(false);
 
   const byCategory = new Map<string, Threat[]>();
+  const categoryLabels = new Map<string, string>();
+  const categoryStride = new Map<string, string>();
   for (const threat of threats) {
-    const list = byCategory.get(threat.category) ?? [];
+    const inferredStride =
+      threat.stride ?? (!threat.categoryId && STRIDE_ORDER.includes(threat.category) ? threat.category : undefined);
+    const key = threat.categoryId ?? (inferredStride ? STRIDE_ID[inferredStride] : threat.category);
+    const list = byCategory.get(key) ?? [];
     list.push(threat);
-    byCategory.set(threat.category, list);
+    byCategory.set(key, list);
+    categoryLabels.set(key, threat.categoryName ?? STRIDE_LABEL[inferredStride ?? ''] ?? threat.category);
+    if (inferredStride) categoryStride.set(key, inferredStride);
   }
-  // Known STRIDE categories first, in canonical order; any unknown category trails, alphabetically.
-  const known = STRIDE_ORDER.filter((category) => byCategory.has(category));
-  const unknown = [...byCategory.keys()].filter((category) => !STRIDE_ORDER.includes(category)).sort();
+  // Known STRIDE categories first, in canonical order; custom categories trail by label then identity.
+  const known = STRIDE_ORDER.flatMap((stride) =>
+    [...byCategory.keys()].filter((key) => categoryStride.get(key) === stride),
+  );
+  const knownSet = new Set(known);
+  const unknown = [...byCategory.keys()]
+    .filter((key) => !knownSet.has(key))
+    .sort((left, right) =>
+      (categoryLabels.get(left) ?? left).localeCompare(categoryLabels.get(right) ?? right) || left.localeCompare(right),
+    );
   const ordered = [...known, ...unknown];
 
   const openCount = threats.filter((threat) => threat.state === 'Open').length;
@@ -345,7 +368,7 @@ export function ThreatsPanel({
         return (
           <div key={category} className="threat-group">
             <div className="threat-group-head">
-              {STRIDE_LABEL[category] ?? category}
+              {categoryLabels.get(category) ?? category}
               <span className="threat-count">{items.length}</span>
             </div>
             {items.map((threat) => {

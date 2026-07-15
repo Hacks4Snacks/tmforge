@@ -37,6 +37,12 @@ namespace ThreatModelForge.Analysis
         /// <summary>Gets or sets the optional STRIDE category the finding represents (enables threat generation).</summary>
         public string? Stride { get; set; }
 
+        /// <summary>Gets or sets the executable category id from the versioned pack catalog.</summary>
+        public string? CategoryId { get; set; }
+
+        /// <summary>Gets or sets the generated threat priority independently of finding severity.</summary>
+        public string? DefaultPriority { get; set; }
+
         /// <summary>Gets or sets the optional external references (for example <c>CWE:319</c>, <c>CAPEC:157</c>, <c>ATTACK:T1040</c>).</summary>
         public List<string>? ThreatReferences { get; set; }
 

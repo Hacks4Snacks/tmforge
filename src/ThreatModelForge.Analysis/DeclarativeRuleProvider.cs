@@ -9,6 +9,7 @@ namespace ThreatModelForge.Analysis
     using System.Text;
     using System.Text.Json;
     using System.Text.Json.Serialization;
+    using System.Xml;
     using ThreatModelForge.Editing;
 
     /// <summary>
@@ -258,9 +259,17 @@ namespace ThreatModelForge.Analysis
                 return "message is required.";
             }
 
-            if (spec.Stride != null && !Enum.GetNames(typeof(StrideCategory)).Contains(spec.Stride, StringComparer.Ordinal))
+            if (spec.Stride != null &&
+                (!Enum.GetNames(typeof(StrideCategory)).Contains(spec.Stride, StringComparer.Ordinal) ||
+                string.Equals(spec.Stride, nameof(StrideCategory.Unknown), StringComparison.Ordinal)))
             {
                 return $"unknown stride '{spec.Stride}'.";
+            }
+
+            if (spec.DefaultPriority != null &&
+                !Enum.GetNames(typeof(ThreatPriority)).Contains(spec.DefaultPriority, StringComparer.Ordinal))
+            {
+                return $"unknown defaultPriority '{spec.DefaultPriority}'.";
             }
 
             if (spec.HelpUri != null && !TryCreateSafeHelpUri(spec.HelpUri, out _))
@@ -540,15 +549,18 @@ namespace ThreatModelForge.Analysis
                 hasCategories = HasRootProperty(root, "categories");
                 hasElementTypes = HasRootProperty(root, "elementTypes");
                 hasProperties = HasRootProperty(root, "properties");
-                parsed = JsonSerializer.Deserialize<DeclarativeRuleFile>(json, Options);
                 if (hasVersionMarker)
                 {
                     if (IsVersionTwo(root) && ContainsNull(root))
                     {
-                        throw new InvalidDataException("Version 2 rule packs cannot contain explicit null values.");
+                        throw new InvalidDataException("Versioned rule packs cannot contain explicit null values.");
                     }
 
                     parsed = JsonSerializer.Deserialize<DeclarativeRuleFile>(json, StrictOptions);
+                }
+                else
+                {
+                    parsed = DeserializeLegacy(root);
                 }
             }
             catch (Exception ex) when (ex is IOException || ex is InvalidDataException || ex is JsonException || ex is UnauthorizedAccessException)
@@ -594,7 +606,7 @@ namespace ThreatModelForge.Analysis
                     return null;
                 }
 
-                return new ParsedDocument(file, null, legacyRules);
+                return new ParsedDocument(file, version: 0, null, legacyRules);
             }
 
             if (!string.Equals(parsed.Schema, "tmforge-rules", StringComparison.Ordinal) || parsed.Version != 2)
@@ -603,16 +615,18 @@ namespace ThreatModelForge.Analysis
                 return null;
             }
 
+            int version = parsed.Version.Value;
+
             DeclarativeRuleFile.PackSpec? header = parsed.Pack;
             if (header == null || string.IsNullOrWhiteSpace(header.Id) || string.IsNullOrWhiteSpace(header.Name))
             {
-                diagnostics?.Invoke($"Skipped rule file '{file}': version 2 requires pack 'id' and 'name'.");
+                diagnostics?.Invoke($"Skipped rule file '{file}': version {version} requires pack 'id' and 'name'.");
                 return null;
             }
 
             if (string.IsNullOrWhiteSpace(parsed.Dialect))
             {
-                diagnostics?.Invoke($"Skipped rule file '{file}': version 2 requires a rule dialect.");
+                diagnostics?.Invoke($"Skipped rule file '{file}': version {version} requires a rule dialect.");
                 return null;
             }
 
@@ -631,7 +645,7 @@ namespace ThreatModelForge.Analysis
 
             if (parsed.Rules == null)
             {
-                diagnostics?.Invoke($"Skipped rule file '{file}': version 2 requires a rules array.");
+                diagnostics?.Invoke($"Skipped rule file '{file}': version {version} requires a rules array.");
                 return null;
             }
 
@@ -639,7 +653,7 @@ namespace ThreatModelForge.Analysis
                 (parsed.ElementTypes == null && hasElementTypes) ||
                 (parsed.Properties == null && hasProperties))
             {
-                diagnostics?.Invoke($"Skipped rule file '{file}': version 2 catalog arrays cannot be null.");
+                diagnostics?.Invoke($"Skipped rule file '{file}': version {version} catalog arrays cannot be null.");
                 return null;
             }
 
@@ -691,7 +705,7 @@ namespace ThreatModelForge.Analysis
                 immutableElementTypes.AsReadOnly(),
                 immutableProperties.AsReadOnly());
 
-            return new ParsedDocument(file, pack, rules);
+            return new ParsedDocument(file, version, pack, rules);
         }
 
         private static byte[] ReadFile(string file, out int bytesRead)
@@ -864,11 +878,16 @@ namespace ThreatModelForge.Analysis
             HashSet<string> categoryIds = new HashSet<string>(
                 categories.Select(category => category.Id!),
                 StringComparer.OrdinalIgnoreCase);
-            foreach (DeclarativeRuleSpec rule in rules.Where(rule => rule.Provenance?.CategoryId != null))
+            foreach (DeclarativeRuleSpec rule in rules)
             {
-                if (!categoryIds.Contains(rule.Provenance!.CategoryId!))
+                if (rule.CategoryId != null && !categoryIds.Contains(rule.CategoryId))
                 {
-                    return $"rule '{rule.Id}' provenance references unknown category '{rule.Provenance.CategoryId}'.";
+                    return $"rule '{rule.Id}' references unknown category '{rule.CategoryId}'.";
+                }
+
+                if (rule.DefaultPriority != null && rule.CategoryId == null && rule.Stride == null)
+                {
+                    return $"rule '{rule.Id}' defaultPriority requires categoryId or stride.";
                 }
             }
 
@@ -1067,6 +1086,60 @@ namespace ThreatModelForge.Analysis
                 });
         }
 
+        private static DeclarativeRuleFile? DeserializeLegacy(JsonElement root)
+        {
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return JsonSerializer.Deserialize<DeclarativeRuleFile>(root.GetRawText(), Options);
+            }
+
+            using MemoryStream buffer = new MemoryStream();
+            using (Utf8JsonWriter writer = new Utf8JsonWriter(buffer))
+            {
+                writer.WriteStartObject();
+                foreach (JsonProperty property in root.EnumerateObject())
+                {
+                    writer.WritePropertyName(property.Name);
+                    if (!string.Equals(property.Name, "rules", StringComparison.OrdinalIgnoreCase) ||
+                        property.Value.ValueKind != JsonValueKind.Array)
+                    {
+                        property.Value.WriteTo(writer);
+                        continue;
+                    }
+
+                    writer.WriteStartArray();
+                    foreach (JsonElement rule in property.Value.EnumerateArray())
+                    {
+                        if (rule.ValueKind != JsonValueKind.Object)
+                        {
+                            rule.WriteTo(writer);
+                            continue;
+                        }
+
+                        writer.WriteStartObject();
+                        foreach (JsonProperty ruleProperty in rule.EnumerateObject())
+                        {
+                            if (string.Equals(ruleProperty.Name, "categoryId", StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(ruleProperty.Name, "defaultPriority", StringComparison.OrdinalIgnoreCase))
+                            {
+                                continue;
+                            }
+
+                            ruleProperty.WriteTo(writer);
+                        }
+
+                        writer.WriteEndObject();
+                    }
+
+                    writer.WriteEndArray();
+                }
+
+                writer.WriteEndObject();
+            }
+
+            return JsonSerializer.Deserialize<DeclarativeRuleFile>(buffer.ToArray(), Options);
+        }
+
         private static bool HasVersionMarker(JsonElement root)
         {
             if (root.ValueKind != JsonValueKind.Object)
@@ -1105,7 +1178,7 @@ namespace ThreatModelForge.Analysis
                 root.TryGetProperty("version", out JsonElement version) &&
                 version.ValueKind == JsonValueKind.Number &&
                 version.TryGetInt32(out int value) &&
-                value == 2;
+                (value == 2 || value == 3);
         }
 
         private static bool ContainsNull(JsonElement element)
@@ -1311,6 +1384,7 @@ namespace ThreatModelForge.Analysis
                     rule.HelpText,
                     rule.HelpUri,
                     rule.Stride,
+                    rule.DefaultPriority,
                     rule.Provenance?.SourceId,
                     rule.Provenance?.CategoryId,
                     rule.Provenance?.Location,
@@ -1333,9 +1407,29 @@ namespace ThreatModelForge.Analysis
                 AddInteractionText(values, rule.Expression);
             }
 
-            return values.Any(value => value != null && value.Length > MaxStringLength)
-                ? $"a string value exceeds the limit of {MaxStringLength} characters."
-                : null;
+            if (values.Any(value => value != null && value.Length > MaxStringLength))
+            {
+                return $"a string value exceeds the limit of {MaxStringLength} characters.";
+            }
+
+            foreach (string value in values.Where(value => value != null).Select(value => value!))
+            {
+                if (value.Any(character => char.IsControl(character) && character != '\t' && character != '\r' && character != '\n'))
+                {
+                    return "a string value contains an unsafe control character.";
+                }
+
+                try
+                {
+                    XmlConvert.VerifyXmlChars(value);
+                }
+                catch (XmlException)
+                {
+                    return "a string value contains a character that cannot be represented in XML.";
+                }
+            }
+
+            return null;
         }
 
         private static void AddConditionText(List<string?> values, DeclarativeCondition? condition)
@@ -1596,6 +1690,13 @@ namespace ThreatModelForge.Analysis
                 return null;
             }
 
+            string? defaultPriority = candidate.Document.Version == 2 ? spec.DefaultPriority : null;
+            if (!TryParseThreatPriority(defaultPriority, out ThreatPriority? defaultThreatPriority))
+            {
+                diagnostics?.Invoke($"Skipped {origin}: unknown defaultPriority '{spec.DefaultPriority}'.");
+                return null;
+            }
+
             Uri? helpUri = null;
             if (!string.IsNullOrWhiteSpace(spec.HelpUri) && !TryCreateSafeHelpUri(spec.HelpUri, out helpUri))
             {
@@ -1605,6 +1706,15 @@ namespace ThreatModelForge.Analysis
 
             List<ThreatReference> references = ParseReferences(spec.ThreatReferences, origin, diagnostics);
             RuleProvenance? provenance = CompileProvenance(spec.Provenance);
+            RuleThreatCategory? threatCategory = CompileThreatCategory(
+                candidate.Document,
+                spec,
+                stride);
+            if (defaultThreatPriority.HasValue && threatCategory == null)
+            {
+                diagnostics?.Invoke($"Skipped {origin}: defaultPriority requires a threat category.");
+                return null;
+            }
 
             string message = spec.Message!;
             if (string.Equals(candidate.Document.Pack?.Dialect, RulePackDialects.InteractionV1, StringComparison.Ordinal))
@@ -1617,6 +1727,8 @@ namespace ThreatModelForge.Analysis
                     spec.HelpText ?? string.Empty,
                     helpUri,
                     stride,
+                    threatCategory,
+                    defaultThreatPriority,
                     references,
                     CompileInteractionExpression(spec.Expression!, candidate.Document.Pack!),
                     candidate.Document.Pack!,
@@ -1654,11 +1766,30 @@ namespace ThreatModelForge.Analysis
                 spec.HelpText ?? string.Empty,
                 helpUri,
                 stride,
+                threatCategory,
+                defaultThreatPriority,
                 references,
                 spec.When,
                 spec.Assert,
                 candidate.Document.Pack,
                 provenance);
+        }
+
+        private static RuleThreatCategory? CompileThreatCategory(
+            ParsedDocument document,
+            DeclarativeRuleSpec spec,
+            StrideCategory? stride)
+        {
+            RulePackDefinition? pack = document.Pack;
+            string? categoryId = document.Version == 2 ? spec.CategoryId : null;
+            if (pack != null && categoryId != null)
+            {
+                RuleCategoryDefinition? resolvedCategory = pack.ResolveCategory(categoryId);
+                RuleCategoryDefinition category = resolvedCategory!;
+                return RuleThreatCategory.FromPack(pack, category);
+            }
+
+            return stride.HasValue ? RuleThreatCategory.FromStride(stride.Value) : null;
         }
 
         private static RuleProvenance? CompileProvenance(DeclarativeRuleSpec.RuleProvenanceSpec? provenance)
@@ -1836,9 +1967,30 @@ namespace ThreatModelForge.Analysis
 
             string? name = Enum.GetNames(typeof(StrideCategory))
                 .FirstOrDefault(candidate => string.Equals(candidate, value, StringComparison.OrdinalIgnoreCase));
-            if (name != null && Enum.TryParse(name, out StrideCategory parsed))
+            if (name != null &&
+                !string.Equals(name, nameof(StrideCategory.Unknown), StringComparison.Ordinal) &&
+                Enum.TryParse(name, out StrideCategory parsed))
             {
                 stride = parsed;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryParseThreatPriority(string? value, out ThreatPriority? priority)
+        {
+            priority = null;
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return true;
+            }
+
+            string? name = Enum.GetNames(typeof(ThreatPriority))
+                .FirstOrDefault(candidate => string.Equals(candidate, value, StringComparison.OrdinalIgnoreCase));
+            if (name != null && Enum.TryParse(name, out ThreatPriority parsed))
+            {
+                priority = parsed;
                 return true;
             }
 
@@ -2009,14 +2161,17 @@ namespace ThreatModelForge.Analysis
 
         private sealed class ParsedDocument
         {
-            public ParsedDocument(string file, RulePackDefinition? pack, List<DeclarativeRuleSpec> rules)
+            public ParsedDocument(string file, int version, RulePackDefinition? pack, List<DeclarativeRuleSpec> rules)
             {
                 this.File = file;
+                this.Version = version;
                 this.Pack = pack;
                 this.Rules = rules;
             }
 
             public string File { get; }
+
+            public int Version { get; }
 
             public RulePackDefinition? Pack { get; }
 

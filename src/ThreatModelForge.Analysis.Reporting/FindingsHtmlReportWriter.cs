@@ -239,6 +239,27 @@ namespace ThreatModelForge.Analysis.Reporting
         {
             this.StartCard();
             this.Inner.WriteElementString("h2", "Rule Configuration");
+            if (report.ThreatCategories.Count > 0)
+            {
+                this.Inner.WriteElementString("h3", "Threat Categories");
+                IEnumerable<UnstructuredRow> categoryRows = report.ThreatCategories
+                    .OrderBy(category => category.Id, StringComparer.Ordinal)
+                    .Select(category => new UnstructuredRow
+                    {
+                        Data = new object[]
+                        {
+                            category.Id,
+                            category.Name,
+                            category.ShortDescription ?? string.Empty,
+                            category.LongDescription ?? string.Empty,
+                        },
+                    });
+                this.WriteTable(
+                    new string[] { "Category ID", "Name", "Short Description", "Long Description" },
+                    categoryRows,
+                    TableBordededStyle);
+            }
+
             List<RuleReport> sortedRules = new List<RuleReport>();
             sortedRules.AddRange(report.RuleReports);
             sortedRules.Sort((x, y) => string.CompareOrdinal(x.ID, y.ID));
@@ -252,11 +273,13 @@ namespace ThreatModelForge.Analysis.Reporting
                         e.Disabled ? "Disabled" : e.Severity.ToString(),
                         e.Messages.Count.ToString(CultureInfo.InvariantCulture),
                         e.SuppressedMessages.Count.ToString(CultureInfo.InvariantCulture),
+                        e.ThreatCategoryName ?? string.Empty,
+                        e.DefaultThreatPriority?.ToString() ?? string.Empty,
                         e.AnalyzerId ?? string.Empty,
                     },
                 };
             this.WriteTable(
-                new string[] { "Rule ID", "Severity", "Messages", "Suppressed Messages", "Analyzer" },
+                new string[] { "Rule ID", "Severity", "Messages", "Suppressed Messages", "Threat Category", "Default Threat Priority", "Analyzer" },
                 rows,
                 TableBordededStyle);
             this.EndCard();

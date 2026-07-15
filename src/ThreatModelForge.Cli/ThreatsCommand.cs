@@ -12,7 +12,7 @@ namespace ThreatModelForge.Cli
 
     /// <summary>
     /// Implements <c>tmforge threats</c>: the persistable, lifecycle-bearing view of the validation
-    /// findings. It runs the same rules as <c>analyze</c>, frames each threat-bearing finding as a STRIDE
+    /// findings. It runs the same rules as <c>analyze</c>, frames each threat-bearing finding as a
     /// threat against its element or flow, and — with <c>--write</c> — persists them into the model's
     /// register, preserving any prior triage. Detection is entirely the rules; extend coverage by
     /// adding a rule to a rule pack (there is no separate threat catalog).
@@ -84,12 +84,16 @@ namespace ThreatModelForge.Cli
                 }
 
                 written = ThreatGenerator.Apply(model, result);
-                AuthoringSupport.Save(model, input!, format);
+                AuthoringSupport.Save(model, input!, format, ruleSet);
             }
+
+            IReadOnlyDictionary<string, Threat>? register = written == null
+                ? null
+                : model.AllThreatsDictionary;
 
             if (parsed.Json)
             {
-                WriteJson(result, written);
+                WriteJson(result, written, register);
             }
             else
             {
@@ -110,25 +114,28 @@ namespace ThreatModelForge.Cli
 
             // Materialize the rule register so rule threats are present and editable alongside manual
             // threats; existing triage (accepted / edited / manual) is preserved.
-            using (RuleSet ruleSet = AnalysisRuleSources.Create(RuleSourceCli.FromPath(parsed.Get("rules"))))
-            {
-                ThreatGenerator.Apply(model, ThreatGenerator.Generate(model, ruleSet));
-            }
+            using RuleSet ruleSet = AnalysisRuleSources.Create(RuleSourceCli.FromPath(parsed.Get("rules")));
+            ThreatGenerator.Apply(model, ThreatGenerator.Generate(model, ruleSet));
 
             if (add)
             {
-                return RunAdd(parsed, input, model, format);
+                return RunAdd(parsed, input, model, format, ruleSet);
             }
 
             if (editId != null)
             {
-                return RunEdit(parsed, input, model, format, editId);
+                return RunEdit(parsed, input, model, format, ruleSet, editId);
             }
 
-            return RunRemove(parsed, input, model, format, removeId!);
+            return RunRemove(parsed, input, model, format, ruleSet, removeId!);
         }
 
-        private static int RunAdd(CliArgs parsed, string input, ThreatModel model, IThreatModelFormat format)
+        private static int RunAdd(
+            CliArgs parsed,
+            string input,
+            ThreatModel model,
+            IThreatModelFormat format,
+            RuleSet ruleSet)
         {
             string? title = parsed.Get("title");
             string? category = parsed.Get("category");
@@ -144,6 +151,12 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
+            if (!TryCanonicalPriority(parsed.Get("priority"), out string? priority))
+            {
+                Console.Error.WriteLine("--priority must be High, Medium, or Low.");
+                return 1;
+            }
+
             string? scope = parsed.Get("scope");
             IReadOnlyList<string>? elementIds = string.IsNullOrWhiteSpace(scope) ? null : new[] { scope! };
             Threat threat = ThreatGenerator.AddManual(
@@ -152,11 +165,11 @@ namespace ThreatModelForge.Cli
                 title!,
                 elementIds,
                 ThreatStateWire.Parse(parsed.Get("state")),
-                parsed.Get("priority"),
+                priority,
                 parsed.Get("description"),
                 parsed.Get("mitigation"));
 
-            AuthoringSupport.Save(model, input, format);
+            AuthoringSupport.Save(model, input, format, ruleSet);
 
             if (parsed.Json)
             {
@@ -179,15 +192,27 @@ namespace ThreatModelForge.Cli
             return 0;
         }
 
-        private static int RunEdit(CliArgs parsed, string input, ThreatModel model, IThreatModelFormat format, string editId)
+        private static int RunEdit(
+            CliArgs parsed,
+            string input,
+            ThreatModel model,
+            IThreatModelFormat format,
+            RuleSet ruleSet,
+            string editId)
         {
             string? stateArg = parsed.Get("state");
             ThreatState? state = stateArg == null ? null : ThreatStateWire.Parse(stateArg);
+            if (!TryCanonicalPriority(parsed.Get("priority"), out string? priority))
+            {
+                Console.Error.WriteLine("--priority must be High, Medium, or Low.");
+                return 1;
+            }
+
             if (!ThreatGenerator.Edit(
                 model,
                 editId,
                 state,
-                parsed.Get("priority"),
+                priority,
                 parsed.Get("description"),
                 parsed.Get("mitigation"),
                 parsed.Get("note")))
@@ -196,7 +221,7 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            AuthoringSupport.Save(model, input, format);
+            AuthoringSupport.Save(model, input, format, ruleSet);
 
             if (parsed.Json)
             {
@@ -210,7 +235,27 @@ namespace ThreatModelForge.Cli
             return 0;
         }
 
-        private static int RunRemove(CliArgs parsed, string input, ThreatModel model, IThreatModelFormat format, string removeId)
+        private static bool TryCanonicalPriority(string? value, out string? priority)
+        {
+            priority = null;
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return true;
+            }
+
+            string[] priorities = { "High", "Medium", "Low" };
+            priority = priorities.FirstOrDefault(candidate =>
+                string.Equals(candidate, value, StringComparison.OrdinalIgnoreCase));
+            return priority != null;
+        }
+
+        private static int RunRemove(
+            CliArgs parsed,
+            string input,
+            ThreatModel model,
+            IThreatModelFormat format,
+            RuleSet ruleSet,
+            string removeId)
         {
             if (!ThreatGenerator.Remove(model, removeId))
             {
@@ -218,7 +263,7 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            AuthoringSupport.Save(model, input, format);
+            AuthoringSupport.Save(model, input, format, ruleSet);
 
             if (parsed.Json)
             {
@@ -232,7 +277,10 @@ namespace ThreatModelForge.Cli
             return 0;
         }
 
-        private static void WriteJson(GenerationResult result, ApplyResult? written)
+        private static void WriteJson(
+            GenerationResult result,
+            ApplyResult? written,
+            IReadOnlyDictionary<string, Threat>? register)
         {
             object data = new
             {
@@ -247,11 +295,16 @@ namespace ThreatModelForge.Cli
                 {
                     id = t.Id,
                     ruleId = t.RuleId,
-                    category = t.Category.ToString(),
+                    category = t.Stride?.ToString() ?? t.ThreatCategory.Name,
+                    categoryId = t.ThreatCategory.Id,
+                    categoryName = t.ThreatCategory.Name,
+                    stride = t.Stride?.ToString(),
                     title = t.Title,
                     mitigation = t.Mitigation,
                     severity = t.Severity,
-                    priority = t.Priority,
+                    priority = register != null && register.TryGetValue(t.Id, out Threat? persisted)
+                        ? persisted.Priority
+                        : t.Priority,
                     references = t.References.Select(r => new { catalog = r.Catalog, id = r.Id, url = r.Url }).ToList(),
                     scope = t.IsFlowScoped ? "flow" : "element",
                     source = t.SourceName,
@@ -295,7 +348,7 @@ namespace ThreatModelForge.Cli
                 ? " [" + threat.FlowName + "]"
                 : string.Empty;
             Console.WriteLine(
-                "  [" + CategoryLetter(threat.Category) + "] " + threat.RuleId + "  " +
+                "  [" + CategoryLabel(threat) + "] " + threat.RuleId + "  " +
                 threat.InteractionString + flow + "  —  " + threat.Title);
             if (!string.IsNullOrWhiteSpace(threat.Mitigation))
             {
@@ -308,9 +361,9 @@ namespace ThreatModelForge.Cli
             }
         }
 
-        private static string CategoryLetter(StrideCategory category)
+        private static string CategoryLabel(GeneratedThreat threat)
         {
-            return category switch
+            return threat.Stride switch
             {
                 StrideCategory.Spoofing => "S",
                 StrideCategory.Tampering => "T",
@@ -318,7 +371,7 @@ namespace ThreatModelForge.Cli
                 StrideCategory.InformationDisclosure => "I",
                 StrideCategory.DenialOfService => "D",
                 StrideCategory.ElevationOfPrivilege => "E",
-                _ => "?",
+                _ => threat.ThreatCategory.Name,
             };
         }
 
@@ -336,7 +389,7 @@ namespace ThreatModelForge.Cli
             Console.Error.WriteLine("--edit      change a threat's state (Open / NeedsInvestigation / Mitigated / Accepted), priority, mitigation, description, or note.");
             Console.Error.WriteLine("--remove    delete a manual threat (rule threats regenerate; accept or edit them instead).");
             Console.Error.WriteLine();
-            Console.Error.WriteLine("Detection is the rule set (see 'tmforge analyze'); each threat carries a STRIDE category,");
+            Console.Error.WriteLine("Detection is the rule set (see 'tmforge analyze'); each threat carries a category,");
             Console.Error.WriteLine("the rule's mitigation, and CWE/CAPEC references. List the register with 'tmforge list threats'.");
         }
     }

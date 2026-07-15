@@ -162,6 +162,23 @@ namespace ThreatModelForge.Analysis
                 CollectRuleReportMessages(rule, this.writer.SuppressedMessages, ruleReport.SuppressedMessages);
             }
 
+            IEnumerable<RuleThreatCategory> declaredCategories = ruleSet.Rules
+                .Select(rule => rule.PackDefinition)
+                .Where(pack => pack != null)
+                .Select(pack => pack!)
+                .GroupBy(pack => pack.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .SelectMany(pack => pack.Categories.Select(category => RuleThreatCategory.FromPack(pack, category)));
+            foreach (RuleThreatCategory category in declaredCategories
+                .Concat(ruleSet.Rules.Select(rule => rule.ThreatCategory).Where(category => category != null).Select(category => category!))
+                .Where(category => category != null)
+                .GroupBy(category => category.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.OrderBy(category => category.Id, StringComparer.Ordinal).First())
+                .OrderBy(category => category.Id, StringComparer.Ordinal))
+            {
+                result.ThreatCategories.Add(category);
+            }
+
             return result;
         }
 

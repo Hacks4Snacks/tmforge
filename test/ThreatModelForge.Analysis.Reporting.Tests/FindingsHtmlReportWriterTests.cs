@@ -51,5 +51,43 @@ namespace ThreatModelForge.Analysis.Reporting.Tests
             StringAssert.Contains(html, "RELATIVE");
             StringAssert.Contains(html, "href=\"https://example.test/help\"");
         }
+
+        /// <summary>The findings report renders generalized category identity and priority.</summary>
+        [TestMethod]
+        public void EmitsGeneralizedThreatMetadata()
+        {
+            ModelReport report = new ModelReport { ThreatModelName = "Test" };
+            report.ThreatCategories.Add(new RuleThreatCategory(
+                "medical/privacy",
+                "privacy",
+                "Privacy",
+                "Patient privacy",
+                "Privacy harm."));
+            report.RuleReports.Add(new RuleReport
+            {
+                ID = "PRIV-1",
+                Severity = MessageSeverity.Info,
+                ThreatCategoryId = "medical/privacy",
+                ThreatCategoryName = "Privacy",
+                DefaultThreatPriority = ThreatPriority.High,
+            });
+            StringBuilder output = new StringBuilder();
+            XmlWriterSettings settings = new XmlWriterSettings { OmitXmlDeclaration = true };
+            using (XmlWriter inner = XmlWriter.Create(new StringWriter(output), settings))
+            using (FindingsHtmlReportWriter writer = new FindingsHtmlReportWriter(inner, "report.html"))
+            {
+                writer.Write(report);
+            }
+
+            string html = output.ToString();
+            StringAssert.Contains(html, "Threat Categories");
+            StringAssert.Contains(html, "medical/privacy");
+            StringAssert.Contains(html, "Patient privacy");
+            StringAssert.Contains(html, "Privacy harm.");
+            StringAssert.Contains(html, "Threat Category");
+            StringAssert.Contains(html, "Default Threat Priority");
+            StringAssert.Contains(html, ">Privacy<");
+            StringAssert.Contains(html, ">High<");
+        }
     }
 }

@@ -6,6 +6,7 @@ namespace ThreatModelForge.Analysis
     using System.Reflection;
     using ThreatModelForge.Editing;
     using ThreatModelForge.KnowledgeBase;
+    using ThreatModelForge.Model;
 
     /// <summary>
     /// Builds Threat Model Forge's own, clean-room knowledge base: the default embedded when a model
@@ -73,7 +74,8 @@ namespace ThreatModelForge.Analysis
 
             AddGenericElements(knowledgeBase.GenericElements);
             AddStandardElements(knowledgeBase.StandardElements);
-            AddThreatCategories(knowledgeBase.ThreatCategories);
+            AddThreatMetaData(knowledgeBase, ruleSet);
+            AddThreatCategories(knowledgeBase.ThreatCategories, ruleSet);
             AddThreatTypes(knowledgeBase.ThreatTypes, ruleSet);
 
             return knowledgeBase;
@@ -176,7 +178,7 @@ namespace ThreatModelForge.Analysis
             }
         }
 
-        private static void AddThreatCategories(List<ThreatCategory> categories)
+        private static void AddThreatCategories(List<ThreatCategory> categories, RuleSet ruleSet)
         {
             categories.Add(ThreatCategoryFor("S", "Spoofing", "Impersonating something or someone else."));
             categories.Add(ThreatCategoryFor("T", "Tampering", "Unauthorized modification of data or code."));
@@ -184,6 +186,59 @@ namespace ThreatModelForge.Analysis
             categories.Add(ThreatCategoryFor("I", "Information Disclosure", "Exposure of information to parties not authorized to see it."));
             categories.Add(ThreatCategoryFor("D", "Denial of Service", "Denying or degrading service to legitimate users."));
             categories.Add(ThreatCategoryFor("E", "Elevation of Privilege", "Gaining capabilities without proper authorization."));
+
+            HashSet<string> categoryIds = new HashSet<string>(
+                categories.Select(category => category.Id!),
+                StringComparer.OrdinalIgnoreCase);
+            IEnumerable<RuleThreatCategory> declaredCategories = ruleSet.Rules
+                .Select(rule => rule.PackDefinition)
+                .Where(pack => pack != null)
+                .Select(pack => pack!)
+                .GroupBy(pack => pack.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .SelectMany(pack => pack.Categories.Select(category => RuleThreatCategory.FromPack(pack, category)));
+            foreach (RuleThreatCategory category in declaredCategories
+                .Concat(ruleSet.Rules.Select(rule => rule.ThreatCategory).Where(category => category != null).Select(category => category!))
+                .GroupBy(category => category.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .OrderBy(category => category.Id, StringComparer.Ordinal))
+            {
+                if (!categoryIds.Add(category.Id))
+                {
+                    continue;
+                }
+
+                categories.Add(new ThreatCategory
+                {
+                    Id = category.Id,
+                    Name = category.Name,
+                    ShortDescription = FirstNonEmpty(category.ShortDescription, category.Name),
+                    LongDescription = FirstNonEmpty(category.LongDescription, category.ShortDescription, category.Name),
+                });
+            }
+        }
+
+        private static void AddThreatMetaData(KnowledgeBaseData knowledgeBase, RuleSet ruleSet)
+        {
+            if (!ruleSet.Rules.Any(rule => rule.DefaultThreatPriority.HasValue))
+            {
+                return;
+            }
+
+            ThreatMetaData metadata = new ThreatMetaData { IsPriorityUsed = true };
+            ThreatMetaDatum priority = new ThreatMetaDatum
+            {
+                Name = "Priority",
+                Label = "Priority",
+                Description = "Generated threat priority.",
+                Id = "tmforge:priority",
+                AttributeType = 1,
+            };
+            priority.Values.Add("High");
+            priority.Values.Add("Medium");
+            priority.Values.Add("Low");
+            metadata.PropertiesMetaData.Add(priority);
+            knowledgeBase.ThreatMetaData = metadata;
         }
 
         private static ThreatCategory ThreatCategoryFor(string id, string name, string description)
@@ -201,7 +256,7 @@ namespace ThreatModelForge.Analysis
         {
             foreach (Rule rule in ruleSet.Rules)
             {
-                if (rule.Stride is not StrideCategory category)
+                if (rule.ThreatCategory is not RuleThreatCategory category)
                 {
                     continue;
                 }
@@ -211,26 +266,38 @@ namespace ThreatModelForge.Analysis
                 {
                     Id = rule.ID,
                     ShortTitle = rule.FullDescription,
-                    Category = CategoryLetter(category),
+                    Category = category.Id,
                     Description = description,
                 };
+                if (rule.DefaultThreatPriority.HasValue)
+                {
+                    ThreatMetaDatum priority = new ThreatMetaDatum
+                    {
+                        Name = "Priority",
+                        Label = "Priority",
+                        Description = "Default threat priority from the source rule.",
+                        Id = "tmforge:priority",
+                        AttributeType = 1,
+                    };
+                    priority.Values.Add(rule.DefaultThreatPriority.Value.ToString());
+                    threatType.PropertiesMetaData.Add(priority);
+                }
 
                 threatTypes.Add(threatType);
             }
         }
 
-        private static string CategoryLetter(StrideCategory category)
+        private static string FirstNonEmpty(params string?[] values)
         {
-            return category switch
+            foreach (string? value in values)
             {
-                StrideCategory.Spoofing => "S",
-                StrideCategory.Tampering => "T",
-                StrideCategory.Repudiation => "R",
-                StrideCategory.InformationDisclosure => "I",
-                StrideCategory.DenialOfService => "D",
-                StrideCategory.ElevationOfPrivilege => "E",
-                _ => string.Empty,
-            };
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value!;
+                }
+            }
+
+            return string.Empty;
         }
 
         private static RuleSet LoadDefaultRuleSet()

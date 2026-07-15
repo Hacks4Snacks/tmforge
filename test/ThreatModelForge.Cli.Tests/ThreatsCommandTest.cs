@@ -70,6 +70,74 @@ namespace ThreatModelForge.Cli.Tests
             Assert.AreEqual(added, model.AllThreatsDictionary.Count);
         }
 
+        /// <summary>Custom threat metadata remains referentially complete in the written TM7 knowledge base.</summary>
+        [TestMethod]
+        public void ThreatsWriteEmbedsCustomCategoryAndType()
+        {
+            string path = this.NewModelWithFlow();
+            string specPath = Path.Join(this.WorkingDirectory, "privacy.tmrules.json");
+            string spec =
+                "{\"schema\":\"tmforge-rules\",\"version\":2," +
+                "\"dialect\":\"urn:tmforge:rules:flat-v1\"," +
+                "\"pack\":{\"id\":\"medical\",\"name\":\"Medical\"}," +
+                "\"categories\":[{\"id\":\"privacy\",\"name\":\"Privacy\"}]," +
+                "\"elementTypes\":[],\"properties\":[]," +
+                "\"rules\":[{\"id\":\"PRIV-1\",\"categoryId\":\"privacy\"," +
+                "\"defaultPriority\":\"High\",\"appliesTo\":\"process\",\"message\":\"Privacy risk\"," +
+                "\"assert\":{\"property\":\"PrivacyReviewed\",\"present\":true}," +
+                "\"provenance\":{\"sourceId\":\"PRIV-1\",\"categoryId\":\"raw-privacy\"}}]}";
+            File.WriteAllText(specPath, spec);
+
+            (int exit, string stdout) = Capture(() => ThreatsCommand.Run(new[]
+            {
+                path, "--rules", specPath, "--write", "--json",
+            }));
+
+            Assert.AreEqual(0, exit);
+            JsonElement threats = JsonDocument.Parse(stdout).RootElement.GetProperty("data").GetProperty("threats");
+            JsonElement privacy = threats.EnumerateArray().Single(
+                threat => threat.GetProperty("ruleId").GetString() == "medical/PRIV-1");
+            Assert.AreEqual("Privacy", privacy.GetProperty("category").GetString());
+            Assert.AreEqual("medical/privacy", privacy.GetProperty("categoryId").GetString());
+            Assert.AreEqual("Privacy", privacy.GetProperty("categoryName").GetString());
+            Assert.AreEqual(JsonValueKind.Null, privacy.GetProperty("stride").ValueKind);
+            Assert.AreEqual("High", privacy.GetProperty("priority").GetString());
+
+            (int humanExit, string humanOutput) = Capture(() => ThreatsCommand.Run(new[]
+            {
+                path, "--rules", specPath,
+            }));
+            Assert.AreEqual(0, humanExit);
+            StringAssert.Contains(humanOutput, "[Privacy] medical/PRIV-1");
+            Assert.IsFalse(humanOutput.Contains("[?] medical/PRIV-1", StringComparison.Ordinal));
+
+            (ThreatModel model, _) = CliModelLoader.Load(path);
+            Threat persisted = model.AllThreatsDictionary.Values.Single(threat => threat.TypeId == "medical/PRIV-1");
+            ThreatType type = model.KnowledgeBase!.ThreatTypes.Single(threat => threat.Id == persisted.TypeId);
+            Assert.AreEqual("medical/privacy", type.Category);
+            Assert.IsTrue(model.KnowledgeBase.ThreatCategories.Any(category => category.Id == type.Category));
+            Assert.AreEqual("medical/privacy", persisted.Properties!["CategoryId"]);
+
+            string processId = model.DrawingSurfaceList.Single().Borders.Values
+                .OfType<StencilEllipse>().Single().Guid.ToString();
+            (int renameExit, _) = Capture(() => RenameCommand.Run(new[]
+            {
+                path, "--id", processId, "--name", "Renamed gateway",
+            }));
+            Assert.AreEqual(0, renameExit);
+
+            (ThreatModel renamed, _) = CliModelLoader.Load(path);
+            Threat renamedThreat = renamed.AllThreatsDictionary.Values.Single(
+                threat => threat.TypeId == "medical/PRIV-1");
+            ThreatType renamedType = renamed.KnowledgeBase!.ThreatTypes.Single(
+                threat => threat.Id == renamedThreat.TypeId);
+            Assert.AreEqual("medical/privacy", renamedType.Category);
+            ThreatCategory renamedCategory = renamed.KnowledgeBase.ThreatCategories.Single(
+                category => category.Id == renamedType.Category);
+            Assert.AreEqual("Privacy", renamedCategory.Name);
+            Assert.AreEqual("medical/privacy", renamedThreat.Properties!["CategoryId"]);
+        }
+
         /// <summary>Writing twice is idempotent — nothing is added the second time.</summary>
         [TestMethod]
         public void ThreatsWriteIsIdempotent()
@@ -82,6 +150,30 @@ namespace ThreatModelForge.Cli.Tests
             Assert.AreEqual(0, exit);
             JsonElement data = JsonDocument.Parse(stdout).RootElement.GetProperty("data");
             Assert.AreEqual(0, data.GetProperty("summary").GetProperty("written").GetProperty("added").GetInt32());
+        }
+
+        /// <summary>JSON write output reports the effective persisted priority override.</summary>
+        [TestMethod]
+        public void ThreatsWriteJsonReportsPersistedPriorityOverride()
+        {
+            string path = this.NewModelWithFlow();
+            (_, string firstOutput) = Capture(() => ThreatsCommand.Run(new[] { path, "--write", "--json" }));
+            string id = JsonDocument.Parse(firstOutput).RootElement.GetProperty("data")
+                .GetProperty("threats").EnumerateArray().First().GetProperty("id").GetString() ?? string.Empty;
+            (int editExit, _) = Capture(() => ThreatsCommand.Run(new[]
+            {
+                path, "--edit", id, "--priority", "Low",
+            }));
+            Assert.AreEqual(0, editExit);
+
+            (int exit, string output) = Capture(() => ThreatsCommand.Run(new[] { path, "--write", "--json" }));
+
+            Assert.AreEqual(0, exit);
+            JsonElement threat = JsonDocument.Parse(output).RootElement.GetProperty("data")
+                .GetProperty("threats").EnumerateArray().Single(candidate => candidate.GetProperty("id").GetString() == id);
+            Assert.AreEqual("Low", threat.GetProperty("priority").GetString());
+            (ThreatModel persisted, _) = CliModelLoader.Load(path);
+            Assert.AreEqual("Low", persisted.AllThreatsDictionary[id].Priority);
         }
 
         /// <summary>Accepting a persisted threat marks it not-applicable with the justification.</summary>
@@ -158,6 +250,32 @@ namespace ThreatModelForge.Cli.Tests
             Assert.AreEqual(ThreatState.Mitigated, threat!.State);
             Assert.AreEqual("Low", threat.Priority);
             Assert.AreEqual("Handled by the mesh.", threat.UserThreatDescription);
+        }
+
+        /// <summary>CLI priority edits canonicalize casing and reject values outside the wire catalog.</summary>
+        [TestMethod]
+        public void ThreatsPriorityMustBeCanonicalValue()
+        {
+            string path = this.NewModelWithFlow();
+            (_, string writeOut) = Capture(() => ThreatsCommand.Run(new[] { path, "--write", "--json" }));
+            string id = JsonDocument.Parse(writeOut).RootElement.GetProperty("data")
+                .GetProperty("threats").EnumerateArray().First().GetProperty("id").GetString() ?? string.Empty;
+
+            (int canonicalExit, _) = Capture(() => ThreatsCommand.Run(new[]
+            {
+                path, "--edit", id, "--priority", "low",
+            }));
+            Assert.AreEqual(0, canonicalExit);
+            (ThreatModel canonical, _) = CliModelLoader.Load(path);
+            Assert.AreEqual("Low", canonical.AllThreatsDictionary[id].Priority);
+
+            (int invalidExit, _) = Capture(() => ThreatsCommand.Run(new[]
+            {
+                path, "--edit", id, "--priority", "Urgent",
+            }));
+            Assert.AreEqual(1, invalidExit);
+            (ThreatModel unchanged, _) = CliModelLoader.Load(path);
+            Assert.AreEqual("Low", unchanged.AllThreatsDictionary[id].Priority);
         }
 
         /// <summary>Removing a manual threat deletes it from the register.</summary>

@@ -4,7 +4,7 @@ namespace ThreatModelForge.Engine
     using System.Collections.Generic;
 
     /// <summary>
-    /// A single generated STRIDE threat returned to the client, projected from a validation finding.
+    /// A single generated threat returned to the client, projected from a threat-bearing finding.
     /// </summary>
     public sealed class ThreatDto
     {
@@ -14,8 +14,20 @@ namespace ThreatModelForge.Engine
         /// <summary>Gets the identifier of the rule that detected the threat (for example <c>TM1023</c>).</summary>
         public string RuleId { get; init; } = string.Empty;
 
-        /// <summary>Gets the STRIDE category.</summary>
+        /// <summary>
+        /// Gets the legacy STRIDE token, or the generalized category display name when no STRIDE
+        /// mapping exists.
+        /// </summary>
         public string Category { get; init; } = string.Empty;
+
+        /// <summary>Gets the stable effective category identifier.</summary>
+        public string? CategoryId { get; init; }
+
+        /// <summary>Gets the category display name.</summary>
+        public string? CategoryName { get; init; }
+
+        /// <summary>Gets the corresponding STRIDE category, when one exists.</summary>
+        public string? Stride { get; init; }
 
         /// <summary>Gets the threat title (the finding text).</summary>
         public string Title { get; init; } = string.Empty;

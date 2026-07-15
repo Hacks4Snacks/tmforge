@@ -162,6 +162,7 @@ namespace ThreatModelForge.Analysis.Tests
             Assert.AreEqual("azure-template-a1b2c3d4/TH112", rule.ID);
             Assert.AreEqual("azure-template-a1b2c3d4", rule.Pack);
             Assert.AreEqual("TH112", rule.Provenance!.SourceId);
+            Assert.IsNull(rule.ThreatCategory);
             Assert.AreEqual("target is 'GE.P'", rule.Provenance.Expressions.Single(expression => expression.Role == "include").Text);
 
             Assert.AreEqual(1, bundle.Packs.Count);
@@ -207,6 +208,145 @@ namespace ThreatModelForge.Analysis.Tests
             Assert.AreEqual("rule-1", rule.Provenance!.SourceId);
             Assert.AreEqual("urn:example:otm-expression", rule.Provenance.Expressions.Single().Language);
             Assert.AreEqual("security/encrypted", rule.PropertyBindings.Single().PropertyName);
+        }
+
+        /// <summary>Unversioned rule documents ignore metadata introduced by the versioned envelope.</summary>
+        [TestMethod]
+        public void LegacyDocumentIgnoresVersionTwoThreatPriority()
+        {
+            string spec =
+                "{\"rules\":[{\"id\":\"LEGACY\",\"severity\":\"info\",\"stride\":\"Spoofing\"," +
+                "\"defaultPriority\":\"High\",\"appliesTo\":\"process\",\"message\":\"x\"," +
+                "\"when\":{\"property\":\"Marker\"}}]}";
+
+            Rule rule = DeclarativeRuleProvider.Load(new[] { this.WriteSpec(spec) }).Single();
+
+            Assert.AreEqual(StrideCategory.Spoofing, rule.Stride);
+            Assert.IsNull(rule.DefaultThreatPriority);
+        }
+
+        /// <summary>Legacy extension fields that collide with new v2 names remain ignored regardless of value type.</summary>
+        [TestMethod]
+        public void LegacyDocumentIgnoresCollidingVersionTwoExtensionFields()
+        {
+            string spec =
+                "{\"rules\":[{\"id\":\"LEGACY\",\"appliesTo\":\"process\",\"message\":\"x\"," +
+                "\"categoryId\":{\"future\":true},\"defaultPriority\":42," +
+                "\"when\":{\"property\":\"Marker\"}}]}";
+
+            Rule rule = DeclarativeRuleProvider.Load(new[] { this.WriteSpec(spec) }).Single();
+
+            Assert.AreEqual("LEGACY", rule.ID);
+            Assert.IsNull(rule.ThreatCategory);
+            Assert.IsNull(rule.DefaultThreatPriority);
+        }
+
+        /// <summary>
+        /// A versioned non-STRIDE category makes a rule threat-bearing, keeps priority independent
+        /// from severity, and survives projection, persistence, reporting, and MTMT export.
+        /// </summary>
+        [TestMethod]
+        public void GeneralizedThreatMetadataFlowsThroughEveryAnalysisSurface()
+        {
+            string spec =
+                "{\"schema\":\"tmforge-rules\",\"version\":2," +
+                "\"dialect\":\"urn:tmforge:rules:flat-v1\"," +
+                "\"pack\":{\"id\":\"medical-device\",\"name\":\"Medical device\"}," +
+                "\"categories\":[{\"id\":\"privacy\",\"name\":\"Privacy\"," +
+                "\"shortDescription\":\"Patient privacy\",\"longDescription\":\"Privacy harm.\"}," +
+                "{\"id\":\"safety\",\"name\":\"Patient Safety\"}]," +
+                "\"elementTypes\":[{\"id\":\"GE.P\",\"name\":\"Process\",\"parentId\":\"ROOT\"}]," +
+                "\"properties\":[{\"name\":\"Marker\",\"elementTypeIds\":[\"GE.P\"]}]," +
+                "\"rules\":[{\"id\":\"PRIV-1\",\"severity\":\"info\",\"categoryId\":\"privacy\"," +
+                "\"defaultPriority\":\"High\"," +
+                "\"appliesTo\":\"process\",\"message\":\"Privacy exposure at {name}\"," +
+                "\"helpText\":\"Minimize retained patient data.\",\"when\":{\"property\":\"Marker\"}," +
+                "\"provenance\":{\"sourceId\":\"PRIV-1\",\"categoryId\":\"source-privacy\"}}]}";
+            RuleBundle bundle = DeclarativeRuleProvider.LoadBundle(new[] { this.WriteSpec(spec) });
+            Rule rule = bundle.Rules.Single();
+            DrawingSurfaceModel diagram = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "DFD-0" };
+            StencilEllipse process = CreateEntity<StencilEllipse>("GE.P", "GE.P", "Records service");
+            process.Properties.Add(new CustomStringDisplayAttribute { Value = "Marker:set" });
+            diagram.Borders.Add(process.Guid, process);
+            ThreatModel model = new ThreatModel { DrawingSurfaceList = { diagram } };
+
+            Assert.IsFalse(rule.Stride.HasValue);
+            Assert.AreEqual("medical-device/privacy", rule.ThreatCategory!.Id);
+            Assert.AreEqual("privacy", rule.ThreatCategory.SourceId);
+            Assert.AreEqual("Privacy", rule.ThreatCategory.Name);
+            Assert.AreEqual("source-privacy", rule.Provenance!.CategoryId);
+            Assert.AreEqual(ThreatPriority.High, rule.DefaultThreatPriority);
+
+            using RuleSet ruleSet = new RuleSet();
+            ruleSet.Rules.Add(rule);
+            GenerationResult generated = ThreatGenerator.Generate(model, ruleSet);
+            GeneratedThreat threat = generated.Threats.Single();
+            Assert.AreEqual(StrideCategory.Unknown, threat.Category);
+            Assert.AreEqual("medical-device/privacy", threat.ThreatCategory.Id);
+            Assert.AreEqual("Privacy", threat.ThreatCategory.Name);
+            Assert.IsFalse(threat.Stride.HasValue);
+            Assert.AreEqual("info", threat.Severity);
+            Assert.AreEqual("High", threat.Priority);
+
+            ThreatGenerator.Apply(model, generated);
+            Threat persisted = model.AllThreatsDictionary.Values.Single();
+            Assert.AreEqual("Privacy", persisted.UserThreatCategory);
+            Assert.AreEqual("High", persisted.Priority);
+            Assert.AreEqual("medical-device/privacy", persisted.Properties!["CategoryId"]);
+
+            RuleEvaluationContext context = new RuleEvaluationContext(model, new MockMessageWriter());
+            ruleSet.Evaluate(context);
+            ModelReport report = context.GenerateReport(ruleSet);
+            Assert.HasCount(2, report.ThreatCategories);
+            Assert.IsTrue(report.ThreatCategories.Any(category => category.Id == "medical-device/privacy"));
+            Assert.IsTrue(report.ThreatCategories.Any(category => category.Id == "medical-device/safety"));
+            Assert.AreEqual("Privacy", report.RuleReports.Single().ThreatCategoryName);
+            Assert.AreEqual(ThreatPriority.High, report.RuleReports.Single().DefaultThreatPriority);
+
+            KnowledgeBaseData knowledgeBase = KnowledgeBaseCatalog.CreateDefault(ruleSet);
+            ThreatCategory exportedCategory = knowledgeBase.ThreatCategories.Single(
+                category => category.Id == "medical-device/privacy");
+            Assert.AreEqual("Privacy", exportedCategory.Name);
+            Assert.IsTrue(knowledgeBase.ThreatCategories.Any(category => category.Id == "medical-device/safety"));
+            ThreatType exportedType = knowledgeBase.ThreatTypes.Single(type => type.Id == "medical-device/PRIV-1");
+            Assert.AreEqual("medical-device/privacy", exportedType.Category);
+            Assert.AreEqual("High", exportedType.PropertiesMetaData.Single().Values.Single());
+            Assert.IsTrue(knowledgeBase.ThreatMetaData!.IsPriorityUsed);
+            CollectionAssert.AreEqual(
+                new[] { "High", "Medium", "Low" },
+                knowledgeBase.ThreatMetaData.PropertiesMetaData.Single().Values);
+        }
+
+        /// <summary>Default threat priority must be valid and attached to a threat-bearing rule.</summary>
+        [TestMethod]
+        public void RejectsInvalidOrCategoryLessDefaultPriority()
+        {
+            string categoryLess =
+                "{\"schema\":\"tmforge-rules\",\"version\":2," +
+                "\"dialect\":\"urn:tmforge:rules:flat-v1\"," +
+                "\"pack\":{\"id\":\"priority-pack\",\"name\":\"Priority pack\"}," +
+                "\"categories\":[],\"elementTypes\":[],\"properties\":[]," +
+                "\"rules\":[{\"id\":\"P1\",\"defaultPriority\":\"High\"," +
+                "\"appliesTo\":\"process\",\"message\":\"x\",\"when\":{\"property\":\"Marker\"}}]}";
+            List<string> categoryDiagnostics = new List<string>();
+
+            RuleBundle categoryBundle = DeclarativeRuleProvider.LoadBundle(
+                new[] { this.WriteSpec(categoryLess, "category-less.tmrules.json") },
+                categoryDiagnostics.Add);
+
+            Assert.AreEqual(0, categoryBundle.Rules.Count);
+            Assert.IsTrue(categoryDiagnostics.Any(message => message.Contains("defaultPriority")));
+
+            string invalid = categoryLess
+                .Replace("\"defaultPriority\":\"High\",", "\"defaultPriority\":\"Urgent\",")
+                .Replace("priority-pack", "invalid-priority");
+            List<string> invalidDiagnostics = new List<string>();
+            RuleBundle invalidBundle = DeclarativeRuleProvider.LoadBundle(
+                new[] { this.WriteSpec(invalid, "invalid-priority.tmrules.json") },
+                invalidDiagnostics.Add);
+
+            Assert.AreEqual(0, invalidBundle.Rules.Count);
+            Assert.IsTrue(invalidDiagnostics.Any(message => message.Contains("defaultPriority")));
         }
 
         /// <summary>
@@ -535,12 +675,14 @@ namespace ThreatModelForge.Analysis.Tests
             Assert.IsTrue(interactionDiagnostics.Any(message => message.Contains("unknown element type 'GE.UNKNOWN'")));
         }
 
-        /// <summary>Catalog-backed provenance and interaction values must resolve exactly.</summary>
+        /// <summary>Catalog-backed rule categories and interaction values must resolve exactly.</summary>
         [TestMethod]
         public void RejectsUnknownCategoryAndPropertyValueReferences()
         {
-            string unknownCategory = VersionTwoSpec("bad-category", V2Rule)
-                .Replace("\"categoryId\":\"D\"", "\"categoryId\":\"missing\"");
+            string unknownCategoryRule = V2Rule.Replace(
+                "\"severity\":\"error\",",
+                "\"severity\":\"error\",\"categoryId\":\"missing\",");
+            string unknownCategory = VersionTwoSpec("bad-category", unknownCategoryRule);
             List<string> diagnostics = new List<string>();
 
             RuleBundle bundle = DeclarativeRuleProvider.LoadBundle(
@@ -676,7 +818,7 @@ namespace ThreatModelForge.Analysis.Tests
         [TestMethod]
         public void RejectsUnsupportedVersion()
         {
-            string path = this.WriteSpec(VersionTwoSpec("versioned-pack", V2Rule).Replace("\"version\":2", "\"version\":3"));
+            string path = this.WriteSpec(VersionTwoSpec("versioned-pack", V2Rule).Replace("\"version\":2", "\"version\":4"));
             List<string> diagnostics = new List<string>();
 
             RuleBundle bundle = DeclarativeRuleProvider.LoadBundle(new[] { path }, diagnostics.Add);
@@ -973,6 +1115,33 @@ namespace ThreatModelForge.Analysis.Tests
 
             Assert.AreEqual(0, longBundle.Rules.Count);
             Assert.IsTrue(longDiagnostics.Any(message => message.Contains("string value exceeds")));
+        }
+
+        /// <summary>Pack text cannot carry terminal controls or characters that break XML exports.</summary>
+        [TestMethod]
+        public void RejectsUnsafePackTextCharacters()
+        {
+            string escapeCategory = VersionTwoSpec("escape-category", V2Rule)
+                .Replace("Denial of Service", "Denial \\u001b[31mService");
+            List<string> escapeDiagnostics = new List<string>();
+
+            RuleBundle escapeBundle = DeclarativeRuleProvider.LoadBundle(
+                new[] { this.WriteSpec(escapeCategory, "escape.tmrules.json") },
+                escapeDiagnostics.Add);
+
+            Assert.AreEqual(0, escapeBundle.Rules.Count);
+            Assert.IsTrue(escapeDiagnostics.Any(message => message.Contains("unsafe control character")));
+
+            string invalidXml = VersionTwoSpec("invalid-xml", V2Rule)
+                .Replace("Denial of Service", "Denial \\ufffe Service");
+            List<string> xmlDiagnostics = new List<string>();
+
+            RuleBundle xmlBundle = DeclarativeRuleProvider.LoadBundle(
+                new[] { this.WriteSpec(invalidXml, "invalid-xml.tmrules.json") },
+                xmlDiagnostics.Add);
+
+            Assert.AreEqual(0, xmlBundle.Rules.Count);
+            Assert.IsTrue(xmlDiagnostics.Any(message => message.Contains("cannot be represented in XML")));
         }
 
         /// <summary>

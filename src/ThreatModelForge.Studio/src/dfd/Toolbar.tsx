@@ -144,7 +144,7 @@ export function Toolbar(props: ToolbarProps) {
       <button
         className="btn btn-primary"
         onClick={props.onAnalyze}
-        title="Analyze the model: generate the STRIDE threat register and check model hygiene"
+        title="Analyze the model: generate the categorized threat register and check model hygiene"
       >
         Analyze
       </button>

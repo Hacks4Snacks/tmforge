@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { offlineEngine } from './engineClient';
+import { offlineEngine, toModel } from './engineClient';
+import type { components } from './engine/schema';
 import type { TmForgeModel } from './types';
 
 function emptyModel(): TmForgeModel {
@@ -73,5 +74,58 @@ describe('OfflineEngineClient — the honest fallback contract', () => {
 
     const fromBytes = await offlineEngine.readFile(new TextEncoder().encode(json));
     expect(fromBytes.schema).toBe('tmforge-json');
+  });
+});
+
+describe('engine model normalization', () => {
+  it('preserves accepted, priority-edited, and manual threat overlays returned by the engine', () => {
+    const dto: components['schemas']['TmForgeModelDto'] = {
+      threats: [
+        {
+          id: 'generated:one',
+          state: 'Accepted',
+          justification: 'Compensating control.',
+          priority: 'Low',
+        },
+        {
+          id: 'manual:two',
+          state: 'NeedsInvestigation',
+          manual: true,
+          category: 'Privacy',
+          title: 'Manual privacy threat',
+          description: 'Description',
+          mitigation: 'Mitigation',
+          priority: 'High',
+          elementIds: ['source', 'target', 'flow'],
+        },
+      ],
+    };
+
+    expect(toModel(dto).threats).toEqual([
+      {
+        id: 'generated:one',
+        state: 'Accepted',
+        justification: 'Compensating control.',
+        manual: undefined,
+        category: undefined,
+        title: undefined,
+        description: undefined,
+        mitigation: undefined,
+        priority: 'Low',
+        elementIds: undefined,
+      },
+      {
+        id: 'manual:two',
+        state: 'NeedsInvestigation',
+        justification: undefined,
+        manual: true,
+        category: 'Privacy',
+        title: 'Manual privacy threat',
+        description: 'Description',
+        mitigation: 'Mitigation',
+        priority: 'High',
+        elementIds: ['source', 'target', 'flow'],
+      },
+    ]);
   });
 });

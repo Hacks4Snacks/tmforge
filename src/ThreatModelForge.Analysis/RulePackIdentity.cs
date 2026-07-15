@@ -57,6 +57,17 @@ namespace ThreatModelForge.Analysis
             return packId + "/" + sourceRuleId;
         }
 
+        /// <summary>Combines a pack id and source category id into a stable runtime category id.</summary>
+        /// <param name="packId">The validated pack id.</param>
+        /// <param name="sourceCategoryId">The category id within the source pack.</param>
+        /// <returns>The effective id in the form <c>pack-id/source-id</c>.</returns>
+        public static string CreateEffectiveCategoryId(string packId, string sourceCategoryId)
+        {
+            ValidateSegment(packId, nameof(packId));
+            ValidateSegment(sourceCategoryId, nameof(sourceCategoryId));
+            return packId + "/" + sourceCategoryId;
+        }
+
         /// <summary>Checks whether a value is valid as one effective-identity segment.</summary>
         /// <param name="value">The value to check.</param>
         /// <returns><see langword="true"/> when the value satisfies the identity contract.</returns>

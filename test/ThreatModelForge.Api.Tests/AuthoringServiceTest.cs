@@ -169,6 +169,25 @@ namespace ThreatModelForge.Api.Tests
             Assert.AreEqual(1, exported.Flows!.Count);
         }
 
+        /// <summary>Threat authoring canonicalizes valid priority casing and rejects unknown values.</summary>
+        [TestMethod]
+        public void ThreatAuthoring_ValidatesPriority()
+        {
+            AuthoringResultDto added = AuthoringService.AddThreat(
+                null,
+                new AddThreatRequest { Title = "Privacy risk", Category = "Privacy", Priority = "high" });
+
+            Assert.IsTrue(added.Success, added.Error);
+            Assert.AreEqual("High", added.Model!.Threats!.Single().Priority);
+
+            AuthoringResultDto edited = AuthoringService.EditThreat(
+                added.Model,
+                new EditThreatRequest { Id = added.Id!, Priority = "Urgent" });
+
+            Assert.IsFalse(edited.Success);
+            StringAssert.Contains(edited.Error, "High, Medium, or Low");
+        }
+
         private static TmForgeModelDto Add(TmForgeModelDto? model, StencilKind kind, string name, string alias)
         {
             AuthoringResultDto result = AuthoringService.Add(model, new AddRequest { Kind = kind, Name = name, Alias = alias });

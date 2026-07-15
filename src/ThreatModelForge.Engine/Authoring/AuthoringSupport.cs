@@ -541,9 +541,29 @@ namespace ThreatModelForge.Engine
         /// <param name="format">The format provider to write with.</param>
         public static void Save(ThreatModel model, string path, IThreatModelFormat format)
         {
+            Save(model, path, format, ruleSet: null);
+        }
+
+        /// <summary>
+        /// Writes the model atomically and, for TM7, embeds categories and threat types from the
+        /// supplied effective rule set.
+        /// </summary>
+        /// <param name="model">The model to write.</param>
+        /// <param name="path">The destination path.</param>
+        /// <param name="format">The format provider to write with.</param>
+        /// <param name="ruleSet">The effective rule set, or <see langword="null"/> for built-ins.</param>
+        public static void Save(ThreatModel model, string path, IThreatModelFormat format, RuleSet? ruleSet)
+        {
             if (format is Tm7Format)
             {
-                Tm7ExportPreparer.Prepare(model);
+                if (ruleSet == null)
+                {
+                    Tm7ExportPreparer.Prepare(model);
+                }
+                else
+                {
+                    Tm7ExportPreparer.Prepare(model, ruleSet);
+                }
             }
 
             string fullPath = Path.GetFullPath(path);
