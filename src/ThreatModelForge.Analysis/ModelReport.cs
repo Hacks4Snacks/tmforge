@@ -85,6 +85,9 @@ namespace ThreatModelForge.Analysis
         /// </summary>
         public Collection<RuleReport> RuleReports { get; } = new Collection<RuleReport>();
 
+        /// <summary>Gets the effective threat category catalog used by this analysis run.</summary>
+        public Collection<RuleThreatCategory> ThreatCategories { get; } = new Collection<RuleThreatCategory>();
+
         /// <summary>
         /// Gets custom properties that can be set by rules.
         /// </summary>

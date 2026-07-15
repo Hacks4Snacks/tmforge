@@ -2,7 +2,7 @@
 
 This project provides the core object model used to inspect threat model (`.tm7`) documents. It exposes the base types that analysis rules build on, so additional rule sets can live in separate assemblies by deriving from those base classes. The `tmforge analyze` command runs rules against a model using this library.
 
-It also projects those findings into the model's persisted **threat register**: a rule that declares a STRIDE category (`Rule.Stride`) becomes a threat via `ThreatGenerator`, which powers the `tmforge threats` command. Validation and threat generation therefore share one detection engine — the difference is lifecycle (a finding is transient and gated; a threat is persisted and triaged).
+It also projects those findings into the model's persisted **threat register**: a rule that declares a threat category (`Rule.ThreatCategory`, with `Rule.Stride` retained for first-party compatibility) becomes a threat via `ThreatGenerator`, which powers the `tmforge threats` command. Validation and threat generation therefore share one detection engine — the difference is lifecycle (a finding is transient and gated; a threat is persisted and triaged). Versioned packs may declare generalized category identity and a default threat priority independently of finding severity.
 
 Declarative `*.tmrules.json` files support both the legacy `{ "rules": [...] }` shape and the strict
 `tmforge-rules` version 2 envelope. Version 2 separates the envelope from its required rule-language

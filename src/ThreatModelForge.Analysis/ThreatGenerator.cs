@@ -12,7 +12,7 @@ namespace ThreatModelForge.Analysis
     /// Projects the validation findings of a model into its persistent threat register. Detection is
     /// <em>entirely</em> the rule set's job — this class does not re-implement any condition. It runs
     /// the same rules that <c>analyze</c> runs, keeps only the findings from threat-bearing rules (those
-    /// whose rule declares a STRIDE category), frames each as a STRIDE threat against its element or
+    /// whose rule declares a threat category), frames each as a threat against its element or
     /// flow, and upserts it into the model with an idempotent, triage-preserving write. The difference
     /// between a finding and a threat is lifecycle: a finding is transient and gated; a threat is
     /// persisted and triaged (open -> mitigated -> accepted).
@@ -61,7 +61,7 @@ namespace ThreatModelForge.Analysis
                     continue;
                 }
 
-                if (rule.Stride is not StrideCategory category)
+                if (rule.ThreatCategory is not RuleThreatCategory category)
                 {
                     continue;
                 }
@@ -277,6 +277,8 @@ namespace ThreatModelForge.Analysis
             if (!string.IsNullOrWhiteSpace(priority))
             {
                 threat.Priority = priority;
+                threat.Properties ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                threat.Properties["PriorityOverride"] = "true";
             }
 
             if (description != null)
@@ -389,7 +391,7 @@ namespace ThreatModelForge.Analysis
             return AnalysisRuleSources.Create();
         }
 
-        private static GeneratedThreat ToThreat(Message message, Rule rule, Entity target, StrideCategory category)
+        private static GeneratedThreat ToThreat(Message message, Rule rule, Entity target, RuleThreatCategory category)
         {
             bool isFlow = target is Connector;
             Guid sourceGuid = target.Guid;
@@ -415,11 +417,12 @@ namespace ThreatModelForge.Analysis
             {
                 Id = string.Format(CultureInfo.InvariantCulture, "{0:N}:{1}", target.Guid, rule.ID),
                 RuleId = rule.ID,
-                Category = category,
+                Category = rule.Stride ?? StrideCategory.Unknown,
+                ThreatCategory = category,
                 Title = message.Text ?? rule.FullDescription,
                 Mitigation = string.IsNullOrWhiteSpace(rule.HelpText) ? null : rule.HelpText,
                 Severity = rule.Severity.ToString().ToLowerInvariant(),
-                Priority = PriorityFor(rule.Severity),
+                Priority = rule.DefaultThreatPriority?.ToString() ?? PriorityFor(rule.Severity),
                 References = rule.ThreatReferences,
                 SourceGuid = sourceGuid,
                 TargetGuid = targetGuid,
@@ -448,7 +451,7 @@ namespace ThreatModelForge.Analysis
                 InteractionString = threat.InteractionString,
                 Title = threat.Title,
                 Priority = threat.Priority,
-                UserThreatCategory = CategoryName(threat.Category),
+                UserThreatCategory = threat.ThreatCategory.Name,
                 StateInformation = string.Empty,
                 ModifiedAt = DateTime.UtcNow,
                 Properties = BuildProperties(threat),
@@ -457,6 +460,8 @@ namespace ThreatModelForge.Analysis
 
         private static void UpdateThreat(Threat existing, GeneratedThreat threat)
         {
+            bool priorityOverridden = HasPriorityOverride(existing, threat);
+            string? overriddenPriority = priorityOverridden ? existing.Priority : null;
             existing.TypeId = threat.RuleId;
             existing.SourceGuid = threat.SourceGuid;
             existing.TargetGuid = threat.TargetGuid;
@@ -465,14 +470,20 @@ namespace ThreatModelForge.Analysis
             existing.InteractionKey = threat.Id;
             existing.InteractionString = threat.InteractionString;
             existing.Title = threat.Title;
-            existing.Priority = threat.Priority;
-            existing.UserThreatCategory = CategoryName(threat.Category);
+            existing.Priority = overriddenPriority ?? threat.Priority;
+            existing.UserThreatCategory = threat.ThreatCategory.Name;
             existing.Properties = BuildProperties(threat);
+            if (priorityOverridden)
+            {
+                existing.Properties["PriorityOverride"] = "true";
+            }
+
             existing.ModifiedAt = DateTime.UtcNow;
         }
 
         private static void HydrateThreat(Threat existing, GeneratedThreat threat)
         {
+            bool priorityOverridden = HasPriorityOverride(existing, threat);
             existing.TypeId = threat.RuleId;
             existing.SourceGuid = threat.SourceGuid;
             existing.TargetGuid = threat.TargetGuid;
@@ -481,17 +492,24 @@ namespace ThreatModelForge.Analysis
             existing.InteractionKey = threat.Id;
             existing.InteractionString = threat.InteractionString;
             existing.Title = FirstNonEmpty(existing.Title, threat.Title);
-            existing.Priority = FirstNonEmpty(existing.Priority, threat.Priority);
-            existing.UserThreatCategory = FirstNonEmpty(existing.UserThreatCategory, CategoryName(threat.Category));
+            existing.Priority = priorityOverridden ? existing.Priority : threat.Priority;
+            existing.UserThreatCategory = threat.ThreatCategory.Name;
 
-            existing.Properties ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (KeyValuePair<string, string> property in BuildProperties(threat))
+            Dictionary<string, string> generatedProperties = BuildProperties(threat);
+            foreach (KeyValuePair<string, string> property in existing.Properties ?? new Dictionary<string, string>())
             {
-                if (!existing.Properties.Keys.Any(key => string.Equals(key, property.Key, StringComparison.OrdinalIgnoreCase)))
+                if (!IsRuleOwnedProperty(property.Key))
                 {
-                    existing.Properties[property.Key] = property.Value;
+                    generatedProperties[property.Key] = property.Value;
                 }
             }
+
+            if (priorityOverridden)
+            {
+                generatedProperties["PriorityOverride"] = "true";
+            }
+
+            existing.Properties = generatedProperties;
         }
 
         private static string FirstNonEmpty(string? current, string generated)
@@ -502,7 +520,14 @@ namespace ThreatModelForge.Analysis
             Dictionary<string, string> props = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
                 ["Rule"] = threat.RuleId,
+                ["CategoryId"] = threat.ThreatCategory.Id,
+                ["GeneratedDefaultPriority"] = threat.Priority,
             };
+            if (threat.Stride.HasValue)
+            {
+                props["STRIDE"] = threat.Stride.Value.ToString();
+            }
+
             if (!string.IsNullOrWhiteSpace(threat.Mitigation))
             {
                 props["Mitigation"] = threat.Mitigation!;
@@ -516,6 +541,54 @@ namespace ThreatModelForge.Analysis
             return props;
         }
 
+        private static bool HasPriorityOverride(Threat existing, GeneratedThreat generated)
+        {
+            if (existing.Properties?.TryGetValue("PriorityOverride", out string? marker) == true &&
+                string.Equals(marker, "true", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (string.IsNullOrWhiteSpace(existing.Priority))
+            {
+                return false;
+            }
+
+            if (existing.Properties?.TryGetValue("GeneratedDefaultPriority", out string? previousDefault) == true)
+            {
+                return !string.Equals(existing.Priority, previousDefault, StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (existing.State == ThreatState.AutoGenerated)
+            {
+                return false;
+            }
+
+            return !string.Equals(
+                existing.Priority,
+                LegacyPriorityFor(generated.Severity),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsRuleOwnedProperty(string name)
+        {
+            return string.Equals(name, "Rule", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "CategoryId", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "GeneratedDefaultPriority", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "STRIDE", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "References", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string LegacyPriorityFor(string severity)
+        {
+            if (string.Equals(severity, "error", StringComparison.OrdinalIgnoreCase))
+            {
+                return "High";
+            }
+
+            return string.Equals(severity, "info", StringComparison.OrdinalIgnoreCase) ? "Low" : "Medium";
+        }
+
         private static string PriorityFor(MessageSeverity severity)
         {
             switch (severity)
@@ -526,21 +599,6 @@ namespace ThreatModelForge.Analysis
                     return "Low";
                 default:
                     return "Medium";
-            }
-        }
-
-        private static string CategoryName(StrideCategory category)
-        {
-            switch (category)
-            {
-                case StrideCategory.InformationDisclosure:
-                    return "Information Disclosure";
-                case StrideCategory.DenialOfService:
-                    return "Denial of Service";
-                case StrideCategory.ElevationOfPrivilege:
-                    return "Elevation of Privilege";
-                default:
-                    return category.ToString();
             }
         }
 
@@ -595,7 +653,22 @@ namespace ThreatModelForge.Analysis
 
         private static int CompareThreats(GeneratedThreat left, GeneratedThreat right)
         {
+            if (left.Category == StrideCategory.Unknown && right.Category != StrideCategory.Unknown)
+            {
+                return 1;
+            }
+
+            if (left.Category != StrideCategory.Unknown && right.Category == StrideCategory.Unknown)
+            {
+                return -1;
+            }
+
             int byCategory = left.Category.CompareTo(right.Category);
+            if (left.Category == StrideCategory.Unknown && right.Category == StrideCategory.Unknown)
+            {
+                byCategory = string.Compare(left.ThreatCategory.Id, right.ThreatCategory.Id, StringComparison.Ordinal);
+            }
+
             if (byCategory != 0)
             {
                 return byCategory;

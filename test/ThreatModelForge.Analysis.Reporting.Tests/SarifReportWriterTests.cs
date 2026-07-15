@@ -39,6 +39,78 @@ namespace ThreatModelForge.Analysis.Reporting.Tests
             RunTest(report, docFilePath);
         }
 
+        /// <summary>SARIF rule descriptors preserve generalized threat metadata.</summary>
+        [TestMethod]
+        public void WriteThreatMetadataProperties()
+        {
+            Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
+            string docFilePath = Path.Join(this.TestContext.DeploymentDirectory, "Privacy.tm7");
+            ModelReport report = CreateTestReport(docFilePath);
+            RuleReport rule = new RuleReport
+            {
+                ID = "PRIV-1",
+                Name = "PrivacyRule",
+                FullDescription = "Privacy description",
+                HelpText = "Privacy help",
+                AnalyzerId = "Analysis.TestRuleAssembly, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
+                Severity = MessageSeverity.Info,
+                ThreatCategoryId = "medical/privacy",
+                ThreatCategoryName = "Privacy",
+                DefaultThreatPriority = ThreatPriority.High,
+            };
+            report.RuleReports.Add(rule);
+            CreateTestMessages(rule, 1);
+            using MemoryStream stream = new MemoryStream();
+            using (SarifReportWriter writer = new SarifReportWriter(stream, docFilePath))
+            {
+                writer.Write(report);
+            }
+
+            SarifLog? parsed = JsonConvert.DeserializeObject<SarifLog>(Encoding.UTF8.GetString(stream.ToArray()));
+            SarifLog sarif = parsed!;
+            ReportingDescriptor descriptor = sarif.Runs.Single().Tool.Driver.Rules.Single();
+            Assert.AreEqual("medical/privacy", descriptor.GetProperty<string>("threatCategoryId"));
+            Assert.AreEqual("Privacy", descriptor.GetProperty<string>("threatCategory"));
+            Assert.AreEqual("High", descriptor.GetProperty<string>("defaultThreatPriority"));
+        }
+
+        /// <summary>SARIF preserves the complete category catalog even when no rule produces a result.</summary>
+        [TestMethod]
+        public void WriteThreatCategoryCatalogWithoutResults()
+        {
+            Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
+            string docFilePath = Path.Join(this.TestContext.DeploymentDirectory, "Catalog.tm7");
+            ModelReport report = CreateTestReport(docFilePath);
+            report.ThreatCategories.Add(new RuleThreatCategory(
+                "medical/privacy",
+                "privacy",
+                "Privacy",
+                "Patient privacy",
+                "Privacy harm."));
+            report.ThreatCategories.Add(new RuleThreatCategory(
+                "medical/safety",
+                "safety",
+                "Patient Safety",
+                null,
+                null));
+            using MemoryStream stream = new MemoryStream();
+            using (SarifReportWriter writer = new SarifReportWriter(stream, docFilePath))
+            {
+                writer.Write(report);
+            }
+
+            SarifLog? parsed = JsonConvert.DeserializeObject<SarifLog>(Encoding.UTF8.GetString(stream.ToArray()));
+            List<Dictionary<string, string>> categories = parsed!.Runs.Single().Tool.Driver
+                .GetProperty<List<Dictionary<string, string>>>("threatCategories");
+
+            Assert.HasCount(2, categories);
+            Assert.AreEqual("medical/privacy", categories[0]["id"]);
+            Assert.AreEqual("Patient privacy", categories[0]["shortDescription"]);
+            Assert.AreEqual("Privacy harm.", categories[0]["longDescription"]);
+            Assert.AreEqual("medical/safety", categories[1]["id"]);
+            Assert.AreEqual("Patient Safety", categories[1]["name"]);
+        }
+
         /// <summary>
         /// Unit test for <see cref="SarifReportWriter.Write"/> method.
         /// </summary>

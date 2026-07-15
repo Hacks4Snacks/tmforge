@@ -366,6 +366,9 @@ export interface components {
             id?: string;
             ruleId?: string;
             category?: string;
+            categoryId?: null | string;
+            categoryName?: null | string;
+            stride?: null | string;
             title?: string;
             mitigation?: null | string;
             severity?: string;

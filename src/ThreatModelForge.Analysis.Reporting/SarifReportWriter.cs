@@ -162,6 +162,21 @@ namespace ThreatModelForge.Analysis.Reporting
                 },
             };
 
+            if (report.ThreatCategories.Count > 0)
+            {
+                List<Dictionary<string, string>> categories = report.ThreatCategories
+                    .OrderBy(category => category.Id, StringComparer.Ordinal)
+                    .Select(category => new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["id"] = category.Id,
+                        ["name"] = category.Name,
+                        ["shortDescription"] = category.ShortDescription ?? string.Empty,
+                        ["longDescription"] = category.LongDescription ?? string.Empty,
+                    })
+                    .ToList();
+                this.sarifRun.Tool.Driver.SetProperty("threatCategories", categories);
+            }
+
             this.DocumentFilePath = report.SourcePath;
             this.HasSuppressedMessage = report.RuleReports.Any(r => r.SuppressedMessages?.Any() == true);
         }
@@ -179,6 +194,22 @@ namespace ThreatModelForge.Analysis.Reporting
                     HelpUri = rule.HelpUri,
                     DefaultConfiguration = new ReportingConfiguration { Level = GetSarifLevel(rule.Severity) },
                 };
+                if (!string.IsNullOrWhiteSpace(rule.ThreatCategoryId))
+                {
+                    sarifRule.SetProperty("threatCategoryId", rule.ThreatCategoryId);
+                    sarifRule.SetProperty("threatCategory", rule.ThreatCategoryName);
+                }
+
+                if (rule.Stride.HasValue)
+                {
+                    sarifRule.SetProperty("stride", rule.Stride.Value.ToString());
+                }
+
+                if (rule.DefaultThreatPriority.HasValue)
+                {
+                    sarifRule.SetProperty("defaultThreatPriority", rule.DefaultThreatPriority.Value.ToString());
+                }
+
                 this.rulesDictionary.Add(rule.ID ?? string.Empty, sarifRule);
             }
 

@@ -74,6 +74,15 @@ namespace ThreatModelForge.Analysis.Tests
             Assert.AreEqual("tmforge-rules", root.GetProperty("properties").GetProperty("schema").GetProperty("const").GetString());
             Assert.AreEqual(2, root.GetProperty("properties").GetProperty("version").GetProperty("const").GetInt32());
             Assert.IsFalse(root.GetProperty("additionalProperties").GetBoolean());
+            JsonElement definitions = root.GetProperty("$defs");
+            CollectionAssert.AreEquivalent(
+                new[] { "High", "Medium", "Low" },
+                definitions.GetProperty("threatPriority").GetProperty("enum")
+                    .EnumerateArray().Select(value => value.GetString()).ToArray());
+            Assert.AreEqual(
+                "#/$defs/threatPriority",
+                definitions.GetProperty("flatRule").GetProperty("properties")
+                    .GetProperty("defaultPriority").GetProperty("$ref").GetString());
         }
     }
 }

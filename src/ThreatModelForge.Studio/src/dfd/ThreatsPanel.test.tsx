@@ -84,6 +84,37 @@ describe('ThreatsPanel', () => {
     expect(heads).toEqual(['Spoofing1', 'Information disclosure2']);
   });
 
+  it('keeps custom category identities distinct even when their display names collide', () => {
+    renderPanel({
+      threats: [
+        threat({ id: 'a', category: 'Privacy', categoryId: 'pack-a/privacy', categoryName: 'Privacy', stride: undefined }),
+        threat({ id: 'b', category: 'Privacy', categoryId: 'pack-b/privacy', categoryName: 'Privacy', stride: undefined }),
+        threat({
+          id: 'c',
+          category: 'Spoofing',
+          categoryId: 'pack-c/spoofing',
+          categoryName: 'Spoofing',
+          stride: undefined,
+        }),
+      ],
+    });
+
+    const heads = [...document.querySelectorAll('.threat-group-head')].map((heading) => heading.textContent);
+    expect(heads).toEqual(['Privacy1', 'Privacy1', 'Spoofing1']);
+  });
+
+  it('groups manual and generated threats in the same canonical STRIDE group', () => {
+    renderPanel({
+      threats: [
+        threat({ id: 'generated', category: 'Spoofing', categoryId: 'S', categoryName: 'Spoofing', stride: 'Spoofing' }),
+        threat({ id: 'manual', category: 'Spoofing', manual: true, categoryId: undefined, stride: undefined }),
+      ],
+    });
+
+    const heads = [...document.querySelectorAll('.threat-group-head')].map((heading) => heading.textContent);
+    expect(heads).toEqual(['Spoofing2']);
+  });
+
   it('links CWE / CAPEC references to their MITRE catalog pages', () => {
     renderPanel();
 

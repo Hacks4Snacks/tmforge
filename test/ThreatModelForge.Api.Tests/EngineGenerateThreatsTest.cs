@@ -25,6 +25,9 @@ namespace ThreatModelForge.Api.Tests
             ThreatDto? spoof = threats.FirstOrDefault(t => t.RuleId == "TM1023");
             Assert.IsNotNull(spoof);
             Assert.AreEqual("Spoofing", spoof!.Category);
+            Assert.AreEqual("S", spoof.CategoryId);
+            Assert.AreEqual("Spoofing", spoof.CategoryName);
+            Assert.AreEqual("Spoofing", spoof.Stride);
             Assert.IsTrue(spoof.References.Contains("CWE-287"));
         }
 

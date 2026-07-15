@@ -7,6 +7,9 @@ namespace ThreatModelForge.Analysis
     /// </summary>
     public enum StrideCategory
     {
+        /// <summary>No STRIDE mapping exists for this threat category.</summary>
+        Unknown = -1,
+
         /// <summary>Impersonating something or someone else.</summary>
         Spoofing,
 

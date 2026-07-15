@@ -182,7 +182,7 @@ namespace ThreatModelForge.Engine
         }
 
         /// <summary>
-        /// Projects the model's analysis findings into STRIDE threats. Detection is entirely the
+        /// Projects the model's threat-bearing analysis findings into threats. Detection is entirely the
         /// rule set's — this runs the same rules <see cref="Analyze"/> runs and frames the findings
         /// from threat-bearing rules as persistable threats. CLI, <c>/v1</c>, and WASM call the same
         /// projector, so results are identical by construction.
@@ -213,7 +213,10 @@ namespace ThreatModelForge.Engine
                         {
                             Id = threat.Id,
                             RuleId = threat.RuleId,
-                            Category = threat.Category.ToString(),
+                            Category = threat.Stride?.ToString() ?? threat.ThreatCategory.Name,
+                            CategoryId = threat.ThreatCategory.Id,
+                            CategoryName = threat.ThreatCategory.Name,
+                            Stride = threat.Stride?.ToString(),
                             Title = string.IsNullOrEmpty(edit?.Title) ? threat.Title : edit!.Title!,
                             Mitigation = string.IsNullOrEmpty(edit?.Mitigation) ? threat.Mitigation : edit!.Mitigation,
                             Description = edit?.Description,
@@ -596,6 +599,8 @@ namespace ThreatModelForge.Engine
                 if (!string.IsNullOrEmpty(entry.Priority))
                 {
                     threat.Priority = entry.Priority;
+                    threat.Properties ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    threat.Properties["PriorityOverride"] = "true";
                 }
 
                 if (!string.IsNullOrEmpty(entry.Title))

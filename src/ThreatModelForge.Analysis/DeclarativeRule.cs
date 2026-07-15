@@ -25,6 +25,8 @@ namespace ThreatModelForge.Analysis
         private readonly InteractionExpression.Evaluator evaluator;
         private readonly RulePackDefinition? packDefinition;
         private readonly RuleProvenance? provenance;
+        private readonly RuleThreatCategory? threatCategory;
+        private readonly ThreatPriority? defaultThreatPriority;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="DeclarativeRule"/> class.
@@ -38,6 +40,8 @@ namespace ThreatModelForge.Analysis
         /// <param name="helpText">The remediation guidance.</param>
         /// <param name="helpUri">The optional documentation URL.</param>
         /// <param name="stride">The optional STRIDE category.</param>
+        /// <param name="threatCategory">The optional generalized threat category.</param>
+        /// <param name="defaultThreatPriority">The optional default threat priority.</param>
         /// <param name="threatReferences">The external references.</param>
         /// <param name="when">The optional guard condition.</param>
         /// <param name="assert">The optional requirement condition.</param>
@@ -53,6 +57,8 @@ namespace ThreatModelForge.Analysis
             string helpText,
             Uri? helpUri,
             StrideCategory? stride,
+            RuleThreatCategory? threatCategory,
+            ThreatPriority? defaultThreatPriority,
             IReadOnlyList<ThreatReference> threatReferences,
             DeclarativeCondition? when,
             DeclarativeCondition? assert,
@@ -66,6 +72,8 @@ namespace ThreatModelForge.Analysis
             this.HelpText = helpText;
             this.HelpUri = helpUri;
             this.stride = stride;
+            this.threatCategory = threatCategory;
+            this.defaultThreatPriority = defaultThreatPriority;
             this.threatReferences = threatReferences;
             this.expression = CompileFindingExpression(appliesTo, when, assert);
             this.evaluator = new InteractionExpression.Evaluator(
@@ -80,6 +88,12 @@ namespace ThreatModelForge.Analysis
 
         /// <inheritdoc/>
         public override StrideCategory? Stride => this.stride;
+
+        /// <inheritdoc/>
+        public override RuleThreatCategory? ThreatCategory => this.threatCategory ?? base.ThreatCategory;
+
+        /// <inheritdoc/>
+        public override ThreatPriority? DefaultThreatPriority => this.defaultThreatPriority;
 
         /// <inheritdoc/>
         public override IReadOnlyList<ThreatReference> ThreatReferences => this.threatReferences;

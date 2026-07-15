@@ -1,7 +1,7 @@
 import createClient, { type Client } from 'openapi-fetch';
 import { FALLBACK_PACKS, FALLBACK_STENCILS } from './stencils';
 import { normalizeKind } from './types';
-import type { DfdKind, ThreatLifecycleState, TmForgeModel } from './types';
+import type { DfdKind, ThreatLifecycleState, ThreatTriage, TmForgeModel } from './types';
 import type { components, paths } from './engine/schema';
 
 export type Severity = 'info' | 'warning' | 'error';
@@ -17,16 +17,22 @@ export interface Finding {
 }
 
 /**
- * A generated STRIDE threat: the persisted-register projection of a threat-bearing finding. Same
- * detection as {@link Finding} (the rules), enriched with a STRIDE category and external references.
+ * A generated threat: the persisted-register projection of a threat-bearing finding. Same detection
+ * as {@link Finding} (the rules), enriched with category metadata and external references.
  */
 export interface Threat {
   /** Deterministic register key (`{targetGuid:ruleId}`). */
   id: string;
   /** The rule that detected the threat (for example `TM1023`). */
   ruleId: string;
-  /** The STRIDE category (`Spoofing`, `Tampering`, `Repudiation`, ...). */
+  /** Legacy STRIDE token, or the generalized display name when no STRIDE mapping exists. */
   category: string;
+  /** Stable effective category id (`S` for built-ins, `pack-id/source-id` for versioned packs). */
+  categoryId?: string;
+  /** Human-readable category display name. */
+  categoryName?: string;
+  /** The corresponding STRIDE category, when one exists. */
+  stride?: string;
   /** The threat statement (the finding text). */
   title: string;
   /** The suggested mitigation (the rule's help text). */
@@ -163,7 +169,7 @@ export interface IEngineClient {
   write(model: TmForgeModel): Promise<string>;
   read(text: string): Promise<TmForgeModel>;
   analyze(model: TmForgeModel): Promise<Finding[]>;
-  /** Projects the model's threat-bearing findings into the STRIDE threat register (the same detection as analyze). */
+  /** Projects the model's threat-bearing findings into the categorized threat register (the same detection as analyze). */
   generateThreats(model: TmForgeModel): Promise<Threat[]>;
   exportTm7(model: TmForgeModel): Promise<Blob>;
   /** Lists the engine's registered file formats and their capabilities. */
@@ -312,7 +318,7 @@ function toPropertyDescriptor(dto: components['schemas']['PropertyDescriptor']):
 }
 
 /** Normalizes a generated TmForgeModelDto (all fields optional/nullable) onto the UI model. */
-function toModel(dto: components['schemas']['TmForgeModelDto']): TmForgeModel {
+export function toModel(dto: components['schemas']['TmForgeModelDto']): TmForgeModel {
   return {
     schema: 'tmforge-json',
     version: '0.1',
@@ -339,6 +345,23 @@ function toModel(dto: components['schemas']['TmForgeModelDto']): TmForgeModel {
           disabledRuleIds: dto.analysis.disabledRuleIds ?? undefined,
         }
       : undefined,
+    threats: dto.threats?.map(toThreatTriage),
+  };
+}
+
+/** Normalizes one durable threat-overlay entry returned with an engine-read model. */
+function toThreatTriage(dto: components['schemas']['ThreatStateDto']): ThreatTriage {
+  return {
+    id: dto.id ?? '',
+    state: normalizeThreatState(dto.state),
+    justification: dto.justification ?? undefined,
+    manual: dto.manual ?? undefined,
+    category: dto.category ?? undefined,
+    title: dto.title ?? undefined,
+    description: dto.description ?? undefined,
+    mitigation: dto.mitigation ?? undefined,
+    priority: dto.priority ?? undefined,
+    elementIds: dto.elementIds ?? undefined,
   };
 }
 
@@ -366,6 +389,9 @@ function toThreat(dto: components['schemas']['ThreatDto']): Threat {
     id: dto.id ?? '',
     ruleId: dto.ruleId ?? '',
     category: dto.category ?? '',
+    categoryId: dto.categoryId ?? undefined,
+    categoryName: dto.categoryName ?? undefined,
+    stride: dto.stride ?? undefined,
     title: dto.title ?? '',
     mitigation: dto.mitigation ?? undefined,
     severity: (dto.severity ?? 'warning') as Severity,

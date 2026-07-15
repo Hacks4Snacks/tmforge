@@ -187,6 +187,11 @@ namespace ThreatModelForge.Engine
                 return new AuthoringResultDto { Success = false, Error = "A STRIDE category is required." };
             }
 
+            if (!TryCanonicalPriority(request.Priority, out string? priority))
+            {
+                return new AuthoringResultDto { Success = false, Error = "Priority must be High, Medium, or Low." };
+            }
+
             TmForgeModelDto source = model ?? new TmForgeModelDto();
             string id = "manual:" + Guid.NewGuid().ToString("N");
             ThreatStateDto entry = new ThreatStateDto
@@ -198,7 +203,7 @@ namespace ThreatModelForge.Engine
                 Title = request.Title,
                 Description = NullIfBlank(request.Description),
                 Mitigation = NullIfBlank(request.Mitigation),
-                Priority = NullIfBlank(request.Priority),
+                Priority = priority,
                 ElementIds = request.ElementIds != null && request.ElementIds.Count > 0 ? request.ElementIds.ToList() : null,
             };
             List<ThreatStateDto> overlay = new List<ThreatStateDto>(source.Threats ?? Array.Empty<ThreatStateDto>()) { entry };
@@ -220,6 +225,11 @@ namespace ThreatModelForge.Engine
                 return new AuthoringResultDto { Success = false, Error = "A threat id is required." };
             }
 
+            if (!TryCanonicalPriority(request.Priority, out string? priority))
+            {
+                return new AuthoringResultDto { Success = false, Error = "Priority must be High, Medium, or Low." };
+            }
+
             TmForgeModelDto source = model ?? new TmForgeModelDto();
             List<ThreatStateDto> overlay = new List<ThreatStateDto>(source.Threats ?? Array.Empty<ThreatStateDto>());
             int index = overlay.FindIndex(entry => string.Equals(entry.Id, request.Id, StringComparison.OrdinalIgnoreCase));
@@ -231,7 +241,7 @@ namespace ThreatModelForge.Engine
                 Manual = manual ? true : (bool?)null,
                 State = request.State != null ? ThreatStateWire.Canonical(request.State) : existing.State,
                 Justification = request.Justification ?? existing.Justification,
-                Priority = request.Priority ?? existing.Priority,
+                Priority = priority ?? existing.Priority,
                 Description = request.Description ?? existing.Description,
                 Mitigation = request.Mitigation ?? existing.Mitigation,
                 Category = existing.Category,
@@ -274,6 +284,20 @@ namespace ThreatModelForge.Engine
             }
 
             return new AuthoringResultDto { Success = true, Model = WithThreats(source, overlay), Removed = new[] { request.Id } };
+        }
+
+        private static bool TryCanonicalPriority(string? value, out string? priority)
+        {
+            priority = null;
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return true;
+            }
+
+            string[] priorities = { "High", "Medium", "Low" };
+            priority = priorities.FirstOrDefault(candidate =>
+                string.Equals(candidate, value, StringComparison.OrdinalIgnoreCase));
+            return priority != null;
         }
 
         private static TmForgeModelDto WithThreats(TmForgeModelDto source, List<ThreatStateDto> overlay)

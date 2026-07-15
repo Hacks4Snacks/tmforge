@@ -141,6 +141,9 @@ namespace ThreatModelForge.Cli
                 budget.AddText(threat.Id);
                 budget.AddText(threat.RuleId);
                 budget.AddText(threat.Category);
+                budget.AddText(threat.CategoryId);
+                budget.AddText(threat.CategoryName);
+                budget.AddText(threat.Stride);
                 budget.AddText(threat.Title);
                 budget.AddText(threat.Mitigation);
                 budget.AddText(threat.Severity);

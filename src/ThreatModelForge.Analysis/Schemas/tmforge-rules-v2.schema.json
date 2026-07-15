@@ -215,6 +215,9 @@
     "severity": {
       "enum": ["error", "warning", "info"]
     },
+    "threatPriority": {
+      "enum": ["High", "Medium", "Low"]
+    },
     "stride": {
       "enum": [
         "Spoofing",
@@ -255,6 +258,15 @@
               "assert": { "$ref": "#/$defs/nonRelationalCondition" }
             }
           }
+        },
+        {
+          "if": { "required": ["defaultPriority"] },
+          "then": {
+            "anyOf": [
+              { "required": ["categoryId"] },
+              { "required": ["stride"] }
+            ]
+          }
         }
       ],
       "properties": {
@@ -265,7 +277,9 @@
         "fullDescription": { "$ref": "#/$defs/boundedString" },
         "helpText": { "$ref": "#/$defs/boundedString" },
         "helpUri": { "$ref": "#/$defs/httpUri" },
+        "categoryId": { "$ref": "#/$defs/identity" },
         "stride": { "$ref": "#/$defs/stride" },
+        "defaultPriority": { "$ref": "#/$defs/threatPriority" },
         "threatReferences": { "$ref": "#/$defs/threatReferences" },
         "provenance": { "$ref": "#/$defs/provenance" },
         "when": { "$ref": "#/$defs/condition" },
@@ -276,6 +290,17 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "message", "expression"],
+      "allOf": [
+        {
+          "if": { "required": ["defaultPriority"] },
+          "then": {
+            "anyOf": [
+              { "required": ["categoryId"] },
+              { "required": ["stride"] }
+            ]
+          }
+        }
+      ],
       "properties": {
         "id": { "$ref": "#/$defs/identity" },
         "severity": { "$ref": "#/$defs/severity" },
@@ -283,7 +308,9 @@
         "fullDescription": { "$ref": "#/$defs/boundedString" },
         "helpText": { "$ref": "#/$defs/boundedString" },
         "helpUri": { "$ref": "#/$defs/httpUri" },
+        "categoryId": { "$ref": "#/$defs/identity" },
         "stride": { "$ref": "#/$defs/stride" },
+        "defaultPriority": { "$ref": "#/$defs/threatPriority" },
         "threatReferences": { "$ref": "#/$defs/threatReferences" },
         "provenance": { "$ref": "#/$defs/provenance" },
         "expression": { "$ref": "#/$defs/interactionExpression" }

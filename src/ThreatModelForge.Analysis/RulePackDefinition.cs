@@ -12,6 +12,7 @@ namespace ThreatModelForge.Analysis
     {
         private readonly Dictionary<string, RuleElementTypeDefinition> elementTypesById;
         private readonly Dictionary<string, RulePropertyDefinition> propertiesByName;
+        private readonly Dictionary<string, RuleCategoryDefinition> categoriesById;
 
         /// <summary>Initializes a new instance of the <see cref="RulePackDefinition"/> class.</summary>
         /// <param name="id">The stable pack identifier.</param>
@@ -46,6 +47,12 @@ namespace ThreatModelForge.Analysis
             this.Categories = categories;
             this.ElementTypes = elementTypes;
             this.Properties = properties;
+            this.categoriesById = new Dictionary<string, RuleCategoryDefinition>(StringComparer.OrdinalIgnoreCase);
+            foreach (RuleCategoryDefinition category in categories)
+            {
+                this.categoriesById[category.Id] = category;
+            }
+
             this.elementTypesById = new Dictionary<string, RuleElementTypeDefinition>(StringComparer.OrdinalIgnoreCase);
             foreach (RuleElementTypeDefinition elementType in elementTypes)
             {
@@ -92,6 +99,16 @@ namespace ThreatModelForge.Analysis
 
         /// <summary>Gets the source property and alias catalog.</summary>
         public IReadOnlyList<RulePropertyDefinition> Properties { get; }
+
+        /// <summary>Resolves a source category identifier case-insensitively.</summary>
+        /// <param name="id">The source category identifier.</param>
+        /// <returns>The canonical category, or <see langword="null"/>.</returns>
+        internal RuleCategoryDefinition? ResolveCategory(string id)
+        {
+            return this.categoriesById.TryGetValue(id, out RuleCategoryDefinition? category)
+                ? category
+                : null;
+        }
 
         /// <summary>Resolves an element type identifier case-insensitively.</summary>
         /// <param name="id">The element type identifier.</param>
