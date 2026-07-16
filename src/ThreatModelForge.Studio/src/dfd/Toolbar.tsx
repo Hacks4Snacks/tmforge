@@ -194,7 +194,7 @@ export function Toolbar(props: ToolbarProps) {
         <button
           className="btn"
           onClick={props.onTidy}
-          title="Auto-layout: size shapes to their text, route flows through facing ports, and separate the flow labels so lines and text stay clear"
+          title="Auto-layout: deconflict trust boundaries and shapes, route flows through facing ports, and separate flow labels"
         >
           Tidy
         </button>
