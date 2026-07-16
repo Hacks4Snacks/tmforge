@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.6.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.5.0...v0.6.0) (2026-07-16)
+
+
+### Features
+
+* add official TB7 fidelity and versioned rule packs ([#38](https://github.com/Hacks4Snacks/tmforge/issues/38)) ([ebbd455](https://github.com/Hacks4Snacks/tmforge/commit/ebbd4555d1002034a6c6091dff8a5c048e9ec486))
+* extend rule-packv2 schema to support threat categories ([#43](https://github.com/Hacks4Snacks/tmforge/issues/43)) ([750d198](https://github.com/Hacks4Snacks/tmforge/commit/750d198b4aa01f4202ff7130caebad8cd6286979))
+* Harden model processing and VSDX import/export ([#37](https://github.com/Hacks4Snacks/tmforge/issues/37)) ([cf32d63](https://github.com/Hacks4Snacks/tmforge/commit/cf32d63f2586b1e9d7cf51e133ea32c97a6adf2a))
+* Interaction expression engine ([#42](https://github.com/Hacks4Snacks/tmforge/issues/42)) ([e8bb047](https://github.com/Hacks4Snacks/tmforge/commit/e8bb0470173bc380ff2a8c8ed0e135f1f9ab2643))
+* mcp hardening ([#36](https://github.com/Hacks4Snacks/tmforge/issues/36)) ([db5bd30](https://github.com/Hacks4Snacks/tmforge/commit/db5bd303a87c548f6999064c75ee9fa39a051554))
+* modernize threat report ([#35](https://github.com/Hacks4Snacks/tmforge/issues/35)) ([ec58ac6](https://github.com/Hacks4Snacks/tmforge/commit/ec58ac689f36b2c748b1182abe8545dfb3918a66))
+* MTMT template compiler ([#44](https://github.com/Hacks4Snacks/tmforge/issues/44)) ([04f6271](https://github.com/Hacks4Snacks/tmforge/commit/04f62713328a3eb075afdb7271d3c24b763f9165))
+
+
+### Bug Fixes
+
+* Deconflict line labels and objects ([#34](https://github.com/Hacks4Snacks/tmforge/issues/34)) ([09d28c8](https://github.com/Hacks4Snacks/tmforge/commit/09d28c8637185bddefe154f7accde43a939e145d))
+* Resolve CodeQL code-scanning findings ([#32](https://github.com/Hacks4Snacks/tmforge/issues/32)) ([8543825](https://github.com/Hacks4Snacks/tmforge/commit/85438255e6a9c7d358995b2de881150d7a0f90fe))
+
 ## [0.5.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.4.0...v0.5.0) (2026-07-09)
 
 
