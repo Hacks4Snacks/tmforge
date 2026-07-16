@@ -35,14 +35,20 @@ namespace ThreatModelForge.KnowledgeBase
                 XmlResolver = null,
             };
 
-            using TextReader textReader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 4096, leaveOpen: true);
+            using TextReader textReader = new StreamReader(
+                stream,
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true),
+                detectEncodingFromByteOrderMarks: false,
+                bufferSize: 4096,
+                leaveOpen: true);
             using XmlReader xmlReader = XmlReader.Create(textReader, settings);
             XDocument document = XDocument.Load(xmlReader);
 
             XElement root = document.Root ?? throw new InvalidOperationException("The knowledge base document is empty.");
-            if (!string.Equals(root.Name.LocalName, Names.KnowledgeBase, StringComparison.Ordinal))
+            if (root.Name.Namespace != XNamespace.None ||
+                !string.Equals(root.Name.LocalName, Names.KnowledgeBase, StringComparison.Ordinal))
             {
-                throw new InvalidOperationException($"Expected a <{Names.KnowledgeBase}> root element.");
+                throw new InvalidOperationException($"Expected an unqualified <{Names.KnowledgeBase}> root element.");
             }
 
             KnowledgeBaseData result = new KnowledgeBaseData();

@@ -43,6 +43,7 @@ tmforge <command> [options] <file>
 | [`set`](#set) | Author | Set an element/flow's name or properties. |
 | [`page`](#page) | Author | List, add, rename, reorder, or remove pages (diagrams). |
 | [`layout`](#layout) | Author | Auto-lay-out the diagram (layered; no hand-placed coordinates). |
+| [`rules`](#rules) | Analyze | Compile an MTMT `.tb7` template into a versioned rule pack. |
 | [`analyze`](#analyze) | Analyze | Evaluate the analysis rules against a model. |
 | [`threats`](#threats) | Analyze | Report or author threats — the persisted, triaged view of the findings (`--write` to persist; `--add`/`--edit`/`--remove` to author). |
 | [`accept`](#accept) | Analyze | Accept a generated threat's risk (records a justification). |
@@ -461,6 +462,43 @@ tmforge layout payments.tm7 --node-spacing 60 --layer-spacing 120
 
 ## Analysis, reporting & conversion
 
+### `rules`
+
+Compile a Microsoft Threat Modeling Tool template into a deterministic version 2 rule pack. The
+compiler translates each threat's `Include AND NOT Exclude` expression through the same interaction
+expression engine used by analysis; it does not introduce a second detector.
+
+```text
+tmforge rules import --from <template.tb7> --out <pack.tmrules.json> [--pack-id <id>] [--strict] [--json]
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--from <path>` | Source MTMT `.tb7` template. |
+| `--out <path>` | Destination `*.tmrules.json` pack. Written atomically. |
+| `--pack-id <id>` | Override the deterministic name-plus-content-fingerprint pack id. |
+| `--strict` | Fail with exit `2` and write nothing if any source threat cannot be represented exactly. |
+| `--json` | Emit source/emitted/skipped counts, warnings, category distribution, and diagnostics. |
+
+Without `--strict`, representable threats are written and skipped threats are reported as a partial
+success. Pack-wide catalog errors, malformed XML/UTF-8, duplicate threat ids, size-limit failures,
+and unsafe input/output aliasing always fail with exit `1` and do not write a pack.
+
+```bash
+tmforge rules import \
+  --from "Azure Cloud Services.tb7" \
+  --out azure.tmrules.json \
+  --strict --json
+
+tmforge analyze model.tm7 --rules azure.tmrules.json
+tmforge threats model.tm7 --rules azure.tmrules.json
+```
+
+Generated packs retain source identity, fingerprint, manifest metadata, original threat/category ids,
+raw filters, and source threat metadata. Distributing a generated pack is a redistribution of source
+template content: retain the source template's license and attribution. The official Microsoft
+templates are MIT-licensed; see the repository [`NOTICE`](../NOTICE).
+
 ### `analyze`
 
 Evaluate the analysis rules against the model. See [Analysis rules & CI](analysis-rules.md) for the
@@ -502,9 +540,9 @@ tmforge analyze payments.tm7 --suppressionFile suppressions.json --json
 
 ### `threats`
 
-Report the model's **STRIDE threats** — the persisted, triaged view of the analysis findings.
+Report the model's **threats** — the persisted, triaged view of the threat-bearing analysis findings.
 Detection is entirely the rule set: `threats` runs the same rules as [`analyze`](#analyze), keeps the
-findings from threat-bearing rules, and frames each as a STRIDE threat against its element or flow.
+findings from rules that declare a threat category, and frames each as a threat against its element or flow.
 The difference from `analyze` is **lifecycle** — where a finding is transient and gated, a threat is
 persisted and triaged (`open -> mitigated -> accepted`). With `--write`, the threats are persisted into
 the model's register, keyed so a re-run updates in place and never overwrites prior triage.
@@ -516,9 +554,9 @@ tmforge threats [--write] [--rules <path>] [--json] <model>
 | Option | Meaning |
 | --- | --- |
 | `--write` | Persist the threats into the model's register (preserves prior triage). |
-| `--rules <path>` | Also project threats from custom [declarative rules](analysis-rules.md#authoring-custom-rules-declarative); a custom rule that declares a `stride` category becomes a threat. |
+| `--rules <path>` | Also project threats from custom [declarative rules](analysis-rules.md#authoring-custom-rules-declarative); a custom rule that declares `categoryId` or `stride` becomes threat-bearing. |
 
-Each threat carries a STRIDE category, the rule's mitigation, and external references (CWE / CAPEC).
+Each threat carries its rule-defined category, mitigation, and external references (CWE / CAPEC).
 There is no separate threat catalog: **extend coverage the way detection is extended — add a rule to a
 rule pack** (see [Analysis rules](analysis-rules.md)). Rules that represent structural or naming
 hygiene (rather than a security weakness) are not reported as threats.
@@ -533,8 +571,9 @@ After `--write`, triage the register with [`list threats`](#list) and [`accept`]
 
 #### Authoring threats
 
-Beyond acceptance, `threats` can **create, edit, and remove** threats. These modes materialize the
-register (so rule threats are editable), apply the change, and save the model:
+Beyond acceptance, `threats` can **create, edit, and remove** threats. `--add` writes only the manual
+entry; it does not persist the current generated findings. `--edit` materializes rule threats for
+lookup when needed. `--remove` deletes only a manual entry. Each operation then saves the model:
 
 ```text
 tmforge threats --add --title <t> --category <STRIDE> [--scope <id>] [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] <model>
@@ -544,7 +583,7 @@ tmforge threats --remove <id> <model>
 
 | Option | Meaning |
 | --- | --- |
-| `--add` | Author a **manual threat** the rules do not detect. `--category` is a STRIDE category (`Spoofing` / `Tampering` / `Repudiation` / `InformationDisclosure` / `DenialOfService` / `ElevationOfPrivilege`); `--scope` is an element or flow id (omit for a model-wide threat). Manual threats are keyed `manual:<guid>`. |
+| `--add` | Author a **manual threat** the rules do not detect. `--category` is a STRIDE category (`Spoofing` / `Tampering` / `Repudiation` / `InformationDisclosure` / `DenialOfService` / `ElevationOfPrivilege`); `--scope` is an element or flow id (omit for a model-wide threat). Manual threats are keyed `manual:<guid>` and do not implicitly persist generated threats. |
 | `--edit <id>` | Change a threat's `--state` (`Open` / `NeedsInvestigation` / `Mitigated` / `Accepted`), `--priority`, `--mitigation`, `--description`, or `--note`. Works on rule-derived and manual threats. |
 | `--remove <id>` | Delete a **manual** threat (rule threats regenerate from the rules — accept or edit them instead). |
 

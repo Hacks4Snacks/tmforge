@@ -126,7 +126,21 @@
         "id": { "$ref": "#/$defs/nonEmptyString" },
         "version": { "$ref": "#/$defs/nonEmptyString" },
         "uri": { "$ref": "#/$defs/absoluteUri" },
-        "fingerprint": { "$ref": "#/$defs/nonEmptyString" }
+        "fingerprint": { "$ref": "#/$defs/nonEmptyString" },
+        "metadata": {
+          "type": "array",
+          "maxItems": 65536,
+          "items": { "$ref": "#/$defs/sourceMetadata" }
+        }
+      }
+    },
+    "sourceMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value"],
+      "properties": {
+        "key": { "$ref": "#/$defs/namespacedIdentifier" },
+        "value": { "$ref": "#/$defs/boundedString" }
       }
     },
     "category": {

@@ -6,6 +6,7 @@ namespace ThreatModelForge.Cli
     using System.Linq;
     using ThreatModelForge.Analysis;
     using ThreatModelForge.Editing;
+    using ThreatModelForge.Formats;
     using ThreatModelForge.KnowledgeBase;
     using ThreatModelForge.Model;
     using ThreatModelForge.Model.Abstracts;
@@ -274,7 +275,7 @@ namespace ThreatModelForge.Cli
                 {
                     threat.Title ?? string.Empty,
                     threat.Priority ?? string.Empty,
-                    threat.State.ToString(),
+                    ThreatStateWire.ToWire(threat.State),
                     threat.UserThreatCategory ?? string.Empty,
                     threat.Id.ToString(),
                 });
@@ -285,7 +286,7 @@ namespace ThreatModelForge.Cli
                 id = t.Id,
                 title = t.Title,
                 priority = t.Priority,
-                state = t.State,
+                state = ThreatStateWire.ToWire(t.State),
                 category = t.UserThreatCategory,
                 flowGuid = t.FlowGuid,
                 diagramGuid = t.DrawingSurfaceGuid,

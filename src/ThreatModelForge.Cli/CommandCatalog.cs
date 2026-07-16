@@ -30,6 +30,7 @@ namespace ThreatModelForge.Cli
             new CommandInfo("set", "Set an element/flow's name or properties (protocol, port, auth, ...).", "id, name, properties{}", SetCommand.Run),
             new CommandInfo("page", "List, add, rename, reorder, or remove pages (diagrams).", "ls: count, items[]; add: index, name, id; rename: id, name; rm: id, name, remaining; reorder: id, name, index", PageCommand.Run),
             new CommandInfo("layout", "Auto-lay-out the diagram (layered; no hand-placed coordinates).", "pages, components", LayoutCommand.Run),
+            new CommandInfo("rules", "Compile MTMT templates into versioned analysis rule packs.", "operation,input,output,strict,status,packId,packName,sourceCount,emittedCount,skippedCount,warningCount,categoryDistribution{},diagnostics[]", RulesCommand.Run),
             new CommandInfo("analyze", "Analyze a threat model against its analysis rules.", "a SARIF-style model report (runs[].results[]); see docs/cli-reference.md", AnalyzeCommand.Run),
             new CommandInfo("threats", "Report threats: the persisted, triaged view of the analysis findings (--write to persist).", "summary{count,written}, threats[]{id,ruleId,category,categoryId,categoryName,stride,title,mitigation,severity,priority,references[],scope,interaction}", ThreatsCommand.Run),
             new CommandInfo("accept", "Accept a generated threat's risk (marks it not-applicable with a reason).", "threat, state, reason", AcceptCommand.Run),
