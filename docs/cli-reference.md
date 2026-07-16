@@ -43,6 +43,7 @@ tmforge <command> [options] <file>
 | [`set`](#set) | Author | Set an element/flow's name or properties. |
 | [`page`](#page) | Author | List, add, rename, reorder, or remove pages (diagrams). |
 | [`layout`](#layout) | Author | Auto-lay-out the diagram (layered; no hand-placed coordinates). |
+| [`rules`](#rules) | Analyze | Compile an MTMT `.tb7` template into a versioned rule pack. |
 | [`analyze`](#analyze) | Analyze | Evaluate the analysis rules against a model. |
 | [`threats`](#threats) | Analyze | Report or author threats — the persisted, triaged view of the findings (`--write` to persist; `--add`/`--edit`/`--remove` to author). |
 | [`accept`](#accept) | Analyze | Accept a generated threat's risk (records a justification). |
@@ -460,6 +461,43 @@ tmforge layout payments.tm7 --node-spacing 60 --layer-spacing 120
 ---
 
 ## Analysis, reporting & conversion
+
+### `rules`
+
+Compile a Microsoft Threat Modeling Tool template into a deterministic version 2 rule pack. The
+compiler translates each threat's `Include AND NOT Exclude` expression through the same interaction
+expression engine used by analysis; it does not introduce a second detector.
+
+```text
+tmforge rules import --from <template.tb7> --out <pack.tmrules.json> [--pack-id <id>] [--strict] [--json]
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--from <path>` | Source MTMT `.tb7` template. |
+| `--out <path>` | Destination `*.tmrules.json` pack. Written atomically. |
+| `--pack-id <id>` | Override the deterministic name-plus-content-fingerprint pack id. |
+| `--strict` | Fail with exit `2` and write nothing if any source threat cannot be represented exactly. |
+| `--json` | Emit source/emitted/skipped counts, warnings, category distribution, and diagnostics. |
+
+Without `--strict`, representable threats are written and skipped threats are reported as a partial
+success. Pack-wide catalog errors, malformed XML/UTF-8, duplicate threat ids, size-limit failures,
+and unsafe input/output aliasing always fail with exit `1` and do not write a pack.
+
+```bash
+tmforge rules import \
+  --from "Azure Cloud Services.tb7" \
+  --out azure.tmrules.json \
+  --strict --json
+
+tmforge analyze model.tm7 --rules azure.tmrules.json
+tmforge threats model.tm7 --rules azure.tmrules.json
+```
+
+Generated packs retain source identity, fingerprint, manifest metadata, original threat/category ids,
+raw filters, and source threat metadata. Distributing a generated pack is a redistribution of source
+template content: retain the source template's license and attribution. The official Microsoft
+templates are MIT-licensed; see the repository [`NOTICE`](../NOTICE).
 
 ### `analyze`
 

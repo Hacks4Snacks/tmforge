@@ -22,7 +22,8 @@ namespace ThreatModelForge.Analysis
     /// </summary>
     public static class DeclarativeRuleProvider
     {
-        private const int MaxRuleFileBytes = 8 * 1024 * 1024;
+        /// <summary>The maximum accepted size of one declarative rule-pack file.</summary>
+        internal const int MaxRuleFileBytes = 8 * 1024 * 1024;
         private const int MaxSourceFiles = 128;
         private const long MaxTotalRuleBytes = 32L * 1024 * 1024;
         private const int MaxRulesPerPack = 4096;
@@ -188,6 +189,25 @@ namespace ThreatModelForge.Analysis
             }
 
             return new RuleBundle(rules.AsReadOnly(), packs.AsReadOnly());
+        }
+
+        /// <summary>Validates an in-memory version 2 pack using the loader's authoritative contract.</summary>
+        /// <param name="dialect">The rule language dialect.</param>
+        /// <param name="header">The pack header.</param>
+        /// <param name="categories">The category catalog.</param>
+        /// <param name="elementTypes">The element-type catalog.</param>
+        /// <param name="properties">The property catalog.</param>
+        /// <param name="rules">The rules.</param>
+        /// <returns>A validation error, or <see langword="null"/> when the pack is valid.</returns>
+        internal static string? ValidateCompiledPack(
+            string dialect,
+            DeclarativeRuleFile.PackSpec header,
+            IReadOnlyList<DeclarativeRuleFile.CategorySpec> categories,
+            IReadOnlyList<DeclarativeRuleFile.ElementTypeSpec> elementTypes,
+            IReadOnlyList<DeclarativeRuleFile.PropertySpec> properties,
+            IReadOnlyList<DeclarativeRuleSpec> rules)
+        {
+            return ValidateVersionTwoPack(dialect, header, categories, elementTypes, properties, rules);
         }
 
         private static string? ValidateVersionTwoRule(DeclarativeRuleSpec spec)
@@ -593,7 +613,8 @@ namespace ThreatModelForge.Analysis
                     Array.Empty<DeclarativeRuleFile.CategorySpec>(),
                     Array.Empty<DeclarativeRuleFile.ElementTypeSpec>(),
                     Array.Empty<DeclarativeRuleFile.PropertySpec>(),
-                    legacyRules);
+                    legacyRules,
+                    sourceMetadataCount: 0);
                 string? textError = ValidatePackText(
                     null,
                     Array.Empty<DeclarativeRuleFile.CategorySpec>(),
@@ -670,7 +691,7 @@ namespace ThreatModelForge.Analysis
                 return null;
             }
 
-            string? validationError = ValidatePack(parsed.Dialect!, header, categories, elementTypes, properties, rules);
+            string? validationError = ValidateVersionTwoPack(parsed.Dialect!, header, categories, elementTypes, properties, rules);
             if (validationError != null)
             {
                 diagnostics?.Invoke($"Skipped rule file '{file}': {validationError}");
@@ -692,7 +713,15 @@ namespace ThreatModelForge.Analysis
             DeclarativeRuleFile.SourceSpec? source = header.Source;
             RulePackSource? immutableSource = source == null
                 ? null
-                : new RulePackSource(source.Type!, source.Name, source.Id, source.Version, source.Uri, source.Fingerprint);
+                : new RulePackSource(
+                    source.Type!,
+                    source.Name,
+                    source.Id,
+                    source.Version,
+                    source.Uri,
+                    source.Fingerprint,
+                    (source.Metadata ?? new List<DeclarativeRuleFile.SourceMetadataSpec>())
+                        .ToDictionary(item => item.Key!, item => item.Value!, StringComparer.Ordinal));
             RulePackDefinition pack = new RulePackDefinition(
                 header.Id!,
                 parsed.Dialect!,
@@ -791,7 +820,7 @@ namespace ThreatModelForge.Analysis
             return true;
         }
 
-        private static string? ValidatePack(
+        private static string? ValidateVersionTwoPack(
             string dialect,
             DeclarativeRuleFile.PackSpec header,
             IReadOnlyList<DeclarativeRuleFile.CategorySpec> categories,
@@ -833,7 +862,12 @@ namespace ThreatModelForge.Analysis
                 }
             }
 
-            string? countError = ValidateCounts(categories, elementTypes, properties, rules);
+            string? countError = ValidateCounts(
+                categories,
+                elementTypes,
+                properties,
+                rules,
+                header.Source?.Metadata?.Count ?? 0);
             if (countError != null)
             {
                 return countError;
@@ -849,6 +883,20 @@ namespace ThreatModelForge.Analysis
             if (header.Source != null && !IsNamespacedIdentifier(sourceType))
             {
                 return "pack.source.type must be a namespaced identifier when source is present.";
+            }
+
+            if (header.Source?.Metadata?.Any(item => item == null ||
+                !IsNamespacedIdentifier(item.Key) || item.Value == null) == true)
+            {
+                return "pack.source.metadata entries require namespaced keys and values.";
+            }
+
+            string? sourceMetadataDuplicate = FindDuplicateId(
+                header.Source?.Metadata?.Select(item => item.Key) ?? Enumerable.Empty<string>(),
+                "source metadata");
+            if (sourceMetadataDuplicate != null)
+            {
+                return sourceMetadataDuplicate;
             }
 
             string? categoryError = FindDuplicateId(categories.Select(category => category.Id), "category");
@@ -1178,7 +1226,7 @@ namespace ThreatModelForge.Analysis
                 root.TryGetProperty("version", out JsonElement version) &&
                 version.ValueKind == JsonValueKind.Number &&
                 version.TryGetInt32(out int value) &&
-                (value == 2 || value == 3);
+                value == 2;
         }
 
         private static bool ContainsNull(JsonElement element)
@@ -1200,7 +1248,8 @@ namespace ThreatModelForge.Analysis
             IReadOnlyList<DeclarativeRuleFile.CategorySpec> categories,
             IReadOnlyList<DeclarativeRuleFile.ElementTypeSpec> elementTypes,
             IReadOnlyList<DeclarativeRuleFile.PropertySpec> properties,
-            IReadOnlyList<DeclarativeRuleSpec> rules)
+            IReadOnlyList<DeclarativeRuleSpec> rules,
+            int sourceMetadataCount)
         {
             if (rules.Count > MaxRulesPerPack)
             {
@@ -1229,6 +1278,8 @@ namespace ThreatModelForge.Analysis
                 catalogValues += property.AllowedValues?.Count ?? 0;
                 catalogValues += property.ElementTypeIds?.Count ?? 0;
             }
+
+            catalogValues += sourceMetadataCount;
 
             foreach (DeclarativeRuleSpec rule in rules)
             {
@@ -1271,6 +1322,7 @@ namespace ThreatModelForge.Analysis
                 categories += document.Pack.Categories.Count;
                 elementTypes += document.Pack.ElementTypes.Count;
                 properties += document.Pack.Properties.Count;
+                catalogValues += document.Pack.Source?.Metadata.Count ?? 0;
                 foreach (RulePropertyDefinition property in document.Pack.Properties)
                 {
                     catalogValues += property.Aliases.Count + property.AllowedValues.Count + property.ElementTypeIds.Count;
@@ -1361,6 +1413,13 @@ namespace ThreatModelForge.Analysis
                 header?.Source?.Uri,
                 header?.Source?.Fingerprint,
             };
+            foreach (DeclarativeRuleFile.SourceMetadataSpec metadata in
+                header?.Source?.Metadata ?? new List<DeclarativeRuleFile.SourceMetadataSpec>())
+            {
+                values.Add(metadata.Key);
+                values.Add(metadata.Value);
+            }
+
             values.AddRange(categories.SelectMany(category => new[] { category.Id, category.Name, category.ShortDescription, category.LongDescription }));
             values.AddRange(elementTypes.SelectMany(element => new[] { element.Id, element.Name, element.ParentId }));
             foreach (DeclarativeRuleFile.PropertySpec property in properties)
@@ -1524,7 +1583,10 @@ namespace ThreatModelForge.Analysis
                 {
                     return $"element type '{element.Id}' references unknown parent '{element.ParentId}'.";
                 }
+            }
 
+            foreach (DeclarativeRuleFile.ElementTypeSpec element in elementTypes)
+            {
                 HashSet<string> ancestors = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { element.Id! };
                 DeclarativeRuleFile.ElementTypeSpec current = element;
                 while (!string.IsNullOrWhiteSpace(current.ParentId) &&
@@ -1535,7 +1597,12 @@ namespace ThreatModelForge.Analysis
                         return $"element type hierarchy contains a cycle at '{current.ParentId}'.";
                     }
 
-                    current = byId[current.ParentId!];
+                    if (!byId.TryGetValue(current.ParentId!, out DeclarativeRuleFile.ElementTypeSpec? parent))
+                    {
+                        return $"element type '{current.Id}' references unknown parent '{current.ParentId}'.";
+                    }
+
+                    current = parent;
                 }
             }
 

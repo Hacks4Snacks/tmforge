@@ -174,6 +174,17 @@ tmforge analyze model.tm7 --rules ./rules.tmrules.json   # one spec file
 tmforge analyze model.tm7 --rules ./rules/               # a directory of specs (searched recursively)
 ```
 
+To compile an existing MTMT template instead of hand-authoring JSON, use [`rules import`](cli-reference.md#rules):
+
+```bash
+tmforge rules import --from template.tb7 --out template.tmrules.json --strict
+tmforge analyze model.tm7 --rules template.tmrules.json
+```
+
+The import preserves source expressions and metadata in provenance. A non-strict import writes all
+exactly representable threats and reports skipped threats; `--strict` writes nothing if any threat is
+skipped. Generated packs remain subject to the source template's license and attribution terms.
+
 Because a spec is inspectable data — not an assembly — it is safe to share and review, and it runs
 everywhere the CLI does. Custom rules are **added to** the built-in rules, never a replacement for
 them: `--rules` loads your rules *alongside* the full built-in set and both are evaluated together

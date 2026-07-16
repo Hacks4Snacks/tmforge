@@ -76,6 +76,19 @@ namespace ThreatModelForge.Analysis
 
             /// <summary>Gets or sets the optional source fingerprint.</summary>
             public string? Fingerprint { get; set; }
+
+            /// <summary>Gets or sets importer-neutral source metadata not otherwise represented.</summary>
+            public List<SourceMetadataSpec>? Metadata { get; set; }
+        }
+
+        /// <summary>One preserved template-level source metadata value.</summary>
+        internal sealed class SourceMetadataSpec
+        {
+            /// <summary>Gets or sets the namespaced metadata key.</summary>
+            public string? Key { get; set; }
+
+            /// <summary>Gets or sets the preserved metadata value.</summary>
+            public string? Value { get; set; }
         }
 
         /// <summary>The mutable JSON shape of a category definition.</summary>
