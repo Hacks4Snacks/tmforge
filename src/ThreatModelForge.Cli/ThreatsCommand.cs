@@ -112,11 +112,7 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            // Materialize the rule register so rule threats are present and editable alongside manual
-            // threats; existing triage (accepted / edited / manual) is preserved.
             using RuleSet ruleSet = AnalysisRuleSources.Create(RuleSourceCli.FromPath(parsed.Get("rules")));
-            ThreatGenerator.Apply(model, ThreatGenerator.Generate(model, ruleSet));
-
             if (add)
             {
                 return RunAdd(parsed, input, model, format, ruleSet);
@@ -124,6 +120,9 @@ namespace ThreatModelForge.Cli
 
             if (editId != null)
             {
+                // Rule threats are regenerable and may not be persisted yet. Materialize them only for
+                // edit lookup; adding or removing a manual threat must not change the generated register.
+                ThreatGenerator.Apply(model, ThreatGenerator.Generate(model, ruleSet));
                 return RunEdit(parsed, input, model, format, ruleSet, editId);
             }
 

@@ -228,6 +228,7 @@ namespace ThreatModelForge.Cli.Tests
             Assert.AreEqual("Repudiation", threat.UserThreatCategory);
             Assert.IsNull(threat.TypeId);
             Assert.AreEqual("High", threat.Priority);
+            Assert.AreEqual(1, model.AllThreatsDictionary.Count);
         }
 
         /// <summary>Editing a rule threat changes its state, priority, and description in the register.</summary>

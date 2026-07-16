@@ -540,9 +540,9 @@ tmforge analyze payments.tm7 --suppressionFile suppressions.json --json
 
 ### `threats`
 
-Report the model's **STRIDE threats** — the persisted, triaged view of the analysis findings.
+Report the model's **threats** — the persisted, triaged view of the threat-bearing analysis findings.
 Detection is entirely the rule set: `threats` runs the same rules as [`analyze`](#analyze), keeps the
-findings from threat-bearing rules, and frames each as a STRIDE threat against its element or flow.
+findings from rules that declare a threat category, and frames each as a threat against its element or flow.
 The difference from `analyze` is **lifecycle** — where a finding is transient and gated, a threat is
 persisted and triaged (`open -> mitigated -> accepted`). With `--write`, the threats are persisted into
 the model's register, keyed so a re-run updates in place and never overwrites prior triage.
@@ -554,9 +554,9 @@ tmforge threats [--write] [--rules <path>] [--json] <model>
 | Option | Meaning |
 | --- | --- |
 | `--write` | Persist the threats into the model's register (preserves prior triage). |
-| `--rules <path>` | Also project threats from custom [declarative rules](analysis-rules.md#authoring-custom-rules-declarative); a custom rule that declares a `stride` category becomes a threat. |
+| `--rules <path>` | Also project threats from custom [declarative rules](analysis-rules.md#authoring-custom-rules-declarative); a custom rule that declares `categoryId` or `stride` becomes threat-bearing. |
 
-Each threat carries a STRIDE category, the rule's mitigation, and external references (CWE / CAPEC).
+Each threat carries its rule-defined category, mitigation, and external references (CWE / CAPEC).
 There is no separate threat catalog: **extend coverage the way detection is extended — add a rule to a
 rule pack** (see [Analysis rules](analysis-rules.md)). Rules that represent structural or naming
 hygiene (rather than a security weakness) are not reported as threats.
@@ -571,8 +571,9 @@ After `--write`, triage the register with [`list threats`](#list) and [`accept`]
 
 #### Authoring threats
 
-Beyond acceptance, `threats` can **create, edit, and remove** threats. These modes materialize the
-register (so rule threats are editable), apply the change, and save the model:
+Beyond acceptance, `threats` can **create, edit, and remove** threats. `--add` writes only the manual
+entry; it does not persist the current generated findings. `--edit` materializes rule threats for
+lookup when needed. `--remove` deletes only a manual entry. Each operation then saves the model:
 
 ```text
 tmforge threats --add --title <t> --category <STRIDE> [--scope <id>] [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] <model>
@@ -582,7 +583,7 @@ tmforge threats --remove <id> <model>
 
 | Option | Meaning |
 | --- | --- |
-| `--add` | Author a **manual threat** the rules do not detect. `--category` is a STRIDE category (`Spoofing` / `Tampering` / `Repudiation` / `InformationDisclosure` / `DenialOfService` / `ElevationOfPrivilege`); `--scope` is an element or flow id (omit for a model-wide threat). Manual threats are keyed `manual:<guid>`. |
+| `--add` | Author a **manual threat** the rules do not detect. `--category` is a STRIDE category (`Spoofing` / `Tampering` / `Repudiation` / `InformationDisclosure` / `DenialOfService` / `ElevationOfPrivilege`); `--scope` is an element or flow id (omit for a model-wide threat). Manual threats are keyed `manual:<guid>` and do not implicitly persist generated threats. |
 | `--edit <id>` | Change a threat's `--state` (`Open` / `NeedsInvestigation` / `Mitigated` / `Accepted`), `--priority`, `--mitigation`, `--description`, or `--note`. Works on rule-derived and manual threats. |
 | `--remove <id>` | Delete a **manual** threat (rule threats regenerate from the rules — accept or edit them instead). |
 
