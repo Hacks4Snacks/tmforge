@@ -53,6 +53,7 @@ connection, not the geometry.
 | Rename a node or flow | Double-click it and type. |
 | Delete the selection | `Delete` key. |
 | Resize a trust boundary | Drag its handles (it's a resizable region). |
+| Tidy the diagram | Click **Tidy** to fit labels, separate overlapping shapes and peer trust boundaries, route flows, and deconflict flow labels. Nested boundaries remain nested, and each boundary moves with its members. |
 | Pan / zoom | Drag the canvas / scroll; use the minimap and **fit** control to navigate. |
 | Undo / redo | `Cmd+Z` / `Shift+Cmd+Z` (covers every edit). |
 

@@ -598,6 +598,8 @@ export function findEdgeLabelObjectOverlaps(
 
 /** Desired minimum gap (px) kept between component nodes when they are pushed apart. */
 const NODE_GAP = 24;
+/** Desired minimum gap (px) inserted when overlapping peer trust boundaries are separated. */
+const BOUNDARY_GAP = 24;
 /** Padding (px) kept between a boundary's edge and the components it contains when it is grown. */
 const BOUNDARY_PAD = 20;
 /** Iteration cap for overlap relaxation — diagrams are small, so this converges well before it. */
@@ -621,21 +623,44 @@ function rectOf(n: DfdNode): Rect {
   };
 }
 
+/** Whether one rectangle fully contains another, including coincident edges. */
+function containsRect(outer: Rect, inner: Rect): boolean {
+  return inner.x >= outer.x
+    && inner.y >= outer.y
+    && inner.x + inner.w <= outer.x + outer.w
+    && inner.y + inner.h <= outer.y + outer.h;
+}
+
+/** Resolves a model Boundary reference against a boundary's id, alias, or label. */
+function resolveBoundary(boundaries: DfdNode[], reference: string | undefined): DfdNode | undefined {
+  const expected = reference?.trim().toLowerCase();
+  if (!expected) {
+    return undefined;
+  }
+  return boundaries.find((boundary) => {
+    const alias = boundary.data.properties?.Alias;
+    return [boundary.id, boundary.data.label, alias].some(
+      (candidate) => typeof candidate === 'string' && candidate.trim().toLowerCase() === expected,
+    );
+  });
+}
+
+/** Returns an element's explicit Boundary property, when one was authored. */
+function declaredBoundary(node: DfdNode): string | undefined {
+  const reference = node.data.properties?.Boundary;
+  return typeof reference === 'string' ? reference : undefined;
+}
+
 /**
- * Separates overlapping component nodes and expands each trust boundary to keep containing the
- * components inside it. A component is pushed apart from an overlapping neighbour along the axis of
- * least penetration (so the movement is minimal), but only against neighbours in the same boundary,
- * so a node never drifts out of the boundary it belongs to; the boundary is then grown — never
- * shrunk — to wrap its contents. Boundaries are not moved, so the author's overall arrangement is
- * preserved, and a node that doesn't overlap anything is left exactly where it is (a no-op on an
- * already-clean diagram).
+ * Separates overlapping component nodes and peer trust boundaries. Components are assigned by their
+ * authored Boundary property first, then by the smallest region containing their centre. A boundary
+ * is grown — never shrunk — around its members, and overlapping peers move with all of their members
+ * along the axis of least penetration. Fully nested boundaries remain nested and move with their
+ * parent, preserving intentional hierarchy and component containment.
  */
 export function separateNodes(nodes: DfdNode[]): DfdNode[] {
   const boundaries = nodes.filter((n) => n.type === 'boundary');
   const components = nodes.filter((n) => n.type !== 'boundary');
-  if (components.length === 0) {
-    return nodes;
-  }
 
   // Mutable working rectangles for the components, keyed by id.
   const pos = new Map<string, Rect>();
@@ -643,22 +668,26 @@ export function separateNodes(nodes: DfdNode[]): DfdNode[] {
     pos.set(c.id, rectOf(c));
   }
 
-  // Assign each component to the smallest boundary whose rectangle contains its centre ('' = none).
+  // Assign each component to its declared boundary, then fall back to the smallest region containing
+  // its centre for models that do not carry authoring metadata (for example, imported .tm7 files).
   const boundaryRects = boundaries.map((b) => ({ id: b.id, r: rectOf(b) }));
   const groupOf = new Map<string, string>();
   for (const c of components) {
     const p = pos.get(c.id)!;
     const cx = p.x + p.w / 2;
     const cy = p.y + p.h / 2;
-    let best = '';
-    let bestArea = Infinity;
-    for (const b of boundaryRects) {
-      if (cx >= b.r.x && cx <= b.r.x + b.r.w && cy >= b.r.y && cy <= b.r.y + b.r.h && b.r.w * b.r.h < bestArea) {
-        bestArea = b.r.w * b.r.h;
-        best = b.id;
+    const declared = resolveBoundary(boundaries, declaredBoundary(c));
+    let owner = declared?.id ?? '';
+    if (!owner) {
+      let bestArea = Infinity;
+      for (const b of boundaryRects) {
+        if (cx >= b.r.x && cx <= b.r.x + b.r.w && cy >= b.r.y && cy <= b.r.y + b.r.h && b.r.w * b.r.h < bestArea) {
+          bestArea = b.r.w * b.r.h;
+          owner = b.id;
+        }
       }
     }
-    groupOf.set(c.id, best);
+    groupOf.set(c.id, owner);
   }
 
   const groups = new Map<string, string[]>();
@@ -707,46 +736,155 @@ export function separateNodes(nodes: DfdNode[]): DfdNode[] {
     }
   }
 
-  // Grow (never shrink) each boundary to wrap the components it owns, plus a little padding.
-  const grown = new Map<string, Rect>();
-  for (const b of boundaryRects) {
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    let any = false;
-    for (const c of components) {
-      if (groupOf.get(c.id) !== b.id) {
-        continue;
-      }
-      any = true;
-      const p = pos.get(c.id)!;
-      minX = Math.min(minX, p.x - BOUNDARY_PAD);
-      minY = Math.min(minY, p.y - BOUNDARY_PAD);
-      maxX = Math.max(maxX, p.x + p.w + BOUNDARY_PAD);
-      maxY = Math.max(maxY, p.y + p.h + BOUNDARY_PAD);
-    }
-    if (!any) {
+  const boundaryPos = new Map(boundaryRects.map((b) => [b.id, { ...b.r }]));
+
+  // Build an intentional boundary hierarchy from explicit metadata, or from strict geometric
+  // containment when metadata is absent. Partially intersecting boundaries remain peers.
+  const parentOf = new Map<string, string | null>();
+  for (const boundary of boundaries) {
+    const declared = resolveBoundary(boundaries, declaredBoundary(boundary));
+    if (declared && declared.id !== boundary.id) {
+      parentOf.set(boundary.id, declared.id);
       continue;
     }
-    const x = Math.min(b.r.x, minX);
-    const y = Math.min(b.r.y, minY);
-    grown.set(b.id, {
-      x: Math.round(x),
-      y: Math.round(y),
-      w: Math.round(Math.max(b.r.x + b.r.w, maxX) - x),
-      h: Math.round(Math.max(b.r.y + b.r.h, maxY) - y),
-    });
+    const current = boundaryPos.get(boundary.id)!;
+    const currentArea = current.w * current.h;
+    const parent = boundaryRects
+      .filter((candidate) => candidate.id !== boundary.id
+        && candidate.r.w * candidate.r.h > currentArea
+        && containsRect(candidate.r, current))
+      .sort((a, b) => a.r.w * a.r.h - b.r.w * b.r.h || a.id.localeCompare(b.id))[0];
+    parentOf.set(boundary.id, parent?.id ?? null);
   }
+
+  const childrenOf = new Map<string | null, string[]>();
+  for (const boundary of boundaries) {
+    const parent = parentOf.get(boundary.id) ?? null;
+    const children = childrenOf.get(parent);
+    if (children) {
+      children.push(boundary.id);
+    } else {
+      childrenOf.set(parent, [boundary.id]);
+    }
+  }
+  for (const children of childrenOf.values()) {
+    children.sort();
+  }
+
+  const membersOf = new Map<string, string[]>();
+  for (const component of components) {
+    const owner = groupOf.get(component.id)!;
+    if (!owner) {
+      continue;
+    }
+    const members = membersOf.get(owner);
+    if (members) {
+      members.push(component.id);
+    } else {
+      membersOf.set(owner, [component.id]);
+    }
+  }
+
+  // Moving a region carries its direct members and every nested region as one layout unit.
+  const shiftBoundaryTree = (id: string, dx: number, dy: number): void => {
+    const boundary = boundaryPos.get(id)!;
+    boundary.x += dx;
+    boundary.y += dy;
+    for (const memberId of membersOf.get(id) ?? []) {
+      const member = pos.get(memberId)!;
+      member.x += dx;
+      member.y += dy;
+    }
+    for (const childId of childrenOf.get(id) ?? []) {
+      shiftBoundaryTree(childId, dx, dy);
+    }
+  };
+
+  // Separate one sibling set. Keep the earlier top/left region fixed and move later peers only right
+  // or down, which avoids introducing negative coordinates while leaving a visible gap between
+  // outlines that overlap or nearly touch.
+  const separateBoundarySiblings = (ids: string[]): void => {
+    const ordered = [...ids].sort((left, right) => {
+      const a = boundaryPos.get(left)!;
+      const b = boundaryPos.get(right)!;
+      return a.y - b.y || a.x - b.x || left.localeCompare(right);
+    });
+    for (let iter = 0; iter < SEPARATE_ITERS; iter++) {
+      let moved = false;
+      for (let i = 0; i < ordered.length; i++) {
+        for (let j = i + 1; j < ordered.length; j++) {
+          const a = boundaryPos.get(ordered[i])!;
+          const b = boundaryPos.get(ordered[j])!;
+          if (!rectsOverlap(a, b, BOUNDARY_GAP)) {
+            continue;
+          }
+          const moveRight = a.x + a.w + BOUNDARY_GAP - b.x;
+          const moveDown = a.y + a.h + BOUNDARY_GAP - b.y;
+          if (moveRight <= moveDown) {
+            shiftBoundaryTree(ordered[j], moveRight, 0);
+          } else {
+            shiftBoundaryTree(ordered[j], 0, moveDown);
+          }
+          moved = true;
+        }
+      }
+      if (!moved) {
+        break;
+      }
+    }
+  };
+
+  // Lay out nested siblings first, then grow their parent around both direct members and children.
+  const layoutBoundary = (id: string): void => {
+    const children = childrenOf.get(id) ?? [];
+    for (const childId of children) {
+      layoutBoundary(childId);
+    }
+    separateBoundarySiblings(children);
+
+    const boundary = boundaryPos.get(id)!;
+    let minX = boundary.x;
+    let minY = boundary.y;
+    let maxX = boundary.x + boundary.w;
+    let maxY = boundary.y + boundary.h;
+    for (const memberId of membersOf.get(id) ?? []) {
+      const member = pos.get(memberId)!;
+      minX = Math.min(minX, member.x - BOUNDARY_PAD);
+      minY = Math.min(minY, member.y - BOUNDARY_PAD);
+      maxX = Math.max(maxX, member.x + member.w + BOUNDARY_PAD);
+      maxY = Math.max(maxY, member.y + member.h + BOUNDARY_PAD);
+    }
+    for (const childId of children) {
+      const child = boundaryPos.get(childId)!;
+      minX = Math.min(minX, child.x - BOUNDARY_PAD);
+      minY = Math.min(minY, child.y - BOUNDARY_PAD);
+      maxX = Math.max(maxX, child.x + child.w + BOUNDARY_PAD);
+      maxY = Math.max(maxY, child.y + child.h + BOUNDARY_PAD);
+    }
+    boundary.x = minX;
+    boundary.y = minY;
+    boundary.w = maxX - minX;
+    boundary.h = maxY - minY;
+  };
+
+  const roots = childrenOf.get(null) ?? [];
+  for (const rootId of roots) {
+    layoutBoundary(rootId);
+  }
+  separateBoundarySiblings(roots);
 
   return nodes.map((n) => {
     if (n.type === 'boundary') {
-      const g = grown.get(n.id);
+      const g = boundaryPos.get(n.id)!;
       const cur = rectOf(n);
-      if (!g || (g.x === cur.x && g.y === cur.y && g.w === cur.w && g.h === cur.h)) {
+      const x = Math.round(g.x);
+      const y = Math.round(g.y);
+      const width = Math.round(g.w);
+      const height = Math.round(g.h);
+      if (x === cur.x && y === cur.y && width === cur.w && height === cur.h) {
         return n;
       }
-      return { ...n, position: { x: g.x, y: g.y }, width: g.w, height: g.h, style: { ...n.style, width: g.w, height: g.h } };
+      return { ...n, position: { x, y }, width, height, style: { ...n.style, width, height } };
     }
     const p = pos.get(n.id)!;
     const nx = Math.round(p.x);

@@ -153,16 +153,82 @@ describe('separateNodes', () => {
     }
   });
 
-  it('only separates within a boundary, not across boundaries', () => {
-    // Two boundaries side by side; a node in each, overlapping in x only across the divide.
+  it('separates overlapping trust boundaries together with their contents', () => {
+    const b1 = node('b1', 'boundary', 'B1', 0, 0, 240, 180);
+    const b2 = node('b2', 'boundary', 'B2', 180, 80, 240, 180);
+    const a = node('a', 'process', 'A', 40, 40, 96, 96);
+    const c = node('c', 'datastore', 'C', 280, 120, 120, 64);
+    const out = separateNodes([b1, b2, a, c]);
+    const rb1 = out.find((n) => n.id === 'b1')!;
+    const rb2 = out.find((n) => n.id === 'b2')!;
+    const ra = out.find((n) => n.id === 'a')!;
+    const rc = out.find((n) => n.id === 'c')!;
+
+    expect(overlap(rb1, rb2)).toBe(false);
+    expect(Math.min(rb1.position.x, rb2.position.x)).toBeGreaterThanOrEqual(0);
+    expect(ra.position.x - rb1.position.x).toBe(a.position.x - b1.position.x);
+    expect(ra.position.y - rb1.position.y).toBe(a.position.y - b1.position.y);
+    expect(rc.position.x - rb2.position.x).toBe(c.position.x - b2.position.x);
+    expect(rc.position.y - rb2.position.y).toBe(c.position.y - b2.position.y);
+  });
+
+  it('adds clear space between peer boundaries whose outlines nearly touch', () => {
+    const upper = node('upper', 'boundary', 'Upper', 0, 0, 240, 180);
+    const lower = node('lower', 'boundary', 'Lower', 0, 184, 240, 180);
+    const out = separateNodes([upper, lower]);
+    const movedUpper = out.find((n) => n.id === 'upper')!;
+    const movedLower = out.find((n) => n.id === 'lower')!;
+
+    expect(movedUpper.position).toEqual(upper.position);
+    expect(movedLower.position.y - (movedUpper.position.y + movedUpper.height!)).toBeGreaterThanOrEqual(24);
+  });
+
+  it('uses explicit boundary aliases before ambiguous geometric containment', () => {
+    const b1 = { ...node('b1', 'boundary', 'Outer', 0, 0, 300, 240), data: { label: 'Outer', properties: { Alias: 'TB1' } } };
+    const b2 = { ...node('b2', 'boundary', 'Inner', 100, 80, 300, 240), data: { label: 'Inner', properties: { Alias: 'TB2' } } };
+    const member = {
+      ...node('member', 'process', 'Member', 160, 120, 96, 96),
+      data: { label: 'Member', properties: { Boundary: 'TB2' } },
+    };
+    const out = separateNodes([b1, b2, member]);
+    const rb2 = out.find((n) => n.id === 'b2')!;
+    const movedMember = out.find((n) => n.id === 'member')!;
+
+    expect(movedMember.position.x - rb2.position.x).toBe(member.position.x - b2.position.x);
+    expect(movedMember.position.y - rb2.position.y).toBe(member.position.y - b2.position.y);
+  });
+
+  it('preserves intentional nesting instead of separating contained boundaries', () => {
+    const outer = node('outer', 'boundary', 'Outer', 0, 0, 500, 400);
+    const inner = node('inner', 'boundary', 'Inner', 100, 100, 240, 180);
+    const member = node('member', 'process', 'Member', 140, 140, 96, 96);
+    const out = separateNodes([outer, inner, member]);
+
+    expect(out.find((n) => n.id === 'outer')).toBe(outer);
+    expect(out.find((n) => n.id === 'inner')).toBe(inner);
+    expect(out.find((n) => n.id === 'member')).toBe(member);
+  });
+
+  it('moves cross-boundary overlaps by their owning region instead of independently', () => {
+    // Two boundaries side by side; a node in each, overlapping in x only across the divide. The
+    // second boundary must first grow around A, then move as a unit to clear the first boundary.
     const b1 = node('b1', 'boundary', 'B1', 0, 0, 200, 200);
     const b2 = node('b2', 'boundary', 'B2', 210, 0, 200, 200);
     const a = node('a', 'process', 'A', 150, 60, 120, 120); // centre 210 -> in b2
     const c = node('c', 'process', 'C', 40, 60, 120, 120); // centre 100 -> in b1
     const out = separateNodes([b1, b2, a, c]);
-    // a and c are in different boundaries, so neither is pushed by the other.
-    expect(out.find((n) => n.id === 'a')!.position).toEqual(a.position);
-    expect(out.find((n) => n.id === 'c')!.position).toEqual(c.position);
+    const rb1 = out.find((n) => n.id === 'b1')!;
+    const rb2 = out.find((n) => n.id === 'b2')!;
+    const ra = out.find((n) => n.id === 'a')!;
+    const rc = out.find((n) => n.id === 'c')!;
+
+    expect(overlap(rb1, rb2)).toBe(false);
+    for (const [member, boundary] of [[ra, rb2], [rc, rb1]]) {
+      expect(member.position.x).toBeGreaterThanOrEqual(boundary.position.x);
+      expect(member.position.y).toBeGreaterThanOrEqual(boundary.position.y);
+      expect(member.position.x + member.width!).toBeLessThanOrEqual(boundary.position.x + boundary.width!);
+      expect(member.position.y + member.height!).toBeLessThanOrEqual(boundary.position.y + boundary.height!);
+    }
   });
 });
 
