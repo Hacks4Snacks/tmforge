@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.1.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.6.0...v0.1.0) (2026-07-16)
+
+
+### Features
+
+* add official TB7 fidelity and versioned rule packs ([#38](https://github.com/Hacks4Snacks/tmforge/issues/38)) ([ebbd455](https://github.com/Hacks4Snacks/tmforge/commit/ebbd4555d1002034a6c6091dff8a5c048e9ec486))
+* agent-friendly threat-model authoring end to end ([#19](https://github.com/Hacks4Snacks/tmforge/issues/19)) ([17e00a3](https://github.com/Hacks4Snacks/tmforge/commit/17e00a3600b27c24ec22727fd7886174bc4be618))
+* boundary aware object sizing ([#29](https://github.com/Hacks4Snacks/tmforge/issues/29)) ([0404939](https://github.com/Hacks4Snacks/tmforge/commit/0404939b5ff56c2e1c663807576b83e431fd32e2))
+* consumer-pluggable custom analysis rules via a declarative JSON DSL ([#23](https://github.com/Hacks4Snacks/tmforge/issues/23)) ([7e0b3b1](https://github.com/Hacks4Snacks/tmforge/commit/7e0b3b1909ff78eaf2636050c86811b7d88a8049))
+* extend rule-packv2 schema to support threat categories ([#43](https://github.com/Hacks4Snacks/tmforge/issues/43)) ([750d198](https://github.com/Hacks4Snacks/tmforge/commit/750d198b4aa01f4202ff7130caebad8cd6286979))
+* Extend testing for studio ([#20](https://github.com/Hacks4Snacks/tmforge/issues/20)) ([b439a90](https://github.com/Hacks4Snacks/tmforge/commit/b439a90ddbcbe579bf115e8fc55e40e171d8335a))
+* Harden model processing and VSDX import/export ([#37](https://github.com/Hacks4Snacks/tmforge/issues/37)) ([cf32d63](https://github.com/Hacks4Snacks/tmforge/commit/cf32d63f2586b1e9d7cf51e133ea32c97a6adf2a))
+* Interaction expression engine ([#42](https://github.com/Hacks4Snacks/tmforge/issues/42)) ([e8bb047](https://github.com/Hacks4Snacks/tmforge/commit/e8bb0470173bc380ff2a8c8ed0e135f1f9ab2643))
+* make release idempotent ([#7](https://github.com/Hacks4Snacks/tmforge/issues/7)) ([047eb9e](https://github.com/Hacks4Snacks/tmforge/commit/047eb9ed6fbdcdc31e15b6d3594e258d3974212d))
+* manual threat authoring and editing ([#28](https://github.com/Hacks4Snacks/tmforge/issues/28)) ([4be2067](https://github.com/Hacks4Snacks/tmforge/commit/4be206707c40c5dad876ff68b69b277d91594070))
+* mcp hardening ([#36](https://github.com/Hacks4Snacks/tmforge/issues/36)) ([db5bd30](https://github.com/Hacks4Snacks/tmforge/commit/db5bd303a87c548f6999064c75ee9fa39a051554))
+* MCP server / AI-agent surface ([#25](https://github.com/Hacks4Snacks/tmforge/issues/25)) ([e3e4a1a](https://github.com/Hacks4Snacks/tmforge/commit/e3e4a1a0b193e935fe61036c79c45542ab138321))
+* modernize threat report ([#35](https://github.com/Hacks4Snacks/tmforge/issues/35)) ([ec58ac6](https://github.com/Hacks4Snacks/tmforge/commit/ec58ac689f36b2c748b1182abe8545dfb3918a66))
+* MTMT template compiler ([#44](https://github.com/Hacks4Snacks/tmforge/issues/44)) ([04f6271](https://github.com/Hacks4Snacks/tmforge/commit/04f62713328a3eb075afdb7271d3c24b763f9165))
+* Multi-page threat model support ([#8](https://github.com/Hacks4Snacks/tmforge/issues/8)) ([0bfa42b](https://github.com/Hacks4Snacks/tmforge/commit/0bfa42b08167d93dda68ab93fae30d811ca91721))
+* Semantic diff and three-way merge for .tm7 deconfliction ([#17](https://github.com/Hacks4Snacks/tmforge/issues/17)) ([cf608a0](https://github.com/Hacks4Snacks/tmforge/commit/cf608a0cb808b7402b8cecc1073fe5562649c423))
+* studio report + canvas ergonomics and a first-party analyze action ([#22](https://github.com/Hacks4Snacks/tmforge/issues/22)) ([e200d49](https://github.com/Hacks4Snacks/tmforge/commit/e200d496b8ab66f706d573b4abbcf1f60372519b))
+* Threat Generation Support ([#21](https://github.com/Hacks4Snacks/tmforge/issues/21)) ([b21d855](https://github.com/Hacks4Snacks/tmforge/commit/b21d855e13ea0c83485b503bf331fb3a694436ca))
+* update docs ([#10](https://github.com/Hacks4Snacks/tmforge/issues/10)) ([7f71c77](https://github.com/Hacks4Snacks/tmforge/commit/7f71c77ad262674d0e3363dc0debad1d48f19367))
+* WASM Support for Offline ([#5](https://github.com/Hacks4Snacks/tmforge/issues/5)) ([b908b73](https://github.com/Hacks4Snacks/tmforge/commit/b908b73a34d1753206dbe35ff3717ac689cd78ff))
+
+
+### Bug Fixes
+
+* add mising package ([#26](https://github.com/Hacks4Snacks/tmforge/issues/26)) ([b404bbd](https://github.com/Hacks4Snacks/tmforge/commit/b404bbda0b65df7ffd9903b2486dd169f8ea2d54))
+* correct Studio -&gt; MTMT .tm7 export and expand automated test coverage ([#30](https://github.com/Hacks4Snacks/tmforge/issues/30)) ([896e6ab](https://github.com/Hacks4Snacks/tmforge/commit/896e6ab525239c61fc59e5d8d29c63d9c6f71527))
+* Deconflict line labels and objects ([#34](https://github.com/Hacks4Snacks/tmforge/issues/34)) ([09d28c8](https://github.com/Hacks4Snacks/tmforge/commit/09d28c8637185bddefe154f7accde43a939e145d))
+* ensure assets are published with immutable release ([#13](https://github.com/Hacks4Snacks/tmforge/issues/13)) ([a62ab2e](https://github.com/Hacks4Snacks/tmforge/commit/a62ab2ea4845915e04b07f76b99270498a8b51cf))
+* remove deprecated macos-13 reference ([#11](https://github.com/Hacks4Snacks/tmforge/issues/11)) ([673081b](https://github.com/Hacks4Snacks/tmforge/commit/673081be3bff71469589c9c3d91c558dcd937f5b))
+* Resolve CodeQL code-scanning findings ([#32](https://github.com/Hacks4Snacks/tmforge/issues/32)) ([8543825](https://github.com/Hacks4Snacks/tmforge/commit/85438255e6a9c7d358995b2de881150d7a0f90fe))
+
+
+### Miscellaneous Chores
+
+* release 0.1.0 ([2b37761](https://github.com/Hacks4Snacks/tmforge/commit/2b37761d46b3077b03f83744619bdc5e8416c06b))
+
 ## [0.6.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.5.0...v0.6.0) (2026-07-16)
 
 
