@@ -275,6 +275,15 @@ describe('Editor — applyFlags', () => {
     expect(cleared.nodes.every((n) => n.className === undefined)).toBe(true);
     expect(cleared.edges.every((e) => e.className === undefined)).toBe(true);
   });
+
+  it('replaces aggregate flags with the elements referenced by one finding', () => {
+    const aggregate = applyFlags(nodes, edges, new Set(['n1', 'n2', 'e1']));
+    const focused = applyFlags(aggregate.nodes, aggregate.edges, new Set(['n2']));
+
+    expect(focused.nodes[0].className).toBeUndefined();
+    expect(focused.nodes[1].className).toBe('flagged');
+    expect(focused.edges[0].className).toBeUndefined();
+  });
 });
 
 describe('Editor — Tidy edge geometry', () => {

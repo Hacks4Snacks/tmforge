@@ -88,8 +88,9 @@ properties below the typed ones.
 
 Click **Analyze** to send the whole model (every page) to the live `/v1` engine. Findings come back
 and are **overlaid on the offending nodes and edges**, so you can see exactly what to fix. In a
-multi-page model, tabs that carry findings are badged, and clicking a finding jumps to its page. Open
-the inspector, set the missing property (e.g. a flow's protocol), and re-analyze.
+multi-page model, tabs that carry findings are badged. Click a threat or finding to narrow the overlay
+to only the objects it impacts and jump to their page. Open the inspector, set the missing property
+(e.g. a flow's protocol), and re-analyze.
 
 If the engine is offline, Studio falls back to an offline stub so the canvas keeps working; connect
 it to a running API to get the real rule set. See [Analysis rules & CI](analysis-rules.md) for

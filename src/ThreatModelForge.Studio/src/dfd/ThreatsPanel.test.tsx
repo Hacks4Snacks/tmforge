@@ -252,4 +252,22 @@ describe('ThreatsPanel', () => {
     expect(screen.getByText('Other findings')).toBeInTheDocument();
     expect(screen.getByText('The model has too few components.')).toBeInTheDocument();
   });
+
+  it("calls onSelect with the clicked finding's impacted element ids", () => {
+    const findings: Finding[] = [
+      {
+        id: 'TM1010:flow-1',
+        severity: 'warning',
+        ruleId: 'TM1010',
+        message: 'The flow has no destination port.',
+        elementIds: ['flow-1', 'api'],
+      },
+    ];
+    const { onSelect } = renderPanel({ threats: [], findings });
+
+    fireEvent.click(screen.getByText('The flow has no destination port.'));
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith(['flow-1', 'api']);
+  });
 });

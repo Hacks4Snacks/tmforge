@@ -273,7 +273,7 @@ export interface ThreatsPanelProps {
   threats: Threat[];
   /** Non-threat hygiene findings (structural / naming rules), shown in a trailing section. */
   findings: Finding[];
-  /** Navigates to (and reveals) the elements a threat or finding refers to. */
+  /** Narrows the canvas highlights to the elements a threat or finding refers to and reveals them. */
   onSelect: (elementIds: string[]) => void;
   /** Returns the name of the page an item's elements live on, when it is not the active page. */
   offPageLabel: (elementIds: string[]) => string | undefined;
