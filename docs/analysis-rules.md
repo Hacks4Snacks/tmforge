@@ -198,6 +198,43 @@ rule-language `dialect`; source-specific concepts belong in the optional generic
 compiled rules. The runtime computes the pack's `sha256:` fingerprint from the exact file bytes;
 authors do not declare it.
 
+### Custom rules on every surface
+
+A rule pack is not a CLI-only feature. Every transport resolves rules through the same engine seam,
+so one pack produces the same catalog entries, findings, threats, reports, and `.tm7` exports
+everywhere. Only *how the pack reaches the engine* differs, because only some hosts can safely touch
+the filesystem:
+
+| Surface | How a pack is supplied | Notes |
+| --- | --- | --- |
+| CLI | `--rules <file-or-directory>` on `analyze`, `threats`, `report`, `properties` | Paths are resolved by the CLI. |
+| HTTP API | `TmForge:Rules` configuration (a `;`-separated list, or an array) read once at startup | Packs are trusted deployment configuration; a request can never inject rules. |
+| Studio / in-browser engine | **Analysis Rules → Load rule pack…** | The pack is read in the browser and handed to the WebAssembly engine as content. |
+| MCP server | `rulesPath` on the `analyze`, `threats`, `report`, `rules`, and `rule_packs` tools | Resolved only through the configured MCP workspace root. |
+
+Ask any host what it actually loaded. The API exposes `GET /v1/rule-bundle`; the Studio shows the
+same information under **Analysis Rules**. Both report each pack's id, version, dialect, rule count,
+and content fingerprint, plus every load diagnostic — so a pack that failed to parse is visible
+instead of looking like a clean run against the built-in rules.
+
+Models can pin the packs they were reviewed with. A `tmforge-json` model's analysis selection may
+carry `expectedPacks`:
+
+```jsonc
+{
+  "analysis": {
+    "expectedPacks": [
+      { "id": "corporate", "fingerprint": "sha256:\u2026" }
+    ]
+  }
+}
+```
+
+If an expected pack is missing from the effective bundle, or its content fingerprint has changed,
+analysis emits an **error** finding with rule id `rule-pack-mismatch`. That fails a build gated on
+errors, which is the point: a model must never look clean merely because the rules that would have
+flagged it were not loaded. The Studio records these pins for you when you load a pack.
+
 ```jsonc
 {
   "schema": "tmforge-rules",
@@ -316,8 +353,8 @@ id without colliding in SARIF, suppressions, or generated threat keys. Duplicate
 involve a v2 rule reject every contender, so changing file or declaration order cannot choose a
 winner. `RulePackIdentity.CreatePackId` provides the deterministic
 `normalized-name-<32 hex chars>` convention used by importers (128 fingerprint bits). The full
-fingerprint remains available on `RulePackDefinition.Fingerprint`; persisting and comparing expected
-fingerprints across models and transports is part of the later cross-surface rule-bundle work.
+fingerprint remains available on `RulePackDefinition.Fingerprint`, and every surface reports it (see
+[Custom rules on every surface](#custom-rules-on-every-surface)).
 
 The loader bounds untrusted input per pack to 8 MiB, 4,096 rules, 512 categories, 4,096 element
 types, 8,192 property definitions, and 65,536 aggregate catalog/expression nodes and values. A single

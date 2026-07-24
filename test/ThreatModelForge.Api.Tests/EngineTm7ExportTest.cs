@@ -8,8 +8,8 @@ namespace ThreatModelForge.Api.Tests
     using ThreatModelForge.Engine;
 
     /// <summary>
-    /// Regression tests for the user-facing <c>.tm7</c> generation paths (<see cref="EngineService.ExportTm7"/>
-    /// and <see cref="EngineService.Convert"/>), asserting the serialized document carries what the
+    /// Regression tests for the user-facing <c>.tm7</c> generation paths (<see cref="EngineService.ExportTm7(TmForgeModelDto)"/>
+    /// and <see cref="EngineService.Convert(TmForgeModelDto, string)"/>), asserting the serialized document carries what the
     /// Microsoft Threat Modeling Tool (MTMT) needs to open it: the recognized version stamp, the
     /// document scaffolding, non-nil connector ports, and — for the lossless export path — an embedded
     /// knowledge base. These exercise the real engine pipeline the CLI, API, and WebAssembly hosts use.
@@ -71,7 +71,7 @@ namespace ThreatModelForge.Api.Tests
 
         /// <summary>
         /// The generic <c>convert --to tm7</c> path also stamps the document scaffolding MTMT reads
-        /// without a null guard, matching <see cref="EngineService.ExportTm7"/>.
+        /// without a null guard, matching <see cref="EngineService.ExportTm7(TmForgeModelDto)"/>.
         /// </summary>
         [TestMethod]
         public void ConvertToTm7CarriesToolScaffolding()

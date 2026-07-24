@@ -138,6 +138,31 @@ export interface RulePackInfo {
   count: number;
 }
 
+/** A custom rule pack document handed to the engine as content (never a filesystem path). */
+export interface RuleSource {
+  /** The logical origin shown in diagnostics, for example the picked file's name. */
+  name: string;
+  /** The rule pack JSON. */
+  json: string;
+}
+
+/** The identity of a custom rule pack that actually contributed rules to the effective rule set. */
+export interface RulePackIdentity {
+  id: string;
+  name: string;
+  version?: string;
+  /** The content fingerprint; pin this in the model to detect rule drift. */
+  fingerprint: string;
+  dialect: string;
+  ruleCount: number;
+}
+
+/** What custom rule content the engine loaded, and what it complained about while loading it. */
+export interface RuleBundle {
+  rulePacks: RulePackIdentity[];
+  diagnostics: string[];
+}
+
 /** A typed element-property definition: drives typed Inspector controls and canonical values. */
 export interface PropertyDescriptorInfo {
   /** The DFD primitive this property applies to ('process' | 'datastore' | 'external' | 'flow'). */
@@ -172,6 +197,15 @@ export interface IEngineClient {
   /** Projects the model's threat-bearing findings into the categorized threat register (the same detection as analyze). */
   generateThreats(model: TmForgeModel): Promise<Threat[]>;
   exportTm7(model: TmForgeModel): Promise<Blob>;
+  /**
+   * Selects the custom rule packs this engine runs, and reports what actually loaded. The selection
+   * persists for the session, so catalogs, analysis, threat generation, reports, and exports all use
+   * one effective bundle. Hosts that own their rule configuration (the `/v1` API) reject the call
+   * rather than pretend a browser-side selection took effect.
+   */
+  setRules(sources: RuleSource[]): Promise<RuleBundle>;
+  /** Describes the custom rule packs this engine currently runs, and any load diagnostics. */
+  getRuleBundle(): Promise<RuleBundle>;
   /** Lists the engine's registered file formats and their capabilities. */
   getFormats(): Promise<FormatInfo[]>;
   /** Lists the authoring stencil catalog offered to the palette. */
@@ -303,6 +337,25 @@ function toRulePackInfo(dto: components['schemas']['RulePackDto']): RulePackInfo
     id: dto.id ?? '',
     name: dto.name ?? '',
     count: Number(dto.count ?? 0),
+  };
+}
+
+/**
+ * Normalizes the engine's rule-bundle evidence onto the UI's RuleBundle. Both transports return the
+ * same shape (the API serializes it, the WASM engine hands back the same JSON), so one normalizer
+ * keeps them honest.
+ */
+function toRuleBundle(dto: components['schemas']['RuleBundleDto'] | undefined): RuleBundle {
+  return {
+    rulePacks: (dto?.rulePacks ?? []).map((pack) => ({
+      id: pack.id ?? '',
+      name: pack.name ?? '',
+      version: pack.version ?? undefined,
+      fingerprint: pack.fingerprint ?? '',
+      dialect: pack.dialect ?? '',
+      ruleCount: Number(pack.ruleCount ?? 0),
+    })),
+    diagnostics: dto?.diagnostics ?? [],
   };
 }
 
@@ -454,6 +507,17 @@ class OfflineEngineClient implements IEngineClient {
     return Promise.reject(
       new Error('Real .tm7 export requires the .NET engine. Start the API (see the spike README), then reload.'),
     );
+  }
+
+  public setRules(): Promise<RuleBundle> {
+    // Offline: there is no rule engine to load a pack into, so say so rather than accept it silently.
+    return Promise.reject(
+      new Error('Custom rule packs require the analysis engine. Reload the page, or use the hosted app.'),
+    );
+  }
+
+  public async getRuleBundle(): Promise<RuleBundle> {
+    return { rulePacks: [], diagnostics: [] };
   }
 
   public async getFormats(): Promise<FormatInfo[]> {
@@ -611,6 +675,25 @@ class HttpEngineClient implements IEngineClient {
     return (data ?? []).map(toRuleInfo);
   }
 
+  public setRules(): Promise<RuleBundle> {
+    // The /v1 host owns its rule configuration (trusted, operator-supplied, read at startup), so a
+    // browser-side pack cannot take effect here. Fail loudly instead of implying that it did.
+    return Promise.reject(
+      new Error(
+        'This engine runs the rule packs its host was configured with. Configure them on the server, ' +
+          'or use the in-browser engine to load a pack locally.',
+      ),
+    );
+  }
+
+  public async getRuleBundle(): Promise<RuleBundle> {
+    const { data, response } = await this.client.GET('/v1/rule-bundle');
+    if (!response.ok) {
+      throw new Error(`Engine rule bundle failed (${response.status}).`);
+    }
+    return toRuleBundle(data);
+  }
+
   public async getRulePacks(): Promise<RulePackInfo[]> {
     const { data, response } = await this.client.GET('/v1/rule-packs');
     if (!response.ok) {
@@ -702,6 +785,8 @@ interface WasmEngineExports {
   ConvertModel(tmforgeJson: string, toFormatId: string): string;
   Report(tmforgeJson: string, format: string): string;
   Merge(baseJson: string, oursJson: string, theirsJson: string): string;
+  SetRules(sourcesJson: string): string;
+  RuleBundle(): string;
 }
 
 /**
@@ -760,6 +845,14 @@ class WasmEngineClient implements IEngineClient {
 
   public async getRules(): Promise<RuleInfo[]> {
     return (JSON.parse(this.wasm.Rules()) as Array<components['schemas']['RuleDto']>).map(toRuleInfo);
+  }
+
+  public async setRules(sources: RuleSource[]): Promise<RuleBundle> {
+    return toRuleBundle(JSON.parse(this.wasm.SetRules(sources.length === 0 ? '' : JSON.stringify(sources))));
+  }
+
+  public async getRuleBundle(): Promise<RuleBundle> {
+    return toRuleBundle(JSON.parse(this.wasm.RuleBundle()));
   }
 
   public async getRulePacks(): Promise<RulePackInfo[]> {

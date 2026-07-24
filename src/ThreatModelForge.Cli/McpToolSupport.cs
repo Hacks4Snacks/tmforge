@@ -4,6 +4,8 @@ namespace ThreatModelForge.Cli
     using System.Collections.Generic;
     using System.IO;
     using System.Text.Json;
+    using Microsoft.Extensions.DependencyInjection;
+    using ThreatModelForge.Analysis;
     using ThreatModelForge.Engine;
 
     /// <summary>
@@ -81,6 +83,33 @@ namespace ThreatModelForge.Cli
             }
 
             return assignments;
+        }
+
+        /// <summary>
+        /// Resolves an optional custom rule pack path through the MCP workspace sandbox and reads it
+        /// into engine rule options. Path resolution stays in this host: the engine facade only ever
+        /// sees content, so an agent cannot reach outside the configured workspace root to load rules.
+        /// </summary>
+        /// <param name="services">The MCP request services.</param>
+        /// <param name="rulesPath">The rule pack path, or <see langword="null"/> for built-in rules only.</param>
+        /// <returns>The engine rule options, or <see langword="null"/> when no pack is selected.</returns>
+        public static EngineRuleOptions? LoadRules(IServiceProvider services, string? rulesPath)
+        {
+            if (string.IsNullOrWhiteSpace(rulesPath))
+            {
+                return null;
+            }
+
+            ValidateArguments(new[] { rulesPath });
+            McpPathPolicy pathPolicy = services.GetRequiredService<McpPathPolicy>();
+            byte[] content = pathPolicy.ReadAllBytes(rulesPath!);
+            return new EngineRuleOptions
+            {
+                Sources = new[]
+                {
+                    new RuleSourceDto { Name = rulesPath, Json = RuleContent.FromBytes(rulesPath!, content).ToJson() },
+                },
+            };
         }
 
         /// <summary>Validates a model against the MCP request complexity budget.</summary>

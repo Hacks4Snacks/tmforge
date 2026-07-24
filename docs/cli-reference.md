@@ -626,7 +626,7 @@ Generate a self-contained HTML report with an inline SVG diagram per page, or ex
 diagram as a standalone SVG for review artifacts.
 
 ```text
-tmforge report [--format <html|svg>] [--out <path>] [--json] <model.tm7>
+tmforge report [--format <html|svg>] [--out <path>] [--rules <path>] [--json] <model.tm7>
 ```
 
 - `--format html` (default) writes a responsive, print-friendly report with an executive summary,
@@ -635,10 +635,13 @@ tmforge report [--format <html|svg>] [--out <path>] [--json] <model.tm7>
   triage; a `tmforge-json` model's disabled packs and rules are honored.
 - `--format svg` writes just the diagram as a standalone SVG (every page stacked), suitable for
   attaching to a pull request or embedding in docs. It does not run analysis.
+- `--rules` loads custom declarative rules alongside the built-in rules, exactly as on
+  [`analyze`](#analyze), so a report shows the same threats the analysis produced.
 
 ```bash
 tmforge report payments.tm7 --out payments.html
 tmforge report payments.tm7 --format svg --out payments.svg
+tmforge report payments.tm7 --rules ./corporate.tmrules.json --out payments.html
 ```
 
 ### `convert`
@@ -775,6 +778,10 @@ Configure your MCP client to launch the tool:
 `manifest_schema`, `detect`. Model I/O and analysis: `read`, `save`, `analyze`, `threats`, `report`,
 `merge`. Authoring: `apply`, `export_manifest`, `add`, `connect`, `set`, `rename`, `remove`. Threat
 authoring: `add_threat`, `edit_threat`, `remove_threat`.
+
+**Custom rules.** `analyze`, `threats`, `report`, `rules`, and `rule_packs` accept an optional
+`rulesPath` naming a `*.tmrules.json` pack. It is resolved through the same workspace sandbox as
+every other file access, so an agent cannot load rules from outside `--root`.
 
 A typical agent loop is **apply -> analyze -> set -> analyze -> save**: build a model from a manifest
 (or incrementally with `add`/`connect`), analyze it, resolve findings by setting the properties the

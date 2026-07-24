@@ -32,8 +32,10 @@ and `/openapi` are matched first.
 | `GET /v1/stencil-packs` | Catalog | List stencil packs. |
 | `GET /v1/rules` | Catalog | List analysis rules. |
 | `GET /v1/rule-packs` | Catalog | List rule packs. |
+| `GET /v1/rule-bundle` | Catalog | Report which custom rule packs this host loaded, and any load diagnostics. |
 | `GET /v1/property-schema` | Catalog | List the typed custom-property schema the rules read. |
 | `POST /v1/model/analyze` | Model | Analyze a model and return findings. |
+| `POST /v1/model/analysis` | Model | Analyze a model and return findings plus the effective rule packs and diagnostics. |
 | `POST /v1/model/threats` | Model | Generate the STRIDE threat register (rule threats plus the model's author overlay). |
 | `POST /v1/model/read` | Model | Parse uploaded bytes (base64) into the canonical model. |
 | `POST /v1/model/convert?to=<format>` | Model | Convert a model to another format. |
@@ -43,6 +45,30 @@ and `/openapi` are matched first.
 
 `<format>` is one of `tm7`, `tmforge-json`, `drawio`, or `vsdx`. See
 [Formats & interoperability](formats.md).
+
+## Custom rule packs
+
+Custom rules are deployment configuration, not request input: this host never loads rules from a
+request body, so a caller cannot inject detection logic. Name the packs (files or directories) with
+the `TmForge:Rules` setting and they are read once at startup, then applied to every rule-reading
+endpoint — catalogs, analysis, threats, reports, and `.tm7` export — as one effective bundle:
+
+```bash
+# a single pack, or a ';'-separated list
+TmForge__Rules='/etc/tmforge/corporate.tmrules.json' dotnet ThreatModelForge.Api.dll
+```
+
+Confirm what actually loaded before trusting a clean run:
+
+```bash
+curl http://localhost:8080/v1/rule-bundle
+# { "rulePacks": [ { "id": "corporate", "version": "2.1", "fingerprint": "sha256:…", "ruleCount": 12 } ],
+#   "diagnostics": [] }
+```
+
+A model may pin the packs it was reviewed with; a missing or changed pack becomes an `error` finding
+with rule id `rule-pack-mismatch`. See
+[Custom rules on every surface](analysis-rules.md#custom-rules-on-every-surface).
 
 ## Usage examples
 

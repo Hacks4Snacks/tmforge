@@ -511,6 +511,40 @@
   gap: 6px;
 }
 
+.val-custom-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.val-custom-rules-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.val-rule-pack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+}
+
+.val-rule-pack-meta {
+  opacity: 0.7;
+  font-size: 10px;
+  word-break: break-word;
+}
+
+.val-rule-diag {
+  margin: 0;
+  font-size: 11px;
+  color: var(--danger, #dc2626);
+  word-break: break-word;
+}
+
 .pack-chip-count {
   opacity: 0.7;
   font-size: 10px;

@@ -140,6 +140,26 @@
         }
       }
     },
+    "/v1/rule-bundle": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "operationId": "GetRuleBundle",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleBundleDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/property-schema": {
       "get": {
         "tags": [
@@ -189,6 +209,36 @@
                   "items": {
                     "$ref": "#/components/schemas/FindingDto"
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/model/analysis": {
+      "post": {
+        "tags": [
+          "Model"
+        ],
+        "operationId": "AnalyzeModelWithEvidence",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TmForgeModelDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisResultDto"
                 }
               }
             }
@@ -414,6 +464,46 @@
   },
   "components": {
     "schemas": {
+      "AnalysisResultDto": {
+        "type": "object",
+        "properties": {
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FindingDto"
+            }
+          },
+          "rulePacks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RulePackInfoDto"
+            }
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ExpectedRulePackDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "fingerprint": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "FileContentDto": {
         "type": "object",
         "properties": {
@@ -655,6 +745,23 @@
         },
         "description": "Typed definition of a single element custom property (for example, a data store's\n`Encrypted` setting). The schema lets authoring surfaces render the right control\n(dropdown, checkbox, or free text) and emit canonical values, so the analysis rules that\ninspect these properties match reliably instead of guessing at free-form text."
       },
+      "RuleBundleDto": {
+        "type": "object",
+        "properties": {
+          "rulePacks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RulePackInfoDto"
+            }
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "RuleDto": {
         "type": "object",
         "properties": {
@@ -691,6 +798,37 @@
             "type": "string"
           },
           "count": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "RulePackInfoDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "dialect": {
+            "type": "string"
+          },
+          "ruleCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "integer",
@@ -908,6 +1046,15 @@
             ],
             "items": {
               "type": "string"
+            }
+          },
+          "expectedPacks": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ExpectedRulePackDto"
             }
           }
         }

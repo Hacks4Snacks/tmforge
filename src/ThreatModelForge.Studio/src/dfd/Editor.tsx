@@ -30,7 +30,7 @@ import { Toolbar } from './Toolbar';
 import { Inspector } from './Inspector';
 import { AnalysisSettings } from './AnalysisSettings';
 import { FALLBACK_PACKS, FALLBACK_STENCILS } from './stencils';
-import { createHttpEngine, loadWasmEngine, offlineEngine, probeEngine, type Finding, type FormatInfo, type IEngineClient, type PackInfo, type PropertyDescriptorInfo, type RuleInfo, type RulePackInfo, type StencilInfo, type Threat } from './engineClient';
+import { createHttpEngine, loadWasmEngine, offlineEngine, probeEngine, type Finding, type FormatInfo, type IEngineClient, type PackInfo, type PropertyDescriptorInfo, type RuleBundle, type RuleInfo, type RulePackInfo, type StencilInfo, type Threat } from './engineClient';
 import { ThreatsPanel, type NewThreatDraft, type ThreatEdit, type ThreatScopeOption } from './ThreatsPanel';
 import { CanvasSearch, type SearchItem } from './CanvasSearch';
 import { DEFAULT_NODE_SIZE, modelFromPages, pagesFromModel, type PageGraph } from './mapping';
@@ -42,7 +42,7 @@ import { PageTabs } from './PageTabs';
 import { MergeResolveModal } from './MergeResolveModal';
 import { DfdActionsContext, type DfdActions } from './editorContext';
 import { Toaster, toast } from './toast';
-import type { DfdEdge, DfdKind, DfdNode, ThreatTriage, TmForgeModel, TmForgeAnalysis } from './types';
+import type { DfdEdge, DfdKind, DfdNode, ThreatTriage, TmForgeModel, TmForgeAnalysis, TmForgeExpectedRulePack } from './types';
 
 const nodeTypes: NodeTypes = {
   process: ShapeNode,
@@ -183,8 +183,12 @@ const INITIAL_ACTIVE =
   INITIAL_WORKSPACE.pages.find((p) => p.id === INITIAL_WORKSPACE.activePageId) ?? INITIAL_WORKSPACE.pages[0];
 const INITIAL_DISABLED_PACKS = INITIAL_WORKSPACE.analysis?.disabledPacks ?? [];
 const INITIAL_DISABLED_RULE_IDS = INITIAL_WORKSPACE.analysis?.disabledRuleIds ?? [];
+const INITIAL_EXPECTED_PACKS = INITIAL_WORKSPACE.analysis?.expectedPacks ?? [];
 const INITIAL_SAVED_JSON = JSON.stringify(
-  modelFromPages(INITIAL_WORKSPACE.pages, buildAnalysis(INITIAL_DISABLED_PACKS, INITIAL_DISABLED_RULE_IDS)),
+  modelFromPages(
+    INITIAL_WORKSPACE.pages,
+    buildAnalysis(INITIAL_DISABLED_PACKS, INITIAL_DISABLED_RULE_IDS, INITIAL_EXPECTED_PACKS),
+  ),
 );
 
 /** Minimal shape of the File System Access API used to open and overwrite files (Chromium). */
@@ -226,8 +230,12 @@ function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** Builds the analysis-rule selection from the current toggles, or undefined when nothing is disabled. */
-export function buildAnalysis(disabledPacks: string[], disabledRuleIds: string[]): TmForgeAnalysis | undefined {
+/** Builds the analysis-rule selection from the current toggles, or undefined when nothing is selected. */
+export function buildAnalysis(
+  disabledPacks: string[],
+  disabledRuleIds: string[],
+  expectedPacks: TmForgeExpectedRulePack[] = [],
+): TmForgeAnalysis | undefined {
   const analysis: TmForgeAnalysis = {};
   if (disabledPacks.length > 0) {
     analysis.disabledPacks = disabledPacks;
@@ -235,7 +243,10 @@ export function buildAnalysis(disabledPacks: string[], disabledRuleIds: string[]
   if (disabledRuleIds.length > 0) {
     analysis.disabledRuleIds = disabledRuleIds;
   }
-  return analysis.disabledPacks || analysis.disabledRuleIds ? analysis : undefined;
+  if (expectedPacks.length > 0) {
+    analysis.expectedPacks = expectedPacks;
+  }
+  return analysis.disabledPacks || analysis.disabledRuleIds || analysis.expectedPacks ? analysis : undefined;
 }
 
 /** Returns copies of the graph with the `flagged` class applied to elements a finding referenced. */
@@ -305,6 +316,9 @@ export function Editor() {
   const [rulePacks, setRulePacks] = useState<RulePackInfo[]>([]);
   const [disabledRulePacks, setDisabledRulePacks] = useState<string[]>(() => INITIAL_DISABLED_PACKS);
   const [disabledRuleIds, setDisabledRuleIds] = useState<string[]>(() => INITIAL_DISABLED_RULE_IDS);
+  const [expectedPacks, setExpectedPacks] = useState<TmForgeExpectedRulePack[]>(() => INITIAL_EXPECTED_PACKS);
+  const [ruleBundle, setRuleBundle] = useState<RuleBundle>({ rulePacks: [], diagnostics: [] });
+  const [ruleCatalogToken, setRuleCatalogToken] = useState(0);
   const [showRules, setShowRules] = useState(false);
   const [showMerge, setShowMerge] = useState(false);
   const analysisActiveRef = useRef(false);
@@ -428,7 +442,9 @@ export function Editor() {
 
   const stencilById = useMemo(() => new Map(stencils.map((s) => [s.id, s])), [stencils]);
 
-  // Load the analysis rule catalog + rule packs (for the Analysis Rules settings panel) from the engine.
+  // Load the analysis rule catalog + rule packs (for the Analysis Rules settings panel) from the
+  // engine. `ruleCatalogToken` is bumped when a custom pack is loaded or cleared so the catalogs are
+  // re-read against the new effective bundle rather than showing a stale built-in-only list.
   useEffect(() => {
     let active = true;
     void engine
@@ -446,7 +462,7 @@ export function Editor() {
     return () => {
       active = false;
     };
-  }, [engine]);
+  }, [engine, ruleCatalogToken]);
 
   useEffect(() => {
     let active = true;
@@ -465,7 +481,28 @@ export function Editor() {
     return () => {
       active = false;
     };
-  }, [engine]);
+  }, [engine, ruleCatalogToken]);
+
+  // Report what custom rule content the engine actually runs. For a configured /v1 host this is the
+  // server's bundle; for the in-browser engine it is whatever pack the author loaded here.
+  useEffect(() => {
+    let active = true;
+    void engine
+      .getRuleBundle()
+      .then((bundle) => {
+        if (active) {
+          setRuleBundle(bundle);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setRuleBundle({ rulePacks: [], diagnostics: [] });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [engine, ruleCatalogToken]);
 
   // All pages, with the live React Flow graph substituted for the active page (the store's copy of
   // the active page is only refreshed on switch / page op, so composed reads use the live graph).
@@ -479,9 +516,9 @@ export function Editor() {
   // the last explicit Save. A debounced localStorage write of the whole workspace (pages + active
   // tab) runs on every change as a crash-recovery net, so a reload never loses work.
   const currentModel = useMemo(() => {
-    const model = modelFromPages(allPages, buildAnalysis(disabledRulePacks, disabledRuleIds));
+    const model = modelFromPages(allPages, buildAnalysis(disabledRulePacks, disabledRuleIds, expectedPacks));
     return threatTriage.length > 0 ? { ...model, threats: threatTriage } : model;
-  }, [allPages, disabledRulePacks, disabledRuleIds, threatTriage]);
+  }, [allPages, disabledRulePacks, disabledRuleIds, expectedPacks, threatTriage]);
   const currentJson = useMemo(() => JSON.stringify(currentModel), [currentModel]);
   const [savedJson, setSavedJson] = useState(INITIAL_SAVED_JSON);
   const dirty = currentJson !== savedJson;
@@ -832,6 +869,42 @@ export function Editor() {
       prev.includes(ruleId) ? prev.filter((x) => x !== ruleId) : [...prev, ruleId],
     );
   }, []);
+
+  // Load a custom rule pack (.tmrules.json) into the engine. The pack content never becomes model
+  // data; what the model records is the pack's identity and content fingerprint, so a later analysis
+  // that runs without it (or with different content) reports the mismatch instead of looking clean.
+  const loadRuleFile = useCallback(
+    async (file: File) => {
+      try {
+        const json = await file.text();
+        const bundle = await engine.setRules([{ name: file.name, json }]);
+        setRuleBundle(bundle);
+        setExpectedPacks(bundle.rulePacks.map((pack) => ({ id: pack.id, fingerprint: pack.fingerprint })));
+        setRuleCatalogToken((token) => token + 1);
+        if (bundle.rulePacks.length === 0) {
+          toast(bundle.diagnostics[0] ?? `No rule pack loaded from ${file.name}.`, 'error');
+        } else {
+          const rules = bundle.rulePacks.reduce((total, pack) => total + pack.ruleCount, 0);
+          toast(`Loaded ${bundle.rulePacks.length} rule pack(s), ${rules} rule(s).`, 'success');
+        }
+      } catch (err) {
+        toast(err instanceof Error ? err.message : String(err), 'error');
+      }
+    },
+    [engine],
+  );
+
+  // Drop the custom packs and go back to the built-in rules, clearing the model's expectation too.
+  const clearRuleFile = useCallback(async () => {
+    try {
+      const bundle = await engine.setRules([]);
+      setRuleBundle(bundle);
+      setExpectedPacks([]);
+      setRuleCatalogToken((token) => token + 1);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error');
+    }
+  }, [engine]);
 
   // Remember the last few stencils the user placed, so the palette can surface them.
   const recordRecentStencil = useCallback((stencilId: string) => {
@@ -1252,6 +1325,7 @@ export function Editor() {
       });
       const nextPacks = model.analysis?.disabledPacks ?? [];
       const nextRuleIds = model.analysis?.disabledRuleIds ?? [];
+      const nextExpected = model.analysis?.expectedPacks ?? [];
       const first = nextPages[0];
       setPages(nextPages);
       setActivePageId(first.id);
@@ -1259,6 +1333,7 @@ export function Editor() {
       setEdges(first.edges);
       setDisabledRulePacks(nextPacks);
       setDisabledRuleIds(nextRuleIds);
+      setExpectedPacks(nextExpected);
       setFindings([]);
       setThreats([]);
       setThreatTriage(model.threats ?? []);
@@ -1267,7 +1342,9 @@ export function Editor() {
       setSelection({ node: null, edge: null });
       reset();
       // A freshly loaded model is the new saved baseline, so it does not read as dirty.
-      setSavedJson(JSON.stringify(modelFromPages(nextPages, buildAnalysis(nextPacks, nextRuleIds))));
+      setSavedJson(
+        JSON.stringify(modelFromPages(nextPages, buildAnalysis(nextPacks, nextRuleIds, nextExpected))),
+      );
       window.setTimeout(() => fitView({ padding: 0.25, maxZoom: 1.15, duration: 300 }), 0);
     },
     [setNodes, setEdges, fitView, reset],
@@ -1467,8 +1544,12 @@ export function Editor() {
                       packs={rulePacks}
                       disabledPacks={disabledRulePacks}
                       disabledRuleIds={disabledRuleIds}
+                      ruleBundle={ruleBundle}
+                      expectedPacks={expectedPacks}
                       onTogglePack={toggleRulePack}
                       onToggleRule={toggleRule}
+                      onLoadRuleFile={(file) => void loadRuleFile(file)}
+                      onClearRuleFile={() => void clearRuleFile()}
                     />
                   )}
                   {(threats.length > 0 || findings.length > 0) && (

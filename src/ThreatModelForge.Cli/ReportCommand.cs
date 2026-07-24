@@ -28,7 +28,7 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            CliArgs parsed = CliArgs.Parse(args, new[] { "out", "format" });
+            CliArgs parsed = CliArgs.Parse(args, new[] { "out", "format", RuleSourceCli.OptionName });
             if (parsed.Help)
             {
                 PrintUsage();
@@ -66,7 +66,7 @@ namespace ThreatModelForge.Cli
             ThreatModel model = ThreatModelFormatRegistry.CreateDefault().Load(input!);
             if (formatId == "html")
             {
-                using RuleSet ruleSet = AnalysisRuleSources.Create();
+                using RuleSet ruleSet = AnalysisRuleSources.Create(RuleSourceCli.FromPath(parsed.Get(RuleSourceCli.OptionName)));
                 ApplyModelRuleSelection(ruleSet, input!);
                 ThreatGenerator.Apply(model, ThreatGenerator.Generate(model, ruleSet));
             }
@@ -129,9 +129,10 @@ namespace ThreatModelForge.Cli
         {
             Console.Error.WriteLine("Threat Model Forge report generator.");
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  tmforge report [--format <html|svg>] [--out <path>] [--json] <model.tm7>");
+            Console.Error.WriteLine("  tmforge report [--format <html|svg>] [--out <path>] [--rules <path>] [--json] <model.tm7>");
             Console.Error.WriteLine("If --out is omitted, the report is written to standard output.");
             Console.Error.WriteLine("--format html (default) writes a self-contained HTML report; --format svg writes the diagram as a standalone SVG.");
+            Console.Error.WriteLine("--rules loads custom declarative rules (a *.tmrules.json file or a directory of them) alongside the built-in rules.");
         }
     }
 }

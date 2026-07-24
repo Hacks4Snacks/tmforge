@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import type { RuleInfo, RulePackInfo } from './engineClient';
+import { useRef, useState } from 'react';
+import type { RuleBundle, RuleInfo, RulePackInfo } from './engineClient';
+import type { TmForgeExpectedRulePack } from './types';
 
 interface AnalysisSettingsProps {
   /** The full rule catalog from the engine. */
@@ -10,8 +11,14 @@ interface AnalysisSettingsProps {
   disabledPacks: string[];
   /** Ids of individual rules the model currently skips. */
   disabledRuleIds: string[];
+  /** The custom rule packs the engine actually loaded, with any load diagnostics. */
+  ruleBundle: RuleBundle;
+  /** The custom rule packs this model expects, pinned by content fingerprint. */
+  expectedPacks: TmForgeExpectedRulePack[];
   onTogglePack: (packId: string) => void;
   onToggleRule: (ruleId: string) => void;
+  onLoadRuleFile: (file: File) => void;
+  onClearRuleFile: () => void;
 }
 
 /** The first sentence of a rule description, for the compact one-line row. */
@@ -19,6 +26,75 @@ function firstSentence(text: string): string {
   const trimmed = text.trim();
   const end = trimmed.indexOf('. ');
   return end > 0 ? trimmed.slice(0, end + 1) : trimmed;
+}
+
+/** A short, readable prefix of a content fingerprint (the full value is in the title attribute). */
+function shortFingerprint(fingerprint: string): string {
+  return fingerprint.length > 12 ? `${fingerprint.slice(0, 12)}\u2026` : fingerprint;
+}
+
+/**
+ * The custom rule pack loader: pick a `.tmrules.json`, see exactly which packs loaded (id, version,
+ * content fingerprint, rule count) and every diagnostic the loader raised. The model records the
+ * loaded identity, so analyzing later without that pack is reported rather than passing quietly.
+ */
+function CustomRulePacks({
+  ruleBundle,
+  expectedPacks,
+  onLoadRuleFile,
+  onClearRuleFile,
+}: Pick<AnalysisSettingsProps, 'ruleBundle' | 'expectedPacks' | 'onLoadRuleFile' | 'onClearRuleFile'>) {
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const loadedIds = new Set(ruleBundle.rulePacks.map((pack) => pack.id));
+  const missing = expectedPacks.filter((pack) => pack.id && !loadedIds.has(pack.id));
+
+  return (
+    <div className="val-custom-rules">
+      <div className="val-custom-rules-actions">
+        <button type="button" className="pack-chip" onClick={() => fileRef.current?.click()}>
+          Load rule pack…
+        </button>
+        {ruleBundle.rulePacks.length > 0 || expectedPacks.length > 0 ? (
+          <button type="button" className="pack-chip" onClick={onClearRuleFile}>
+            Use built-in rules
+          </button>
+        ) : null}
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".tmrules.json,.json"
+          style={{ display: 'none' }}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (file) {
+              onLoadRuleFile(file);
+            }
+          }}
+        />
+      </div>
+      {ruleBundle.rulePacks.map((pack) => (
+        <div key={pack.id} className="val-rule-pack" title={`${pack.dialect} · fingerprint ${pack.fingerprint}`}>
+          <strong>{pack.name}</strong>
+          <span className="val-rule-pack-meta">
+            {pack.id}
+            {pack.version ? ` · ${pack.version}` : ''} · {pack.ruleCount} rule(s) ·{' '}
+            {shortFingerprint(pack.fingerprint)}
+          </span>
+        </div>
+      ))}
+      {missing.map((pack) => (
+        <p key={pack.id} className="val-rule-diag">
+          This model expects rule pack “{pack.id}”, which is not loaded. Findings will be incomplete.
+        </p>
+      ))}
+      {ruleBundle.diagnostics.map((diagnostic) => (
+        <p key={diagnostic} className="val-rule-diag">
+          {diagnostic}
+        </p>
+      ))}
+    </div>
+  );
 }
 
 /**
@@ -30,8 +106,12 @@ export function AnalysisSettings({
   packs,
   disabledPacks,
   disabledRuleIds,
+  ruleBundle,
+  expectedPacks,
   onTogglePack,
   onToggleRule,
+  onLoadRuleFile,
+  onClearRuleFile,
 }: AnalysisSettingsProps) {
   // Which rule's in-app help panel is expanded (only one at a time keeps the panel compact).
   const [openHelpId, setOpenHelpId] = useState<string | null>(null);
@@ -58,6 +138,12 @@ export function AnalysisSettings({
 
   return (
     <div className="val-settings">
+      <CustomRulePacks
+        ruleBundle={ruleBundle}
+        expectedPacks={expectedPacks}
+        onLoadRuleFile={onLoadRuleFile}
+        onClearRuleFile={onClearRuleFile}
+      />
       <div className="val-packs">
         {packs.map((pack) => {
           const enabled = !disabledPackSet.has(pack.id);

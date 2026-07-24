@@ -88,7 +88,7 @@ namespace ThreatModelForge.Cli.Tests
             ApplyResultDto applied = McpAuthoringTools.Apply(manifest, force: false);
             Assert.IsTrue(applied.Success, applied.Error);
 
-            IReadOnlyList<FindingDto> findings = McpModelTools.Analyze(applied.Model!);
+            IReadOnlyList<FindingDto> findings = McpModelTools.Analyze(applied.Model!, CreateServices(this.WorkingDirectory));
             Assert.IsFalse(findings.Any(finding => finding.Id == "engine-error"));
         }
 
@@ -196,7 +196,7 @@ namespace ThreatModelForge.Cli.Tests
                 },
             };
 
-            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Analyze(model));
+            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Analyze(model, CreateServices(this.WorkingDirectory)));
         }
 
         /// <summary>Verifies that physical top-level collections cannot hide behind diagrams.</summary>
@@ -215,7 +215,7 @@ namespace ThreatModelForge.Cli.Tests
                 },
             };
 
-            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Analyze(model));
+            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Analyze(model, CreateServices(this.WorkingDirectory)));
         }
 
         /// <summary>Verifies that one object cannot concentrate a quadratic property-update workload.</summary>
@@ -235,7 +235,7 @@ namespace ThreatModelForge.Cli.Tests
                 },
             };
 
-            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Analyze(model));
+            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Analyze(model, CreateServices(this.WorkingDirectory)));
         }
 
         /// <summary>Verifies that property-update work is cumulative across otherwise valid objects.</summary>
@@ -254,7 +254,7 @@ namespace ThreatModelForge.Cli.Tests
                 }).ToArray(),
             };
 
-            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Analyze(model));
+            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Analyze(model, CreateServices(this.WorkingDirectory)));
         }
 
         /// <summary>Verifies that valid collection counts cannot create excessive cross-product work.</summary>
@@ -271,7 +271,7 @@ namespace ThreatModelForge.Cli.Tests
                     .ToArray(),
             };
 
-            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Analyze(model));
+            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Analyze(model, CreateServices(this.WorkingDirectory)));
         }
 
         /// <summary>Verifies that repeated flow-to-boundary checks share the operation work budget.</summary>
@@ -288,7 +288,7 @@ namespace ThreatModelForge.Cli.Tests
                     .ToArray(),
             };
 
-            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Analyze(model));
+            _ = Assert.Throws<InvalidDataException>(() => McpModelTools.Analyze(model, CreateServices(this.WorkingDirectory)));
         }
 
         /// <summary>Verifies that merge operands share one pre-execution complexity budget.</summary>
@@ -679,7 +679,7 @@ namespace ThreatModelForge.Cli.Tests
         public void Grounding_Tools_ReturnCatalogs()
         {
             Assert.IsTrue(McpGroundingTools.ManifestSchema().Length > 0);
-            Assert.IsTrue(McpGroundingTools.Rules().Count > 0);
+            Assert.IsTrue(McpGroundingTools.Rules(CreateServices(this.WorkingDirectory)).Count > 0);
             Assert.IsTrue(McpGroundingTools.PropertySchema().Count > 0);
             Assert.IsTrue(McpGroundingTools.Stencils().Count > 0);
             Assert.IsTrue(McpGroundingTools.Formats().Count > 0);

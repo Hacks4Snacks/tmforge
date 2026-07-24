@@ -7,7 +7,7 @@ namespace ThreatModelForge.Api.Tests
     using ThreatModelForge.Engine;
 
     /// <summary>
-    /// Unit tests for <see cref="EngineService.Analyze"/>, focused on the per-model analysis
+    /// Unit tests for <see cref="EngineService.Analyze(TmForgeModelDto)"/>, focused on the per-model analysis
     /// selection that travels with the model.
     /// </summary>
     [TestClass]

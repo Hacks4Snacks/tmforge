@@ -92,10 +92,44 @@ namespace ThreatModelForge.Analysis
                 throw new ArgumentNullException(nameof(paths));
             }
 
+            return LoadBundle(paths, null, diagnostics);
+        }
+
+        /// <summary>
+        /// Loads compiled declarative rules from in-memory content, for hosts that cannot resolve
+        /// filesystem paths. The content is parsed, validated, and fingerprinted exactly as a file is,
+        /// so the same pack yields the same rules and the same fingerprint on every transport.
+        /// </summary>
+        /// <param name="contents">The rule documents to load.</param>
+        /// <param name="diagnostics">An optional sink for non-fatal load and validation warnings.</param>
+        /// <returns>The compiled rules and validated pack definitions.</returns>
+        public static RuleBundle LoadBundle(IEnumerable<RuleContent> contents, Action<string>? diagnostics = null)
+        {
+            if (contents == null)
+            {
+                throw new ArgumentNullException(nameof(contents));
+            }
+
+            return LoadBundle(null, contents, diagnostics);
+        }
+
+        /// <summary>
+        /// Loads compiled declarative rules from filesystem paths and in-memory content together, so a
+        /// host that mixes both sees one effective bundle with one duplicate-identity check.
+        /// </summary>
+        /// <param name="paths">The spec files or directories to load, or <see langword="null"/> for none.</param>
+        /// <param name="contents">The in-memory rule documents to load, or <see langword="null"/> for none.</param>
+        /// <param name="diagnostics">An optional sink for non-fatal load and validation warnings.</param>
+        /// <returns>The compiled rules and validated pack definitions.</returns>
+        public static RuleBundle LoadBundle(
+            IEnumerable<string>? paths,
+            IEnumerable<RuleContent>? contents,
+            Action<string>? diagnostics)
+        {
             List<string> files = new List<string>();
             HashSet<string> seenFiles = new HashSet<string>(PathComparer);
             int sourcePaths = 0;
-            foreach (string path in paths)
+            foreach (string path in paths ?? Array.Empty<string>())
             {
                 sourcePaths++;
                 if (sourcePaths > MaxSourceFiles)
@@ -121,11 +155,36 @@ namespace ThreatModelForge.Analysis
                 }
             }
 
+            List<RuleContent> inline = (contents ?? Array.Empty<RuleContent>())
+                .Where(content => content != null)
+                .ToList();
+            if (files.Count + inline.Count > MaxSourceFiles)
+            {
+                diagnostics?.Invoke($"Skipped rule sources: source file count exceeds the limit of {MaxSourceFiles}.");
+                return EmptyBundle();
+            }
+
             List<ParsedDocument> documents = new List<ParsedDocument>();
             long totalBytes = 0;
             foreach (string file in files)
             {
                 ParsedDocument? document = LoadFile(file, diagnostics, out int bytesRead);
+                totalBytes += bytesRead;
+                if (totalBytes > MaxTotalRuleBytes)
+                {
+                    diagnostics?.Invoke($"Skipped rule sources: total file size exceeds the limit of {MaxTotalRuleBytes} bytes.");
+                    return EmptyBundle();
+                }
+
+                if (document != null)
+                {
+                    documents.Add(document);
+                }
+            }
+
+            foreach (RuleContent content in inline)
+            {
+                ParsedDocument? document = LoadContent(content, diagnostics, out int bytesRead);
                 totalBytes += bytesRead;
                 if (totalBytes > MaxTotalRuleBytes)
                 {
@@ -189,6 +248,54 @@ namespace ThreatModelForge.Analysis
             }
 
             return new RuleBundle(rules.AsReadOnly(), packs.AsReadOnly());
+        }
+
+        /// <summary>
+        /// Reads declarative rule documents from the filesystem into content, expanding directories the
+        /// same way a direct load does. Hosts that can resolve paths (the CLI, the MCP server, and the
+        /// API's trusted startup configuration) use this to hand content to the host-neutral engine
+        /// facade, so path handling stays in the host and the analysis layer stays filesystem-free.
+        /// </summary>
+        /// <param name="paths">The spec files or directories to read.</param>
+        /// <param name="diagnostics">An optional sink for non-fatal read warnings.</param>
+        /// <returns>The document content, in path then file order.</returns>
+        public static IReadOnlyList<RuleContent> ReadContents(IEnumerable<string> paths, Action<string>? diagnostics = null)
+        {
+            if (paths == null)
+            {
+                throw new ArgumentNullException(nameof(paths));
+            }
+
+            List<RuleContent> contents = new List<RuleContent>();
+            HashSet<string> seenFiles = new HashSet<string>(PathComparer);
+            foreach (string path in paths)
+            {
+                foreach (string file in ExpandFiles(path, diagnostics))
+                {
+                    string normalized = Path.GetFullPath(file);
+                    if (!seenFiles.Add(normalized))
+                    {
+                        continue;
+                    }
+
+                    if (contents.Count >= MaxSourceFiles)
+                    {
+                        diagnostics?.Invoke($"Skipped rule sources: source file count exceeds the limit of {MaxSourceFiles}.");
+                        return contents;
+                    }
+
+                    try
+                    {
+                        contents.Add(RuleContent.FromBytes(normalized, ReadFile(normalized, out _)));
+                    }
+                    catch (Exception ex) when (ex is IOException || ex is InvalidDataException || ex is UnauthorizedAccessException)
+                    {
+                        diagnostics?.Invoke($"Skipped rule file '{normalized}': {ex.Message}");
+                    }
+                }
+            }
+
+            return contents;
         }
 
         /// <summary>Validates an in-memory version 2 pack using the loader's authoritative contract.</summary>
@@ -552,8 +659,37 @@ namespace ThreatModelForge.Analysis
         private static ParsedDocument? LoadFile(string file, Action<string>? diagnostics, out int bytesRead)
         {
             bytesRead = 0;
-            DeclarativeRuleFile? parsed;
             byte[] content;
+            try
+            {
+                content = ReadFile(file, out bytesRead);
+            }
+            catch (Exception ex) when (ex is IOException || ex is InvalidDataException || ex is UnauthorizedAccessException)
+            {
+                diagnostics?.Invoke($"Skipped rule file '{file}': {ex.Message}");
+                return null;
+            }
+
+            return ParseDocument(file, content, diagnostics);
+        }
+
+        private static ParsedDocument? LoadContent(RuleContent source, Action<string>? diagnostics, out int bytesRead)
+        {
+            byte[] content = source.Bytes();
+            bytesRead = content.Length;
+            if (bytesRead > MaxRuleFileBytes)
+            {
+                diagnostics?.Invoke(
+                    $"Skipped rule file '{source.Name}': File size exceeds the limit of {MaxRuleFileBytes} bytes.");
+                return null;
+            }
+
+            return ParseDocument(source.Name, content, diagnostics);
+        }
+
+        private static ParsedDocument? ParseDocument(string file, byte[] content, Action<string>? diagnostics)
+        {
+            DeclarativeRuleFile? parsed;
             string json;
             bool hasVersionMarker;
             bool hasCategories;
@@ -561,7 +697,6 @@ namespace ThreatModelForge.Analysis
             bool hasProperties;
             try
             {
-                content = ReadFile(file, out bytesRead);
                 json = ReadJson(content);
                 using JsonDocument document = ParseJsonDocument(json);
                 JsonElement root = document.RootElement;
@@ -765,59 +900,7 @@ namespace ThreatModelForge.Analysis
 
         private static string ReadJson(byte[] content)
         {
-            Encoding encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
-            int offset = 0;
-            if (HasPrefix(content, 0x00, 0x00, 0xFE, 0xFF))
-            {
-                encoding = new UTF32Encoding(bigEndian: true, byteOrderMark: true, throwOnInvalidCharacters: true);
-                offset = 4;
-            }
-            else if (HasPrefix(content, 0xFF, 0xFE, 0x00, 0x00))
-            {
-                encoding = new UTF32Encoding(bigEndian: false, byteOrderMark: true, throwOnInvalidCharacters: true);
-                offset = 4;
-            }
-            else if (HasPrefix(content, 0xEF, 0xBB, 0xBF))
-            {
-                offset = 3;
-            }
-            else if (HasPrefix(content, 0xFE, 0xFF))
-            {
-                encoding = new UnicodeEncoding(bigEndian: true, byteOrderMark: true, throwOnInvalidBytes: true);
-                offset = 2;
-            }
-            else if (HasPrefix(content, 0xFF, 0xFE))
-            {
-                encoding = new UnicodeEncoding(bigEndian: false, byteOrderMark: true, throwOnInvalidBytes: true);
-                offset = 2;
-            }
-
-            try
-            {
-                return encoding.GetString(content, offset, content.Length - offset);
-            }
-            catch (DecoderFallbackException ex)
-            {
-                throw new InvalidDataException("Rule files must contain valid Unicode JSON.", ex);
-            }
-        }
-
-        private static bool HasPrefix(byte[] content, params byte[] prefix)
-        {
-            if (content.Length < prefix.Length)
-            {
-                return false;
-            }
-
-            for (int index = 0; index < prefix.Length; index++)
-            {
-                if (content[index] != prefix[index])
-                {
-                    return false;
-                }
-            }
-
-            return true;
+            return RuleContent.DecodeJson(content);
         }
 
         private static string? ValidateVersionTwoPack(

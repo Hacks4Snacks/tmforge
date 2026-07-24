@@ -5,8 +5,8 @@ namespace ThreatModelForge.Analysis
 
     /// <summary>
     /// The identity, source metadata, and catalogs carried by a version 2 rule pack. Instances
-    /// returned by <see cref="DeclarativeRuleProvider.LoadBundle"/> have passed the loader's
-    /// validation and expose defensive collection copies.
+    /// returned by <see cref="DeclarativeRuleProvider.LoadBundle(IEnumerable{string}, Action{string})"/>
+    /// have passed the loader's validation and expose defensive collection copies.
     /// </summary>
     public sealed class RulePackDefinition
     {

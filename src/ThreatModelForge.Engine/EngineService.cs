@@ -22,6 +22,12 @@ namespace ThreatModelForge.Engine
     /// </summary>
     public static class EngineService
     {
+        /// <summary>
+        /// The synthetic rule id used to report a rule-pack expectation that the effective bundle did
+        /// not meet.
+        /// </summary>
+        private const string RulePackMismatchRuleId = "rule-pack-mismatch";
+
         private static readonly JsonSerializerOptions CanonicalJsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -67,10 +73,19 @@ namespace ThreatModelForge.Engine
         /// Lists the analysis rules offered by the engine, with their pack, severity, and help link.
         /// </summary>
         /// <returns>The available rules, ordered by id.</returns>
-        public static IReadOnlyList<RuleDto> GetRules()
+        public static IReadOnlyList<RuleDto> GetRules() => GetRules(null);
+
+        /// <summary>
+        /// Lists the effective analysis rules: the built-in rules plus the custom packs selected by
+        /// <paramref name="rules"/>. Every transport passes the same options here, so a custom rule
+        /// appears in the catalog wherever it is loaded.
+        /// </summary>
+        /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
+        /// <returns>The available rules, ordered by id.</returns>
+        public static IReadOnlyList<RuleDto> GetRules(EngineRuleOptions? rules)
         {
             List<RuleDto> result = new List<RuleDto>();
-            using (RuleSet ruleSet = LoadRuleSet())
+            using (RuleSet ruleSet = LoadRuleSet(rules, null, out _))
             {
                 foreach (Rule rule in ruleSet.Rules)
                 {
@@ -94,14 +109,29 @@ namespace ThreatModelForge.Engine
         /// Lists the rule packs offered by the engine, for per-model validation toggles.
         /// </summary>
         /// <returns>The available rule packs, in presentation order.</returns>
-        public static IReadOnlyList<RulePackDto> GetRulePacks()
+        public static IReadOnlyList<RulePackDto> GetRulePacks() => GetRulePacks(null);
+
+        /// <summary>
+        /// Lists the effective rule packs: the built-in packs plus the custom packs selected by
+        /// <paramref name="rules"/>, so a validation toggle exists for imported and hand-written packs
+        /// alike.
+        /// </summary>
+        /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
+        /// <returns>The available rule packs, in presentation order.</returns>
+        public static IReadOnlyList<RulePackDto> GetRulePacks(EngineRuleOptions? rules)
         {
             Dictionary<string, int> counts = new Dictionary<string, int>(StringComparer.Ordinal);
-            using (RuleSet ruleSet = LoadRuleSet())
+            Dictionary<string, string> customNames = new Dictionary<string, string>(StringComparer.Ordinal);
+            using (RuleSet ruleSet = LoadRuleSet(rules, null, out IReadOnlyList<RulePackDefinition> packs))
             {
                 foreach (Rule rule in ruleSet.Rules)
                 {
                     counts[rule.Pack] = counts.TryGetValue(rule.Pack, out int existing) ? existing + 1 : 1;
+                }
+
+                foreach (RulePackDefinition pack in packs)
+                {
+                    customNames[pack.Id] = pack.Name;
                 }
             }
 
@@ -120,10 +150,32 @@ namespace ThreatModelForge.Engine
             remaining.Sort(StringComparer.Ordinal);
             foreach (string packId in remaining)
             {
-                result.Add(new RulePackDto { Id = packId, Name = RulePackCatalog.DisplayName(packId), Count = counts[packId] });
+                string name = customNames.TryGetValue(packId, out string? custom)
+                    ? custom
+                    : RulePackCatalog.DisplayName(packId);
+                result.Add(new RulePackDto { Id = packId, Name = name, Count = counts[packId] });
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Describes the custom rule content that would run for the given options: the packs that load
+        /// and the diagnostics raised while loading them. A host calls this to confirm that the pack it
+        /// configured is the pack that runs.
+        /// </summary>
+        /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
+        /// <returns>The effective packs and load diagnostics.</returns>
+        public static RuleBundleDto DescribeRules(EngineRuleOptions? rules)
+        {
+            List<string> diagnostics = new List<string>();
+            IReadOnlyList<RulePackInfoDto> effective;
+            using (RuleSet ruleSet = LoadRuleSet(rules, diagnostics, out IReadOnlyList<RulePackDefinition> packs))
+            {
+                effective = MapRulePacks(packs, ruleSet);
+            }
+
+            return new RuleBundleDto { RulePacks = effective, Diagnostics = diagnostics };
         }
 
         /// <summary>
@@ -131,17 +183,32 @@ namespace ThreatModelForge.Engine
         /// </summary>
         /// <param name="dto">The canonical model.</param>
         /// <returns>The findings produced by the engine.</returns>
-        public static IReadOnlyList<FindingDto> Analyze(TmForgeModelDto dto)
+        public static IReadOnlyList<FindingDto> Analyze(TmForgeModelDto dto) => Analyze(dto, null).Findings;
+
+        /// <summary>
+        /// Runs the effective rule set — the built-in rules plus the custom packs selected by
+        /// <paramref name="rules"/> — over the model, and reports which packs actually loaded so the
+        /// caller can tell a clean model from a model analyzed against the wrong rules.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
+        /// <returns>The findings, the effective custom packs, and any load diagnostics.</returns>
+        public static AnalysisResultDto Analyze(TmForgeModelDto dto, EngineRuleOptions? rules)
         {
             List<FindingDto> findings = new List<FindingDto>();
+            List<string> diagnostics = new List<string>();
+            IReadOnlyList<RulePackInfoDto> effectivePacks = Array.Empty<RulePackInfoDto>();
             try
             {
                 ThreatModel model = BuildModel(
                     dto,
                     out Dictionary<string, List<string>> nameToIds,
                     out Dictionary<Guid, string> originalIds);
-                using (RuleSet ruleSet = LoadRuleSet())
+                using (RuleSet ruleSet = LoadRuleSet(rules, diagnostics, out IReadOnlyList<RulePackDefinition> packs))
                 {
+                    effectivePacks = MapRulePacks(packs, ruleSet);
+                    findings.AddRange(VerifyExpectedPacks(dto.Analysis?.ExpectedPacks, effectivePacks));
+
                     if (dto.Analysis != null)
                     {
                         ruleSet.Disable(dto.Analysis.DisabledPacks, dto.Analysis.DisabledRuleIds);
@@ -178,24 +245,39 @@ namespace ThreatModelForge.Engine
                 });
             }
 
-            return findings;
+            return new AnalysisResultDto
+            {
+                Findings = findings,
+                RulePacks = effectivePacks,
+                Diagnostics = diagnostics,
+            };
         }
 
         /// <summary>
         /// Projects the model's threat-bearing analysis findings into threats. Detection is entirely the
-        /// rule set's — this runs the same rules <see cref="Analyze"/> runs and frames the findings
-        /// from threat-bearing rules as persistable threats. CLI, <c>/v1</c>, and WASM call the same
-        /// projector, so results are identical by construction.
+        /// rule set's — this runs the same rules <see cref="Analyze(TmForgeModelDto)"/> runs and frames
+        /// the findings from threat-bearing rules as persistable threats. CLI, <c>/v1</c>, and WASM call
+        /// the same projector, so results are identical by construction.
         /// </summary>
         /// <param name="dto">The canonical model.</param>
         /// <returns>The generated threats.</returns>
-        public static IReadOnlyList<ThreatDto> GenerateThreats(TmForgeModelDto dto)
+        public static IReadOnlyList<ThreatDto> GenerateThreats(TmForgeModelDto dto) => GenerateThreats(dto, null);
+
+        /// <summary>
+        /// Projects threats from the effective rule set — the built-in rules plus the custom packs
+        /// selected by <paramref name="rules"/> — so a custom threat-bearing rule yields the same threat
+        /// id, category, priority, and mitigation on every transport.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
+        /// <returns>The generated threats.</returns>
+        public static IReadOnlyList<ThreatDto> GenerateThreats(TmForgeModelDto dto, EngineRuleOptions? rules)
         {
             List<ThreatDto> result = new List<ThreatDto>();
             try
             {
                 ThreatModel model = BuildModel(dto, out Dictionary<string, List<string>> nameToIds);
-                using (RuleSet ruleSet = LoadRuleSet())
+                using (RuleSet ruleSet = LoadRuleSet(rules, null, out _))
                 {
                     if (dto.Analysis != null)
                     {
@@ -254,9 +336,18 @@ namespace ThreatModelForge.Engine
         /// </summary>
         /// <param name="dto">The canonical model.</param>
         /// <returns>The <c>.tm7</c> document bytes.</returns>
-        public static byte[] ExportTm7(TmForgeModelDto dto)
+        public static byte[] ExportTm7(TmForgeModelDto dto) => ExportTm7(dto, null);
+
+        /// <summary>
+        /// Serializes the supplied model to lossless <c>.tm7</c> bytes, materializing its threat register
+        /// from the effective rule set so a custom threat-bearing pack is carried into the export.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
+        /// <returns>The <c>.tm7</c> document bytes.</returns>
+        public static byte[] ExportTm7(TmForgeModelDto dto, EngineRuleOptions? rules)
         {
-            ThreatModel model = BuildModelForExport(dto);
+            ThreatModel model = BuildModelForExport(dto, rules);
             Tm7ExportPreparer.Prepare(model);
 
             using (MemoryStream stream = new MemoryStream())
@@ -296,11 +387,21 @@ namespace ThreatModelForge.Engine
         /// <param name="dto">The canonical model.</param>
         /// <param name="formatId">The target format id (for example, <c>tm7</c>, <c>drawio</c>, <c>vsdx</c>).</param>
         /// <returns>The serialized document bytes.</returns>
-        public static byte[] Convert(TmForgeModelDto dto, string formatId)
+        public static byte[] Convert(TmForgeModelDto dto, string formatId) => Convert(dto, formatId, null);
+
+        /// <summary>
+        /// Serializes the supplied model to the requested registered format's bytes, materializing any
+        /// register-bearing format from the effective rule set.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <param name="formatId">The target format id (for example, <c>tm7</c>, <c>drawio</c>, <c>vsdx</c>).</param>
+        /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
+        /// <returns>The serialized document bytes.</returns>
+        public static byte[] Convert(TmForgeModelDto dto, string formatId, EngineRuleOptions? rules)
         {
             using (MemoryStream stream = new MemoryStream())
             {
-                WriteConverted(dto, formatId, stream);
+                WriteConverted(dto, formatId, stream, rules);
                 return stream.ToArray();
             }
         }
@@ -309,7 +410,18 @@ namespace ThreatModelForge.Engine
         /// <param name="dto">The canonical model.</param>
         /// <param name="formatId">The target format id.</param>
         /// <param name="output">The destination stream, which remains open.</param>
-        public static void WriteConverted(TmForgeModelDto dto, string formatId, Stream output)
+        public static void WriteConverted(TmForgeModelDto dto, string formatId, Stream output) =>
+            WriteConverted(dto, formatId, output, null);
+
+        /// <summary>
+        /// Serializes the supplied model to the requested registered format stream, materializing any
+        /// register-bearing format from the effective rule set.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <param name="formatId">The target format id.</param>
+        /// <param name="output">The destination stream, which remains open.</param>
+        /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
+        public static void WriteConverted(TmForgeModelDto dto, string formatId, Stream output, EngineRuleOptions? rules)
         {
             if (string.IsNullOrEmpty(formatId))
             {
@@ -329,7 +441,7 @@ namespace ThreatModelForge.Engine
             ThreatModel model;
             if (string.Equals(formatId, Tm7Format.FormatId, StringComparison.OrdinalIgnoreCase))
             {
-                model = BuildModelForExport(dto);
+                model = BuildModelForExport(dto, rules);
                 Tm7ExportPreparer.Prepare(model);
             }
             else
@@ -374,7 +486,17 @@ namespace ThreatModelForge.Engine
         /// <param name="dto">The canonical model.</param>
         /// <param name="format">The report format: <c>html</c> (default) or <c>svg</c>.</param>
         /// <returns>The report bytes (UTF-8).</returns>
-        public static byte[] Report(TmForgeModelDto dto, string format)
+        public static byte[] Report(TmForgeModelDto dto, string format) => Report(dto, format, null);
+
+        /// <summary>
+        /// Renders a report for the supplied model against the effective rule set, so a report shows the
+        /// same threats a custom pack produced during analysis.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <param name="format">The report format: <c>html</c> (default) or <c>svg</c>.</param>
+        /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
+        /// <returns>The report bytes (UTF-8).</returns>
+        public static byte[] Report(TmForgeModelDto dto, string format, EngineRuleOptions? rules)
         {
             if (string.Equals(format, "svg", StringComparison.OrdinalIgnoreCase))
             {
@@ -382,7 +504,7 @@ namespace ThreatModelForge.Engine
                 return Encoding.UTF8.GetBytes(new DiagramSvgRenderer().RenderModel(diagramModel).ToString());
             }
 
-            ThreatModel model = BuildModelForExport(dto);
+            ThreatModel model = BuildModelForExport(dto, rules);
             string html = new HtmlReportWriter().Write(model);
             return Encoding.UTF8.GetBytes(html);
         }
@@ -538,8 +660,9 @@ namespace ThreatModelForge.Engine
         /// Modeling Tool.
         /// </summary>
         /// <param name="dto">The canonical model.</param>
+        /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
         /// <returns>The model with its threat register materialized and triaged.</returns>
-        private static ThreatModel BuildModelForExport(TmForgeModelDto dto)
+        private static ThreatModel BuildModelForExport(TmForgeModelDto dto, EngineRuleOptions? rules)
         {
             ThreatModel model = BuildModel(dto, out _);
 
@@ -556,7 +679,7 @@ namespace ThreatModelForge.Engine
                 model.AllThreatsDictionary.Remove(key);
             }
 
-            using (RuleSet ruleSet = LoadRuleSet())
+            using (RuleSet ruleSet = LoadRuleSet(rules, null, out _))
             {
                 if (dto.Analysis != null)
                 {
@@ -722,9 +845,136 @@ namespace ThreatModelForge.Engine
                 : Array.Empty<string>();
         }
 
-        private static RuleSet LoadRuleSet()
+        /// <summary>
+        /// Loads the effective rule set: the built-in rules plus any custom packs supplied as content.
+        /// This is the single seam every rule-reading engine operation goes through, so one selection
+        /// yields one effective bundle across catalogs, findings, threats, reports, and exports.
+        /// </summary>
+        /// <param name="rules">The custom rule content, or <see langword="null"/> for built-in rules only.</param>
+        /// <param name="diagnostics">An optional sink that collects non-fatal load warnings.</param>
+        /// <param name="packs">On return, the custom packs that contributed rules.</param>
+        /// <returns>The effective rule set. The caller owns and disposes it.</returns>
+        private static RuleSet LoadRuleSet(
+            EngineRuleOptions? rules,
+            ICollection<string>? diagnostics,
+            out IReadOnlyList<RulePackDefinition> packs)
         {
-            return AnalysisRuleSources.Create();
+            List<RuleContent> contents = new List<RuleContent>();
+            foreach (RuleSourceDto source in rules?.Sources ?? Array.Empty<RuleSourceDto>())
+            {
+                if (source == null || string.IsNullOrWhiteSpace(source.Json))
+                {
+                    diagnostics?.Add($"Skipped rule source '{source?.Name ?? "(unnamed)"}': content is empty.");
+                    continue;
+                }
+
+                string name = string.IsNullOrWhiteSpace(source.Name) ? "rules.tmrules.json" : source.Name!;
+                contents.Add(RuleContent.FromJson(name, source.Json!));
+            }
+
+            Action<string>? sink = diagnostics == null ? null : new Action<string>(diagnostics.Add);
+            RuleSourceOptions options = new RuleSourceOptions(null, sink, contents);
+            return AnalysisRuleSources.Create(options, out packs);
+        }
+
+        /// <summary>
+        /// Describes the custom packs that contributed rules, with the rule count each pack added, so a
+        /// caller sees the identity and content fingerprint of the rules that actually ran.
+        /// </summary>
+        /// <param name="packs">The loaded pack definitions.</param>
+        /// <param name="ruleSet">The effective rule set.</param>
+        /// <returns>The effective pack descriptions, ordered by id.</returns>
+        private static IReadOnlyList<RulePackInfoDto> MapRulePacks(
+            IReadOnlyList<RulePackDefinition> packs,
+            RuleSet ruleSet)
+        {
+            if (packs.Count == 0)
+            {
+                return Array.Empty<RulePackInfoDto>();
+            }
+
+            Dictionary<string, int> counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (Rule rule in ruleSet.Rules)
+            {
+                RulePackDefinition? definition = rule.PackDefinition;
+                if (definition != null)
+                {
+                    counts[definition.Id] = counts.TryGetValue(definition.Id, out int existing) ? existing + 1 : 1;
+                }
+            }
+
+            return packs
+                .Select(pack => new RulePackInfoDto
+                {
+                    Id = pack.Id,
+                    Name = pack.Name,
+                    Version = pack.Version,
+                    Fingerprint = pack.Fingerprint,
+                    Dialect = pack.Dialect,
+                    RuleCount = counts.TryGetValue(pack.Id, out int count) ? count : 0,
+                })
+                .OrderBy(pack => pack.Id, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Compares the packs the model expects against the packs that actually loaded. A missing pack or
+        /// a changed fingerprint is reported as an error finding, so analyzing against different rules is
+        /// visible in every surface that shows findings and fails a build that gates on errors.
+        /// </summary>
+        /// <param name="expected">The expected packs recorded with the model, if any.</param>
+        /// <param name="effective">The packs that contributed rules to this run.</param>
+        /// <returns>One finding per unmet expectation.</returns>
+        private static IReadOnlyList<FindingDto> VerifyExpectedPacks(
+            IReadOnlyList<ExpectedRulePackDto>? expected,
+            IReadOnlyList<RulePackInfoDto> effective)
+        {
+            if (expected == null || expected.Count == 0)
+            {
+                return Array.Empty<FindingDto>();
+            }
+
+            Dictionary<string, RulePackInfoDto> loaded = new Dictionary<string, RulePackInfoDto>(StringComparer.Ordinal);
+            foreach (RulePackInfoDto pack in effective)
+            {
+                loaded[pack.Id] = pack;
+            }
+
+            List<FindingDto> findings = new List<FindingDto>();
+            foreach (ExpectedRulePackDto entry in expected)
+            {
+                if (entry == null || string.IsNullOrWhiteSpace(entry.Id))
+                {
+                    continue;
+                }
+
+                if (!loaded.TryGetValue(entry.Id!, out RulePackInfoDto? pack))
+                {
+                    findings.Add(new FindingDto
+                    {
+                        Id = $"{RulePackMismatchRuleId}:{findings.Count}",
+                        Severity = "error",
+                        RuleId = RulePackMismatchRuleId,
+                        Message = $"Expected rule pack '{entry.Id}' did not load, so this model was analyzed without it.",
+                    });
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(entry.Fingerprint) &&
+                    !string.Equals(entry.Fingerprint, pack.Fingerprint, StringComparison.Ordinal))
+                {
+                    findings.Add(new FindingDto
+                    {
+                        Id = $"{RulePackMismatchRuleId}:{findings.Count}",
+                        Severity = "error",
+                        RuleId = RulePackMismatchRuleId,
+                        Message =
+                            $"Rule pack '{entry.Id}' content changed: expected fingerprint '{entry.Fingerprint}' but loaded '{pack.Fingerprint}'.",
+                    });
+                }
+            }
+
+            return findings;
         }
 
         private static string MapSeverity(MessageSeverity severity)
