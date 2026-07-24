@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.6.0...v0.7.0) (2026-07-24)
+
+
+### Features
+
+* narrow view to findings when selected ([#68](https://github.com/Hacks4Snacks/tmforge/issues/68)) ([9369788](https://github.com/Hacks4Snacks/tmforge/commit/936978849dcfbab6888c7234625ee78d9ba7baa6))
+* support deconflicting trust boundaries during "tidy" operation ([#63](https://github.com/Hacks4Snacks/tmforge/issues/63)) ([d18c7fe](https://github.com/Hacks4Snacks/tmforge/commit/d18c7fe42ba8494c8ac317c6df78590f3209f79b))
+
 ## [0.6.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.5.0...v0.6.0) (2026-07-16)
 
 
