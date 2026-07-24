@@ -1084,18 +1084,24 @@ export function Editor() {
     setThreats((prev) => prev.filter((t) => t.id !== threat.id));
   }, []);
 
-  // Navigates to the page holding the first of a threat's / finding's referenced elements.
+  // Narrows the canvas highlights to one threat / finding, then navigates to its first referenced page.
   const jumpToElements = useCallback(
     (elementIds: string[]) => {
-      for (const id of elementIds) {
-        const pageId = elementPageIndex.get(id);
-        if (pageId && pageId !== activePageId) {
-          switchPage(pageId);
-          return;
-        }
+      const focused = new Set(elementIds);
+      flaggedIdsRef.current = focused;
+      const pageId = elementIds
+        .map((id) => elementPageIndex.get(id))
+        .find((id): id is string => Boolean(id));
+      if (pageId && pageId !== activePageId) {
+        switchPage(pageId);
+        return;
       }
+
+      const applied = applyFlags(nodes, edges, focused);
+      setNodes(applied.nodes);
+      setEdges(applied.edges);
     },
-    [elementPageIndex, activePageId, switchPage],
+    [elementPageIndex, activePageId, switchPage, nodes, edges, setNodes, setEdges],
   );
 
   // The name of the page a threat's elements live on, when that is not the page in view (for a badge).
