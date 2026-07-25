@@ -45,6 +45,7 @@ tmforge <command> [options] <file>
 | [`layout`](#layout) | Author | Auto-lay-out the diagram (layered; no hand-placed coordinates). |
 | [`rules`](#rules) | Analyze | Compile an MTMT `.tb7` template into a versioned rule pack. |
 | [`analyze`](#analyze) | Analyze | Evaluate the analysis rules against a model. |
+| [`analysis`](#analysis) | Analyze | Validate a stored analysis document (and check whether it is stale). |
 | [`threats`](#threats) | Analyze | Report or author threats — the persisted, triaged view of the findings (`--write` to persist; `--add`/`--edit`/`--remove` to author). |
 | [`accept`](#accept) | Analyze | Accept a generated threat's risk (records a justification). |
 | [`report`](#report) | Report | Generate a self-contained HTML report. |
@@ -505,7 +506,7 @@ Evaluate the analysis rules against the model. See [Analysis rules & CI](analysi
 full rule catalog, packs, and suppressions.
 
 ```text
-tmforge analyze [--ruleset <path>] [--rules <path>] [--suppressionFile <path>] [--reportFolder <dir>] [--define name=value ...] [--max-severity <level>] [--json] <model>
+tmforge analyze [--ruleset <path>] [--rules <path>] [--suppressionFile <path>] [--reportFolder <dir>] [--taxonomy <path>] [--define name=value ...] [--max-severity <level>] [--json] <model>
 ```
 
 | Option | Meaning |
@@ -513,7 +514,8 @@ tmforge analyze [--ruleset <path>] [--rules <path>] [--suppressionFile <path>] [
 | `--ruleset <path>` | Use a custom rule set instead of the built-in default. |
 | `--rules <path>` | Load custom [declarative rules](analysis-rules.md#authoring-custom-rules-declarative) from a `*.tmrules.json` file (or a directory of them) in addition to the built-in rules. |
 | `--suppressionFile <path>` | Apply a suppression document to filter findings. |
-| `--reportFolder <dir>` | Also write SARIF + HTML findings reports (and a JSON listing) to `<dir>`. |
+| `--reportFolder <dir>` | Also write SARIF + HTML findings reports, a JSON listing, and the versioned analysis document to `<dir>`. |
+| `--taxonomy <path>` | Annotate the analysis document with your own threat-catalogue ids. See [mapping to your own taxonomy](analysis-rules.md#mapping-to-your-own-taxonomy). |
 | `--define name=value` | Repeatable. Supplies a rule variable. |
 | `--max-severity <level>` | Gate the exit code on findings at or above `<level>` (`error`, `warning`, or `info`). Default: `error`. |
 
@@ -537,6 +539,49 @@ tmforge analyze payments.tm7 --suppressionFile suppressions.json --json
 > When a model is loaded from the native `tmforge-json` format, its embedded analysis selection
 > (disabled packs/rules) is honored automatically. Other formats use the full rule set or an
 > explicit `--ruleset`.
+
+### `analysis`
+
+Validate a stored [analysis document](analysis-rules.md#the-analysis-document) — the
+`<model>.analysis.json` written by `analyze --reportFolder`.
+
+```text
+tmforge analysis validate [--model <path>] [--expect-version <n>] [--json] <document>
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--model <path>` | Also check the document against the model it describes, so a **stale** analysis is reported instead of trusted. |
+| `--expect-version <n>` | Pin the schema version your tooling was written against; any other version is refused rather than read on the wrong assumptions. |
+
+**Exit codes:**
+
+| Code | Meaning |
+| --- | --- |
+| `0` | The document is sound. |
+| `1` | Tool error (bad arguments, file not found). |
+| `2` | Problems were found. |
+
+```bash
+tmforge analysis validate findings/payments.analysis.json
+tmforge analysis validate findings/payments.analysis.json --model payments.tm7
+tmforge analysis validate findings/payments.analysis.json --expect-version 1 --json
+```
+
+Two different things can be wrong with a stored analysis and both are silent. It can contradict
+itself — a finding with no disposition, two findings sharing an id, a threat-bearing finding with
+nothing to join to. Or it can be perfectly coherent and simply **stale**, describing a model that has
+since changed. Passing `--model` catches the second, which is the more dangerous of the two: a clean
+report about last month's architecture reads exactly like a clean report about today's.
+
+```text
+The document describes a different model: it records sha256:187a6d5d… but 'payments.tm7' is
+sha256:ca329391…. Re-run the analysis.
+```
+
+The command also refuses a document written by a **newer** build, rather than reading it on older
+assumptions and silently misinterpreting fields whose meaning has changed. Version 1 is currently the
+only schema version, so there is nothing to migrate from yet.
 
 ### `threats`
 

@@ -259,6 +259,15 @@ namespace ThreatModelForge.Formats
                         : page.Name;
                     DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = ResolveSurfaceGuid(page.Id), Header = header };
                     model.DrawingSurfaceList.Add(surface);
+
+                    // Record the page's wire id too. A page id that is not guid-shaped gets a fresh
+                    // surface guid on every load, so anything that has to be stable across runs (a
+                    // finding identity, for one) must key off the author's id rather than the guid.
+                    if (!string.IsNullOrWhiteSpace(page.Id))
+                    {
+                        originalIds?[surface.Guid] = page.Id!;
+                    }
+
                     PopulateSurface(editor, surface, page.Elements, page.Flows, originalIds);
                     index++;
                 }
@@ -587,20 +596,29 @@ namespace ThreatModelForge.Formats
         }
 
         /// <summary>
-        /// Resolves a diagram's surface identity from the id carried by the source document when it
-        /// is a GUID (so pages align across files for the three-way merge), or a fresh id otherwise.
+        /// Resolves a diagram's surface identity from the id carried by the source document: the id
+        /// itself when it is a GUID, otherwise a stable id derived from it, so pages align across files
+        /// for the three-way merge and anything keyed on the surface survives a round trip.
         /// </summary>
         /// <param name="id">The diagram id from the source document, if any.</param>
         /// <returns>The surface <see cref="Guid"/> to use.</returns>
         private static Guid ResolveSurfaceGuid(string? id)
         {
-            return Guid.TryParse(id, out Guid parsed) ? parsed : Guid.NewGuid();
+            if (Guid.TryParse(id, out Guid parsed))
+            {
+                return parsed;
+            }
+
+            return string.IsNullOrWhiteSpace(id)
+                ? Guid.NewGuid()
+                : DeterministicGuid.FromPageId(id!);
         }
 
         /// <summary>
-        /// Re-keys a freshly created element to the identifier carried by the source document when
-        /// that identifier is a GUID, so element identity survives the tmforge-json round-trip (which
-        /// the structural diff and three-way merge match on). Non-GUID ids keep the generated one.
+        /// Re-keys a freshly created element to a stable identifier derived from the source document:
+        /// the id itself when it is a GUID, otherwise a hash of the author's id. Element identity then
+        /// survives the tmforge-json round-trip, which the structural diff and three-way merge match on
+        /// and which anything keyed on the guid — a threat register entry, for one — depends on.
         /// </summary>
         /// <param name="elements">The surface dictionary (borders or lines) the element lives in.</param>
         /// <param name="current">The generated identifier the element was added under.</param>
@@ -608,7 +626,13 @@ namespace ThreatModelForge.Formats
         /// <returns>The identifier the element is keyed under after this call.</returns>
         private static Guid PreserveId(IDictionary<Guid, object> elements, Guid current, string? id)
         {
-            if (string.IsNullOrEmpty(id) || !Guid.TryParse(id, out Guid parsed) || parsed == current || elements.ContainsKey(parsed))
+            if (string.IsNullOrEmpty(id))
+            {
+                return current;
+            }
+
+            Guid desired = Guid.TryParse(id, out Guid parsed) ? parsed : DeterministicGuid.FromElementId(id!);
+            if (desired == current || elements.ContainsKey(desired))
             {
                 return current;
             }
@@ -616,9 +640,9 @@ namespace ThreatModelForge.Formats
             if (elements.TryGetValue(current, out object? value) && value is Entity entity)
             {
                 elements.Remove(current);
-                entity.Guid = parsed;
-                elements[parsed] = entity;
-                return parsed;
+                entity.Guid = desired;
+                elements[desired] = entity;
+                return desired;
             }
 
             return current;

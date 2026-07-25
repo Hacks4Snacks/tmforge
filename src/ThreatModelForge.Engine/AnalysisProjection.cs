@@ -19,5 +19,11 @@ namespace ThreatModelForge.Engine
 
         /// <summary>Materialize the lifecycle-bearing threats, with triage and manual threats applied.</summary>
         Threats = 2,
+
+        /// <summary>
+        /// Materialize the persistable analysis evidence: every finding with its structural
+        /// disposition and, when threat-bearing, the register id it projects to.
+        /// </summary>
+        Evidence = 4,
     }
 }

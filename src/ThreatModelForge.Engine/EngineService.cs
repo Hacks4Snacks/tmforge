@@ -2,6 +2,7 @@ namespace ThreatModelForge.Engine
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.IO;
     using System.Linq;
     using System.Text;
@@ -30,6 +31,12 @@ namespace ThreatModelForge.Engine
         /// not meet.
         /// </summary>
         private const string RulePackMismatchRuleId = "rule-pack-mismatch";
+
+        private static readonly string AnalyzerName =
+            typeof(RuleSet).Assembly.GetName().Name ?? "ThreatModelForge.Analysis";
+
+        private static readonly string AnalyzerVersion =
+            typeof(RuleSet).Assembly.GetName().Version?.ToString() ?? "0.0.0.0";
 
         private static readonly JsonSerializerOptions CanonicalJsonOptions = new JsonSerializerOptions
         {
@@ -251,6 +258,62 @@ namespace ThreatModelForge.Engine
         public static IReadOnlyList<ThreatDto> GenerateThreats(TmForgeModelDto dto, EngineRuleOptions? rules)
         {
             return RunAnalysis(dto, rules, AnalysisProjection.Threats).Threats;
+        }
+
+        /// <summary>
+        /// Records one analysis run as a versioned <c>tmforge-analysis</c> document: every finding with
+        /// its structural disposition, plus the fingerprints of the model and rule selection that
+        /// produced it.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <returns>The analysis document.</returns>
+        public static AnalysisDocumentDto DescribeAnalysis(TmForgeModelDto dto) => DescribeAnalysis(dto, null);
+
+        /// <summary>
+        /// Records one analysis run against the effective rule bundle as a versioned
+        /// <c>tmforge-analysis</c> document.
+        /// </summary>
+        /// <remarks>
+        /// This is the artifact meant to be stored between runs, so it is deliberately reconcilable
+        /// rather than merely descriptive: the finding ids are stable, every finding carries exactly
+        /// one disposition, and the fingerprints let a consumer detect that the document no longer
+        /// describes the model or rules in front of it. Two runs over the same inputs produce identical
+        /// documents.
+        /// </remarks>
+        /// <param name="dto">The canonical model.</param>
+        /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
+        /// <returns>The analysis document.</returns>
+        public static AnalysisDocumentDto DescribeAnalysis(TmForgeModelDto dto, EngineRuleOptions? rules)
+        {
+            _ = dto ?? throw new ArgumentNullException(nameof(dto));
+
+            List<AnalysisFindingDto> evidence = new List<AnalysisFindingDto>();
+            string analyzerFingerprint = string.Empty;
+            AnalysisResultDto result = RunAnalysis(
+                dto,
+                rules,
+                AnalysisProjection.Evidence,
+                evidence,
+                ruleSet => analyzerFingerprint =
+                    AnalysisDocumentBuilder.AnalyzerFingerprint(AnalyzerName, AnalyzerVersion, ruleSet));
+
+            return new AnalysisDocumentDto
+            {
+                Model = new AnalysisIdentityDto
+                {
+                    Name = AnalysisReportName(dto),
+                    Fingerprint = AnalysisDocumentBuilder.ModelFingerprint(dto),
+                },
+                Analyzer = new AnalysisIdentityDto
+                {
+                    Name = AnalyzerName,
+                    Version = AnalyzerVersion,
+                    Fingerprint = analyzerFingerprint,
+                },
+                RulePacks = result.RulePacks,
+                Findings = evidence,
+                Diagnostics = result.Diagnostics,
+            };
         }
 
         /// <summary>
@@ -565,14 +628,19 @@ namespace ThreatModelForge.Engine
         /// <param name="dto">The canonical model.</param>
         /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
         /// <param name="projections">The projections to materialize.</param>
+        /// <param name="evidence">Receives the persistable evidence when that projection is requested.</param>
+        /// <param name="onRuleSet">Invoked with the effective rule set once the selection has been applied.</param>
         /// <returns>The requested projections, the effective custom packs, and any load diagnostics.</returns>
         private static AnalysisResultDto RunAnalysis(
             TmForgeModelDto dto,
             EngineRuleOptions? rules,
-            AnalysisProjection projections)
+            AnalysisProjection projections,
+            List<AnalysisFindingDto>? evidence = null,
+            Action<RuleSet>? onRuleSet = null)
         {
             bool wantFindings = (projections & AnalysisProjection.Findings) != 0;
             bool wantThreats = (projections & AnalysisProjection.Threats) != 0;
+            bool wantEvidence = (projections & AnalysisProjection.Evidence) != 0 && evidence != null;
             List<FindingDto> findings = new List<FindingDto>();
             List<ThreatDto> threats = new List<ThreatDto>();
             List<string> diagnostics = new List<string>();
@@ -586,9 +654,28 @@ namespace ThreatModelForge.Engine
                 using (RuleSet ruleSet = LoadRuleSet(rules, diagnostics, out IReadOnlyList<RulePackDefinition> packs))
                 {
                     effectivePacks = MapRulePacks(packs, ruleSet);
-                    if (wantFindings)
+                    if (wantFindings || wantEvidence)
                     {
-                        findings.AddRange(VerifyExpectedPacks(dto.Analysis?.ExpectedPacks, effectivePacks));
+                        IReadOnlyList<FindingDto> mismatches =
+                            VerifyExpectedPacks(dto.Analysis?.ExpectedPacks, effectivePacks);
+                        if (wantFindings)
+                        {
+                            findings.AddRange(mismatches);
+                        }
+
+                        // A pack mismatch is a problem with the analysis rather than a risk in the
+                        // model, so it is recorded as hygiene: it must not land in the threat register.
+                        foreach (FindingDto mismatch in mismatches)
+                        {
+                            evidence!.Add(new AnalysisFindingDto
+                            {
+                                Id = mismatch.Id,
+                                RuleId = mismatch.RuleId ?? string.Empty,
+                                Severity = mismatch.Severity,
+                                Message = mismatch.Message,
+                                Disposition = FindingDispositions.Hygiene,
+                            });
+                        }
                     }
 
                     if (dto.Analysis != null)
@@ -596,8 +683,12 @@ namespace ThreatModelForge.Engine
                         ruleSet.Disable(dto.Analysis.DisabledPacks, dto.Analysis.DisabledRuleIds);
                     }
 
-                    // One evaluation, one shared operation budget, two projections. Detection happens
-                    // here and nowhere else; findings and threats differ only in lifecycle.
+                    // Provenance is taken from the effective catalog, after selection, so it records
+                    // the rules that actually ran rather than the ones that were offered.
+                    onRuleSet?.Invoke(ruleSet);
+
+                    // One evaluation, one shared operation budget, every projection. Detection happens
+                    // here and nowhere else; findings, threats, and evidence differ only in lifecycle.
                     CollectingMessageWriter writer = new CollectingMessageWriter();
                     RuleEvaluationContext context = new RuleEvaluationContext(model, writer);
                     ruleSet.Evaluate(context);
@@ -610,6 +701,11 @@ namespace ThreatModelForge.Engine
                     if (wantThreats)
                     {
                         ProjectThreats(writer.Messages, dto, nameToIds, threats);
+                    }
+
+                    if (wantEvidence)
+                    {
+                        ProjectEvidence(writer.Messages, dto, originalIds, nameToIds, evidence!);
                     }
                 }
             }
@@ -635,6 +731,18 @@ namespace ThreatModelForge.Engine
                         Id = "engine-error",
                         Severity = "error",
                         Title = $"Threat generation failed: {ex.Message}",
+                    });
+                }
+
+                if (wantEvidence)
+                {
+                    evidence!.Add(new AnalysisFindingDto
+                    {
+                        Id = "engine-error",
+                        RuleId = "engine-error",
+                        Severity = "warning",
+                        Message = $"Engine analysis failed: {ex.Message}",
+                        Disposition = FindingDispositions.Hygiene,
                     });
                 }
             }
@@ -711,19 +819,127 @@ namespace ThreatModelForge.Engine
             Dictionary<string, List<string>> nameToIds,
             List<FindingDto> findings)
         {
-            int sequence = 0;
+            FindingIdentity identity = new FindingIdentity();
             foreach (Message message in messages)
             {
                 string ruleId = message.Source?.ID ?? string.Empty;
+                IReadOnlyList<string> elementIds = ResolveIds(message.Target, originalIds, nameToIds);
                 findings.Add(new FindingDto
                 {
-                    Id = $"{ruleId}:{sequence++}",
+                    Id = identity.Next(
+                        ruleId,
+                        StableKey(message.Model?.Guid, originalIds),
+                        TargetKey(message.Target, elementIds)),
                     Severity = MapSeverity(message.Severity),
                     RuleId = ruleId,
                     Message = message.Text ?? string.Empty,
-                    ElementIds = ResolveIds(message.Target, originalIds, nameToIds),
+                    ElementIds = elementIds,
                 });
             }
+        }
+
+        /// <summary>
+        /// Projects every collected message as persistable evidence: the finding, its stable identity,
+        /// the structural conclusion drawn about it, and the threat it feeds when it is threat-bearing.
+        /// </summary>
+        /// <remarks>
+        /// A finding is threat-bearing exactly when its rule declares a threat category and it names a
+        /// target — the same test <see cref="ThreatGenerator.Project(IEnumerable{Message})"/> applies —
+        /// and the register id is computed with the same formula, so the two always agree. Everything
+        /// else is hygiene and stays a finding, which is the point: a reviewer should not have to
+        /// accept "this diagram has no trust boundary" as a risk in order to clear a gate.
+        /// </remarks>
+        /// <param name="messages">The messages from one rule-set evaluation.</param>
+        /// <param name="dto">The canonical model, which carries the author's triage.</param>
+        /// <param name="originalIds">The map from model guid to the caller's element id.</param>
+        /// <param name="nameToIds">The map from element name to the caller's element ids.</param>
+        /// <param name="evidence">The list that receives the evidence.</param>
+        private static void ProjectEvidence(
+            IReadOnlyList<Message> messages,
+            TmForgeModelDto dto,
+            Dictionary<Guid, string> originalIds,
+            Dictionary<string, List<string>> nameToIds,
+            List<AnalysisFindingDto> evidence)
+        {
+            Dictionary<string, ThreatStateDto> overlay = BuildTriage(dto.Threats);
+            FindingIdentity identity = new FindingIdentity();
+            foreach (Message message in messages)
+            {
+                Rule? rule = message.Source;
+                string ruleId = rule?.ID ?? string.Empty;
+                IReadOnlyList<string> elementIds = ResolveIds(message.Target, originalIds, nameToIds);
+                string? diagramKey = StableKey(message.Model?.Guid, originalIds);
+
+                string? threatId = null;
+                if (rule?.ThreatCategory != null && message.Target != null)
+                {
+                    threatId = string.Format(
+                        CultureInfo.InvariantCulture,
+                        "{0:N}:{1}",
+                        message.Target.Guid,
+                        ruleId);
+                }
+
+                evidence.Add(new AnalysisFindingDto
+                {
+                    Id = identity.Next(ruleId, diagramKey, TargetKey(message.Target, elementIds)),
+                    RuleId = ruleId,
+                    Severity = MapSeverity(message.Severity),
+                    Message = message.Text ?? string.Empty,
+                    Diagram = diagramKey,
+                    ElementIds = elementIds,
+                    Disposition = FindingDispositions.Classify(false, threatId, Triage(threatId, overlay)),
+                    ThreatId = threatId,
+                });
+            }
+        }
+
+        /// <summary>Reads the author's recorded state for a threat, if they recorded one.</summary>
+        /// <param name="threatId">The register id, or <see langword="null"/>.</param>
+        /// <param name="overlay">The author's triage, keyed by register id.</param>
+        /// <returns>The recorded state, or <see langword="null"/>.</returns>
+        private static string? Triage(string? threatId, IReadOnlyDictionary<string, ThreatStateDto> overlay)
+        {
+            return threatId != null && overlay.TryGetValue(threatId, out ThreatStateDto? state)
+                ? state.State
+                : null;
+        }
+
+        /// <summary>
+        /// Resolves the caller-facing key for a model guid, falling back to the guid itself. The
+        /// caller's own id is preferred because a model whose element ids are not guid-shaped is
+        /// assigned fresh guids on every load, which would churn any identity built on them.
+        /// </summary>
+        /// <param name="guid">The internal guid, if any.</param>
+        /// <param name="originalIds">The map from model guid to the caller's id.</param>
+        /// <returns>The stable key, or <see langword="null"/> when there is nothing to key on.</returns>
+        private static string? StableKey(Guid? guid, IReadOnlyDictionary<Guid, string> originalIds)
+        {
+            if (guid == null)
+            {
+                return null;
+            }
+
+            return originalIds.TryGetValue(guid.Value, out string? original)
+                ? original
+                : guid.Value.ToString("N");
+        }
+
+        /// <summary>
+        /// Resolves the key for a finding's target, reusing the ids already reported to the caller so
+        /// the identity and the highlight refer to the same element.
+        /// </summary>
+        /// <param name="target">The target entity, if any.</param>
+        /// <param name="elementIds">The caller-facing ids resolved for that target.</param>
+        /// <returns>The stable key, or <see langword="null"/> for a finding with no target.</returns>
+        private static string? TargetKey(Entity? target, IReadOnlyList<string> elementIds)
+        {
+            if (target == null)
+            {
+                return null;
+            }
+
+            return elementIds.Count == 1 ? elementIds[0] : target.Guid.ToString("N");
         }
 
         /// <summary>
@@ -1174,7 +1390,7 @@ namespace ThreatModelForge.Engine
                 {
                     findings.Add(new FindingDto
                     {
-                        Id = $"{RulePackMismatchRuleId}:{findings.Count}",
+                        Id = FindingIdentity.Format(RulePackMismatchRuleId, null, entry.Id, 0),
                         Severity = "error",
                         RuleId = RulePackMismatchRuleId,
                         Message = $"Expected rule pack '{entry.Id}' did not load, so this model was analyzed without it.",
@@ -1187,7 +1403,7 @@ namespace ThreatModelForge.Engine
                 {
                     findings.Add(new FindingDto
                     {
-                        Id = $"{RulePackMismatchRuleId}:{findings.Count}",
+                        Id = FindingIdentity.Format(RulePackMismatchRuleId, null, entry.Id, 0),
                         Severity = "error",
                         RuleId = RulePackMismatchRuleId,
                         Message =

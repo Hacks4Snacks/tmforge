@@ -19,6 +19,8 @@ namespace ThreatModelForge.Analysis.Reporting
 
         private readonly IDictionary<string, ReportingDescriptor> rulesDictionary;
 
+        private readonly FindingIdentity identity = new FindingIdentity();
+
         private Run? sarifRun;
 
         /// <summary>
@@ -117,6 +119,31 @@ namespace ThreatModelForge.Analysis.Reporting
 
         private static string GetRuleName(RuleReport rule) =>
             $"{rule.AnalyzerId?.Substring(0, rule.AnalyzerId.IndexOf(','))}/{rule.Name}";
+
+        /// <summary>
+        /// Names the element a result is about. The physical location can only point at the model file,
+        /// because a <c>.tm7</c> has no line numbers, so without this every result in a model resolves
+        /// to the same place and a reader cannot tell which element is at fault.
+        /// </summary>
+        /// <param name="message">The reported message.</param>
+        /// <returns>The logical locations, or <see langword="null"/> when the finding names no element.</returns>
+        private static IList<LogicalLocation>? BuildLogicalLocations(RuleReportMessage message)
+        {
+            if (message.TargetId == null)
+            {
+                return null;
+            }
+
+            return new[]
+            {
+                new LogicalLocation
+                {
+                    Name = message.Entity,
+                    FullyQualifiedName = message.TargetId.Value.ToString("N"),
+                    Kind = "element",
+                },
+            };
+        }
 
         private static FailureLevel GetSarifLevel(MessageSeverity severity)
         {
@@ -231,11 +258,24 @@ namespace ThreatModelForge.Analysis.Reporting
 
         private Result ExtractResult(RuleReport ruleReport, RuleReportMessage message, bool suppressed)
         {
+            // A partial fingerprint is how a SARIF consumer recognises this result the next time the
+            // analysis runs. Without one, code-scanning treats every run as a fresh set of alerts and
+            // any triage a reviewer recorded is lost, so it is keyed on the finding's stable identity
+            // rather than on anything positional or on the message text.
+            string findingId = this.identity.Next(
+                ruleReport.ID,
+                message.Diagram?.ToString("N"),
+                message.TargetId?.ToString("N"));
+
             return new Result
             {
                 RuleId = ruleReport.ID,
                 Level = GetSarifLevel(ruleReport.Severity),
                 Message = new Microsoft.CodeAnalysis.Sarif.Message { Text = message.Text },
+                PartialFingerprints = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["tmforgeFindingId/v1"] = findingId,
+                },
                 Locations = new[]
                 {
                     new Location
@@ -250,6 +290,7 @@ namespace ThreatModelForge.Analysis.Reporting
                                 UriBaseId = UriBaseIdString,
                             },
                         },
+                        LogicalLocations = BuildLogicalLocations(message),
                     },
                 },
                 Suppressions = this.HasSuppressedMessage ?
@@ -262,12 +303,17 @@ namespace ThreatModelForge.Analysis.Reporting
 
         private void PersistResults(SarifLogger logger, IEnumerable<Result> sarifResults)
         {
-            if (sarifResults?.Any() == true)
+            if (sarifResults == null)
             {
-                foreach (var result in sarifResults)
-                {
-                    logger.Log(this.rulesDictionary[result.RuleId], result, extensionIndex: null);
-                }
+                return;
+            }
+
+            // Enumerate exactly once. This used to guard with Any(), which walked the iterator and
+            // then walked it again to log, building every result twice — invisible while results were
+            // pure values, but it double-counted the moment they carried an allocated identity.
+            foreach (Result result in sarifResults)
+            {
+                logger.Log(this.rulesDictionary[result.RuleId], result, extensionIndex: null);
             }
         }
 

@@ -111,6 +111,17 @@ namespace ThreatModelForge.Wasm
         public static string Analysis(string tmforgeJson)
             => Serialize(EngineService.RunAnalysis(Deserialize(tmforgeJson), ruleOptions));
 
+        /// <summary>
+        /// Records the analysis as a versioned tmforge-analysis document: every finding with its
+        /// structural disposition, plus the model and analyzer fingerprints. This is the artifact meant
+        /// to be stored and compared between runs, unlike Analysis which is what a client renders.
+        /// </summary>
+        /// <param name="tmforgeJson">The canonical tmforge-json model.</param>
+        /// <returns>The analysis document as JSON (the /v1 AnalysisDocumentDto shape).</returns>
+        [JSExport]
+        public static string AnalysisDocument(string tmforgeJson)
+            => Serialize(EngineService.DescribeAnalysis(Deserialize(tmforgeJson), ruleOptions));
+
         /// <summary>Projects the model's validation findings into STRIDE threats via the shared engine.</summary>
         /// <param name="tmforgeJson">The canonical tmforge-json model.</param>
         /// <returns>The generated threats as a JSON array (the /v1 ThreatDto shape).</returns>

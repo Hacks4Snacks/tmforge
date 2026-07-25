@@ -51,7 +51,6 @@ namespace ThreatModelForge.Formats.Tests
         /// <summary>
         /// Verifies that a GUID element id in the source document is preserved as the element's
         /// identity, so the structural diff and three-way merge can match elements across files.
-        /// A non-GUID id keeps the generated identity (unchanged behavior).
         /// </summary>
         [TestMethod]
         public void ReadPreservesGuidElementIds()
@@ -67,6 +66,37 @@ namespace ThreatModelForge.Formats.Tests
             }
 
             Assert.IsTrue(model.DrawingSurfaceList[0].Borders.ContainsKey(id));
+        }
+
+        /// <summary>
+        /// Verifies that an author-chosen id that is not a GUID still yields the same internal identity
+        /// on every read.
+        /// </summary>
+        /// <remarks>
+        /// These used to get a fresh guid per load, which meant anything keyed on the guid churned
+        /// between runs: a threat register entry no longer matched the triage recorded against it, and
+        /// the guid embedded in a finding message changed while the model had not. Two independent
+        /// reads must agree, or a stored analysis cannot be compared to the next one.
+        /// </remarks>
+        [TestMethod]
+        public void ReadDerivesStableIdentityForAuthoredIds()
+        {
+            string json = "{\"schema\":\"tmforge-json\",\"version\":\"0.1\"," +
+                "\"diagrams\":[{\"id\":\"page-one\",\"name\":\"Page one\",\"elements\":[" +
+                "{\"id\":\"web-app\",\"kind\":\"process\",\"name\":\"P\",\"x\":0,\"y\":0}]}]}";
+
+            ThreatModel first = ReadJson(json);
+            ThreatModel second = ReadJson(json);
+
+            System.Guid element = first.DrawingSurfaceList[0].Borders.Keys.Single();
+            Assert.AreEqual(element, second.DrawingSurfaceList[0].Borders.Keys.Single());
+            Assert.AreEqual(first.DrawingSurfaceList[0].Guid, second.DrawingSurfaceList[0].Guid);
+
+            // An element and a page that share an id must not collide onto one identity.
+            Assert.AreNotEqual(
+                DeterministicGuid.FromElementId("page-one"),
+                DeterministicGuid.FromPageId("page-one"));
+            Assert.AreEqual(DeterministicGuid.FromElementId("web-app"), element);
         }
 
         /// <summary>
@@ -599,6 +629,14 @@ namespace ThreatModelForge.Formats.Tests
             Assert.AreEqual(ThreatState.Mitigated, threat!.State);
             Assert.AreEqual("Handled by the WAF rule set.", threat.UserThreatDescription);
             Assert.AreEqual("TM1013", threat.TypeId);
+        }
+
+        private static ThreatModel ReadJson(string json)
+        {
+            using (MemoryStream stream = new MemoryStream(Encoding.UTF8.GetBytes(json)))
+            {
+                return new TmForgeJsonFormat().Read(stream);
+            }
         }
     }
 }
