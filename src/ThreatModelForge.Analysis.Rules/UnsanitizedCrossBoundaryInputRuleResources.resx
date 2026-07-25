@@ -71,4 +71,7 @@ If the inbound flow does not actually cross a trust boundary, correct the placem
   <data name="MessageText" xml:space="preserve">
     <value>Process [{0}] receives input across a trust boundary but does not sanitize it, allowing injection or tampering.</value>
   </data>
+  <data name="MessageTextUnevidenced" xml:space="preserve">
+    <value>Process [{0}] receives input across a trust boundary and its SanitizesInput property is not evidenced, so the model does not show that untrusted input is validated. Set SanitizesInput to Yes once validation is in place, or to No to state that there is none.</value>
+  </data>
 </root>

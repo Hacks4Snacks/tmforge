@@ -69,4 +69,7 @@ This rule fires when a storage component flagged as holding credentials (StoresC
   <data name="MessageText" xml:space="preserve">
     <value>The {0} holds important data but declares no backup; set Backup = Yes with a tested restore path so its contents can be recovered after loss or a destructive attack.</value>
   </data>
+  <data name="MessageTextUnevidenced" xml:space="preserve">
+    <value>The {0} holds important data and its Backup property is not evidenced, so the model does not show that its contents can be recovered after loss or a destructive attack. Set Backup = Yes with a tested restore path, or Backup = No to state that there is no backup.</value>
+  </data>
 </root>

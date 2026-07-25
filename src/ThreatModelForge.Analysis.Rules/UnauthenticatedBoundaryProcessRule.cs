@@ -30,7 +30,7 @@ namespace ThreatModelForge.Analysis.Rules
         /// <inheritdoc/>
         public override IReadOnlyList<PropertyBinding> PropertyBindings => new[]
         {
-            new PropertyBinding("process", "AuthenticationScheme", "None"),
+            new PropertyBinding("process", "AuthenticationScheme", ControlEvidenceValues.Unknown, "None"),
         };
 
         /// <inheritdoc/>
@@ -58,16 +58,20 @@ namespace ThreatModelForge.Analysis.Rules
                         continue;
                     }
 
-                    if (IsAuthenticated(component))
+                    ControlEvidence authentication = ClassifyAuthentication(component);
+                    if (authentication == ControlEvidence.Present)
                     {
                         continue;
                     }
 
                     if (HasInboundTrustBoundaryCrossing(diagram, component))
                     {
+                        string template = authentication == ControlEvidence.Unevidenced
+                            ? UnauthenticatedBoundaryProcessRuleResources.MessageTextUnevidenced
+                            : UnauthenticatedBoundaryProcessRuleResources.MessageText;
                         string text = string.Format(
                             System.Globalization.CultureInfo.CurrentCulture,
-                            UnauthenticatedBoundaryProcessRuleResources.MessageText,
+                            template,
                             GetEntityDisplayText(component));
                         context.Writer.Write(this.CreateMessage(component, diagram, text));
                     }
@@ -75,15 +79,14 @@ namespace ThreatModelForge.Analysis.Rules
             }
         }
 
-        private static bool IsAuthenticated(Entity component)
+        private static ControlEvidence ClassifyAuthentication(Entity component)
         {
-            if (!component.TryGetCustomPropertyValue("AuthenticationScheme", out string? scheme))
-            {
-                return false;
-            }
+            component.TryGetCustomPropertyValue("AuthenticationScheme", out string? scheme);
 
-            return !string.IsNullOrWhiteSpace(scheme) &&
-                !string.Equals(scheme, "None", StringComparison.OrdinalIgnoreCase);
+            // An unevidenced scheme (absent, blank, or "Unknown") must never read as authenticated:
+            // treating "we did not record this" as a control in place is exactly how a model comes to
+            // look clean while the process is wide open.
+            return ControlEvidenceValues.ClassifyByAbsentValues(scheme, "None");
         }
 
         private static bool HasInboundTrustBoundaryCrossing(DrawingSurfaceModel diagram, Entity component)

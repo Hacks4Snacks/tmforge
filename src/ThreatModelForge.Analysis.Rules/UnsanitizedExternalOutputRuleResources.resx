@@ -71,4 +71,7 @@ If the destination is not actually an external entity, correct the element type 
   <data name="MessageText" xml:space="preserve">
     <value>Process [{0}] sends output to an external entity but does not sanitize it, allowing cross-site scripting or information disclosure.</value>
   </data>
+  <data name="MessageTextUnevidenced" xml:space="preserve">
+    <value>Process [{0}] sends output to an external entity and its SanitizesOutput property is not evidenced, so the model does not show that the output is encoded for its destination. Set SanitizesOutput to Yes once encoding is in place, or to No to state that there is none.</value>
+  </data>
 </root>

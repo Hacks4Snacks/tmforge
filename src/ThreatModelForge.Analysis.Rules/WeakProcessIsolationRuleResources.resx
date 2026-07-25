@@ -71,4 +71,7 @@ If the inbound flow does not actually cross a trust boundary, correct the placem
   <data name="MessageText" xml:space="preserve">
     <value>Process [{0}] receives input across a trust boundary but runs without isolation, widening the blast radius of a compromise.</value>
   </data>
+  <data name="MessageTextUnevidenced" xml:space="preserve">
+    <value>Process [{0}] receives input across a trust boundary and its Isolation property is not evidenced, so the model does not show what would contain a compromise of this process. Record the isolation actually in place, or set Isolation to None to state that there is none.</value>
+  </data>
 </root>

@@ -84,6 +84,12 @@ Enum and boolean properties render as dropdowns of canonical values (so the valu
 the rules expect); free-form properties render as text fields. You can also add arbitrary custom
 properties below the typed ones.
 
+Every control-like dropdown offers **Unknown** as its first value, and it is the default. Pick it when
+nobody has established the answer yet — it is different from `No`/`None`, which state that you checked
+and the control is not there. `Unknown` does **not** clear a finding: the rule still reports, and says
+the property is not evidenced rather than that the control is absent. See
+[`Unknown` and the three states of a control](analysis-rules.md#unknown-and-the-three-states-of-a-control).
+
 ## Validating against the engine
 
 Click **Analyze** to send the whole model (every page) to the live `/v1` engine. Findings come back

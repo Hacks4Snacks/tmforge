@@ -28,7 +28,7 @@ namespace ThreatModelForge.Analysis.Rules
         /// <inheritdoc/>
         public override IReadOnlyList<PropertyBinding> PropertyBindings => new[]
         {
-            new PropertyBinding("datastore", "Encrypted", "No"),
+            new PropertyBinding("datastore", "Encrypted", ControlEvidenceValues.Unknown, "No"),
             new PropertyBinding("datastore", "StoresCredentials"),
         };
 
@@ -62,24 +62,20 @@ namespace ThreatModelForge.Analysis.Rules
                     }
 
                     component.TryGetCustomPropertyValue("Encrypted", out string? encrypted);
-                    if (!IsEncryptedAtRest(encrypted))
+                    ControlEvidence encryption = ControlEvidenceValues.ClassifyByAbsentValues(encrypted, "No");
+                    if (encryption != ControlEvidence.Present)
                     {
+                        string template = encryption == ControlEvidence.Unevidenced
+                            ? UnencryptedSecretStoreRuleResources.MessageTextUnevidenced
+                            : UnencryptedSecretStoreRuleResources.MessageText;
                         string text = string.Format(
                             System.Globalization.CultureInfo.CurrentCulture,
-                            UnencryptedSecretStoreRuleResources.MessageText,
+                            template,
                             GetEntityDisplayText(component));
                         context.Writer.Write(this.CreateMessage(component, diagram, text));
                     }
                 }
             }
-        }
-
-        private static bool IsEncryptedAtRest(string? encrypted)
-        {
-            // An unset value or an explicit "No" is treated as unencrypted. Any other value
-            // (for example "Yes", "At-rest", or "TDE") is considered encrypted at rest.
-            return !string.IsNullOrWhiteSpace(encrypted) &&
-                !string.Equals(encrypted, "No", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

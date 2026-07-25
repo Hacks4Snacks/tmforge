@@ -86,5 +86,14 @@ namespace ThreatModelForge.Analysis.Rules {
                 return ResourceManager.GetString("MessageText", resourceCulture);
             }
         }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Process [{0}] receives input across a trust boundary and its Isolation property is not evidenced....
+        /// </summary>
+        internal static string MessageTextUnevidenced {
+            get {
+                return ResourceManager.GetString("MessageTextUnevidenced", resourceCulture);
+            }
+        }
     }
 }

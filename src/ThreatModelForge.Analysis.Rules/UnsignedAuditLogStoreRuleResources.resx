@@ -71,4 +71,7 @@ If the element does not actually hold log or audit data, correct the StoresLogDa
   <data name="MessageText" xml:space="preserve">
     <value>Data store [{0}] holds log or audit data but is not signed, allowing tampering and repudiation of recorded events.</value>
   </data>
+  <data name="MessageTextUnevidenced" xml:space="preserve">
+    <value>Data store [{0}] holds log or audit data and its Signed property is not evidenced, so the model does not show that recorded events resist tampering. Set Signed to Yes once records are signed or sealed, or to No to state that they are not.</value>
+  </data>
 </root>
