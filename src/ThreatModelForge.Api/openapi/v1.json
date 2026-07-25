@@ -221,7 +221,7 @@
         "tags": [
           "Model"
         ],
-        "operationId": "AnalyzeModelWithEvidence",
+        "operationId": "RunAnalysis",
         "requestBody": {
           "content": {
             "application/json": {
@@ -471,6 +471,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/FindingDto"
+            }
+          },
+          "threats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThreatDto"
             }
           },
           "rulePacks": {

@@ -13,6 +13,13 @@ namespace ThreatModelForge.Engine
         /// <summary>Gets the findings produced by the effective rule set.</summary>
         public IReadOnlyList<FindingDto> Findings { get; init; } = Array.Empty<FindingDto>();
 
+        /// <summary>
+        /// Gets the threats projected from the same evaluation that produced <see cref="Findings"/>.
+        /// It is empty when the caller asked only for findings, which is how a findings-only request
+        /// avoids materializing a threat register it will not read.
+        /// </summary>
+        public IReadOnlyList<ThreatDto> Threats { get; init; } = Array.Empty<ThreatDto>();
+
         /// <summary>Gets the custom rule packs that contributed rules to this run.</summary>
         public IReadOnlyList<RulePackInfoDto> RulePacks { get; init; } = Array.Empty<RulePackInfoDto>();
 

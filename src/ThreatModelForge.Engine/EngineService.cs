@@ -195,62 +195,21 @@ namespace ThreatModelForge.Engine
         /// <returns>The findings, the effective custom packs, and any load diagnostics.</returns>
         public static AnalysisResultDto Analyze(TmForgeModelDto dto, EngineRuleOptions? rules)
         {
-            List<FindingDto> findings = new List<FindingDto>();
-            List<string> diagnostics = new List<string>();
-            IReadOnlyList<RulePackInfoDto> effectivePacks = Array.Empty<RulePackInfoDto>();
-            try
-            {
-                ThreatModel model = BuildModel(
-                    dto,
-                    out Dictionary<string, List<string>> nameToIds,
-                    out Dictionary<Guid, string> originalIds);
-                using (RuleSet ruleSet = LoadRuleSet(rules, diagnostics, out IReadOnlyList<RulePackDefinition> packs))
-                {
-                    effectivePacks = MapRulePacks(packs, ruleSet);
-                    findings.AddRange(VerifyExpectedPacks(dto.Analysis?.ExpectedPacks, effectivePacks));
+            return RunAnalysis(dto, rules, AnalysisProjection.Findings);
+        }
 
-                    if (dto.Analysis != null)
-                    {
-                        ruleSet.Disable(dto.Analysis.DisabledPacks, dto.Analysis.DisabledRuleIds);
-                    }
-
-                    CollectingMessageWriter writer = new CollectingMessageWriter();
-                    RuleEvaluationContext context = new RuleEvaluationContext(model, writer);
-                    ruleSet.Evaluate(context);
-
-                    int sequence = 0;
-                    foreach (Message message in writer.Messages)
-                    {
-                        string ruleId = message.Source?.ID ?? string.Empty;
-                        findings.Add(new FindingDto
-                        {
-                            Id = $"{ruleId}:{sequence++}",
-                            Severity = MapSeverity(message.Severity),
-                            RuleId = ruleId,
-                            Message = message.Text ?? string.Empty,
-                            ElementIds = ResolveIds(message.Target, originalIds, nameToIds),
-                        });
-                    }
-                }
-            }
-#pragma warning disable CA1031 // Do not catch general exception types
-            catch (Exception ex) when (ex is not OutOfMemoryException && ex is not StackOverflowException)
-#pragma warning restore CA1031 // Do not catch general exception types
-            {
-                findings.Add(new FindingDto
-                {
-                    Id = "engine-error",
-                    Severity = "warning",
-                    Message = $"Engine analysis failed: {ex.Message}",
-                });
-            }
-
-            return new AnalysisResultDto
-            {
-                Findings = findings,
-                RulePacks = effectivePacks,
-                Diagnostics = diagnostics,
-            };
+        /// <summary>
+        /// Runs one analysis action: evaluates the effective rule set <em>once</em> and projects both
+        /// the transient findings and the lifecycle-bearing threats from the same messages. This is what
+        /// an interactive surface should call — asking for findings and threats separately evaluates
+        /// every enabled rule twice for a single user action.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
+        /// <returns>The findings, threats, effective custom packs, and any load diagnostics.</returns>
+        public static AnalysisResultDto RunAnalysis(TmForgeModelDto dto, EngineRuleOptions? rules)
+        {
+            return RunAnalysis(dto, rules, AnalysisProjection.Findings | AnalysisProjection.Threats);
         }
 
         /// <summary>
@@ -266,69 +225,16 @@ namespace ThreatModelForge.Engine
         /// <summary>
         /// Projects threats from the effective rule set — the built-in rules plus the custom packs
         /// selected by <paramref name="rules"/> — so a custom threat-bearing rule yields the same threat
-        /// id, category, priority, and mitigation on every transport.
+        /// id, category, priority, and mitigation on every transport. A caller that also needs the
+        /// findings of the same action should use <see cref="RunAnalysis(TmForgeModelDto, EngineRuleOptions)"/>
+        /// instead, which evaluates the rules once for both.
         /// </summary>
         /// <param name="dto">The canonical model.</param>
         /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
         /// <returns>The generated threats.</returns>
         public static IReadOnlyList<ThreatDto> GenerateThreats(TmForgeModelDto dto, EngineRuleOptions? rules)
         {
-            List<ThreatDto> result = new List<ThreatDto>();
-            try
-            {
-                ThreatModel model = BuildModel(dto, out Dictionary<string, List<string>> nameToIds);
-                using (RuleSet ruleSet = LoadRuleSet(rules, null, out _))
-                {
-                    if (dto.Analysis != null)
-                    {
-                        ruleSet.Disable(dto.Analysis.DisabledPacks, dto.Analysis.DisabledRuleIds);
-                    }
-
-                    GenerationResult generation = ThreatGenerator.Generate(model, ruleSet);
-                    Dictionary<string, ThreatStateDto> overlay = BuildTriage(dto.Threats);
-                    HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (GeneratedThreat threat in generation.Threats)
-                    {
-                        overlay.TryGetValue(threat.Id, out ThreatStateDto? edit);
-                        seen.Add(threat.Id);
-                        result.Add(new ThreatDto
-                        {
-                            Id = threat.Id,
-                            RuleId = threat.RuleId,
-                            Category = threat.Stride?.ToString() ?? threat.ThreatCategory.Name,
-                            CategoryId = threat.ThreatCategory.Id,
-                            CategoryName = threat.ThreatCategory.Name,
-                            Stride = threat.Stride?.ToString(),
-                            Title = string.IsNullOrEmpty(edit?.Title) ? threat.Title : edit!.Title!,
-                            Mitigation = string.IsNullOrEmpty(edit?.Mitigation) ? threat.Mitigation : edit!.Mitigation,
-                            Description = edit?.Description,
-                            Severity = threat.Severity,
-                            Priority = string.IsNullOrEmpty(edit?.Priority) ? threat.Priority : edit!.Priority,
-                            References = threat.References.Select(r => r.Id).ToList(),
-                            ElementIds = BuildElementIds(threat),
-                            Interaction = threat.InteractionString,
-                            State = NormalizeState(edit?.State),
-                            Justification = edit?.Justification,
-                            Manual = false,
-                        });
-                    }
-
-                    AppendManualThreats(result, dto.Threats, seen, nameToIds);
-                }
-            }
-#pragma warning disable CA1031 // Do not catch general exception types
-            catch (Exception ex) when (ex is not OutOfMemoryException && ex is not StackOverflowException)
-#pragma warning restore CA1031 // Do not catch general exception types
-            {
-                result.Add(new ThreatDto
-                {
-                    Id = "engine-error",
-                    Severity = "error",
-                    Title = $"Threat generation failed: {ex.Message}",
-                });
-            }
-
-            return result;
+            return RunAnalysis(dto, rules, AnalysisProjection.Threats).Threats;
         }
 
         /// <summary>
@@ -548,6 +454,170 @@ namespace ThreatModelForge.Engine
             }
 
             return new MergeResultDto { Merged = ToDto(result.Merged), Conflicts = conflicts };
+        }
+
+        /// <summary>
+        /// The one place the effective rule set is evaluated for an analysis action. It builds the model
+        /// once, loads the effective bundle once, evaluates every enabled rule once, and then projects
+        /// only what the caller asked for from the collected messages — so requesting findings and
+        /// threats together costs one evaluation, and requesting one never materializes the other.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
+        /// <param name="projections">The projections to materialize.</param>
+        /// <returns>The requested projections, the effective custom packs, and any load diagnostics.</returns>
+        private static AnalysisResultDto RunAnalysis(
+            TmForgeModelDto dto,
+            EngineRuleOptions? rules,
+            AnalysisProjection projections)
+        {
+            bool wantFindings = (projections & AnalysisProjection.Findings) != 0;
+            bool wantThreats = (projections & AnalysisProjection.Threats) != 0;
+            List<FindingDto> findings = new List<FindingDto>();
+            List<ThreatDto> threats = new List<ThreatDto>();
+            List<string> diagnostics = new List<string>();
+            IReadOnlyList<RulePackInfoDto> effectivePacks = Array.Empty<RulePackInfoDto>();
+            try
+            {
+                ThreatModel model = BuildModel(
+                    dto,
+                    out Dictionary<string, List<string>> nameToIds,
+                    out Dictionary<Guid, string> originalIds);
+                using (RuleSet ruleSet = LoadRuleSet(rules, diagnostics, out IReadOnlyList<RulePackDefinition> packs))
+                {
+                    effectivePacks = MapRulePacks(packs, ruleSet);
+                    if (wantFindings)
+                    {
+                        findings.AddRange(VerifyExpectedPacks(dto.Analysis?.ExpectedPacks, effectivePacks));
+                    }
+
+                    if (dto.Analysis != null)
+                    {
+                        ruleSet.Disable(dto.Analysis.DisabledPacks, dto.Analysis.DisabledRuleIds);
+                    }
+
+                    // One evaluation, one shared operation budget, two projections. Detection happens
+                    // here and nowhere else; findings and threats differ only in lifecycle.
+                    CollectingMessageWriter writer = new CollectingMessageWriter();
+                    RuleEvaluationContext context = new RuleEvaluationContext(model, writer);
+                    ruleSet.Evaluate(context);
+
+                    if (wantFindings)
+                    {
+                        ProjectFindings(writer.Messages, originalIds, nameToIds, findings);
+                    }
+
+                    if (wantThreats)
+                    {
+                        ProjectThreats(writer.Messages, dto, nameToIds, threats);
+                    }
+                }
+            }
+#pragma warning disable CA1031 // Do not catch general exception types
+            catch (Exception ex) when (ex is not OutOfMemoryException && ex is not StackOverflowException)
+#pragma warning restore CA1031 // Do not catch general exception types
+            {
+                // One failure, reported once in each projection the caller is actually reading.
+                if (wantFindings)
+                {
+                    findings.Add(new FindingDto
+                    {
+                        Id = "engine-error",
+                        Severity = "warning",
+                        Message = $"Engine analysis failed: {ex.Message}",
+                    });
+                }
+
+                if (wantThreats)
+                {
+                    threats.Add(new ThreatDto
+                    {
+                        Id = "engine-error",
+                        Severity = "error",
+                        Title = $"Threat generation failed: {ex.Message}",
+                    });
+                }
+            }
+
+            return new AnalysisResultDto
+            {
+                Findings = findings,
+                Threats = threats,
+                RulePacks = effectivePacks,
+                Diagnostics = diagnostics,
+            };
+        }
+
+        /// <summary>Projects every collected message as a transient finding.</summary>
+        /// <param name="messages">The messages from one rule-set evaluation.</param>
+        /// <param name="originalIds">The map from model guid to the caller's element id.</param>
+        /// <param name="nameToIds">The map from element name to the caller's element ids.</param>
+        /// <param name="findings">The list that receives the findings.</param>
+        private static void ProjectFindings(
+            IReadOnlyList<Message> messages,
+            Dictionary<Guid, string> originalIds,
+            Dictionary<string, List<string>> nameToIds,
+            List<FindingDto> findings)
+        {
+            int sequence = 0;
+            foreach (Message message in messages)
+            {
+                string ruleId = message.Source?.ID ?? string.Empty;
+                findings.Add(new FindingDto
+                {
+                    Id = $"{ruleId}:{sequence++}",
+                    Severity = MapSeverity(message.Severity),
+                    RuleId = ruleId,
+                    Message = message.Text ?? string.Empty,
+                    ElementIds = ResolveIds(message.Target, originalIds, nameToIds),
+                });
+            }
+        }
+
+        /// <summary>
+        /// Projects the messages whose rule declares a threat category as lifecycle-bearing threats,
+        /// then layers the author's triage and appends the model's manually authored threats.
+        /// </summary>
+        /// <param name="messages">The messages from one rule-set evaluation.</param>
+        /// <param name="dto">The canonical model, which carries the author overlay.</param>
+        /// <param name="nameToIds">The map from element name to the caller's element ids.</param>
+        /// <param name="threats">The list that receives the threats.</param>
+        private static void ProjectThreats(
+            IReadOnlyList<Message> messages,
+            TmForgeModelDto dto,
+            Dictionary<string, List<string>> nameToIds,
+            List<ThreatDto> threats)
+        {
+            GenerationResult generation = ThreatGenerator.Project(messages);
+            Dictionary<string, ThreatStateDto> overlay = BuildTriage(dto.Threats);
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (GeneratedThreat threat in generation.Threats)
+            {
+                overlay.TryGetValue(threat.Id, out ThreatStateDto? edit);
+                seen.Add(threat.Id);
+                threats.Add(new ThreatDto
+                {
+                    Id = threat.Id,
+                    RuleId = threat.RuleId,
+                    Category = threat.Stride?.ToString() ?? threat.ThreatCategory.Name,
+                    CategoryId = threat.ThreatCategory.Id,
+                    CategoryName = threat.ThreatCategory.Name,
+                    Stride = threat.Stride?.ToString(),
+                    Title = string.IsNullOrEmpty(edit?.Title) ? threat.Title : edit!.Title!,
+                    Mitigation = string.IsNullOrEmpty(edit?.Mitigation) ? threat.Mitigation : edit!.Mitigation,
+                    Description = edit?.Description,
+                    Severity = threat.Severity,
+                    Priority = string.IsNullOrEmpty(edit?.Priority) ? threat.Priority : edit!.Priority,
+                    References = threat.References.Select(r => r.Id).ToList(),
+                    ElementIds = BuildElementIds(threat),
+                    Interaction = threat.InteractionString,
+                    State = NormalizeState(edit?.State),
+                    Justification = edit?.Justification,
+                    Manual = false,
+                });
+            }
+
+            AppendManualThreats(threats, dto.Threats, seen, nameToIds);
         }
 
         private static IReadOnlyList<string> BuildElementIds(GeneratedThreat threat)

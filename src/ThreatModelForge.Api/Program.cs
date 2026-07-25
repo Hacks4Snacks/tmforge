@@ -75,8 +75,8 @@ namespace ThreatModelForge.Api
             app.MapPost("/v1/model/analyze", (TmForgeModelDto model) => TypedResults.Ok(EngineService.Analyze(model, rules).Findings))
                 .WithName("AnalyzeModel")
                 .WithTags("Model");
-            app.MapPost("/v1/model/analysis", (TmForgeModelDto model) => TypedResults.Ok(EngineService.Analyze(model, rules)))
-                .WithName("AnalyzeModelWithEvidence")
+            app.MapPost("/v1/model/analysis", (TmForgeModelDto model) => TypedResults.Ok(EngineService.RunAnalysis(model, rules)))
+                .WithName("RunAnalysis")
                 .WithTags("Model");
             app.MapPost("/v1/model/threats", (TmForgeModelDto model) => TypedResults.Ok(EngineService.GenerateThreats(model, rules)))
                 .WithName("GenerateThreats")

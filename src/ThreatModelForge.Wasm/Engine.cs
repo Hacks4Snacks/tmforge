@@ -99,6 +99,18 @@ namespace ThreatModelForge.Wasm
         public static string Analyze(string tmforgeJson)
             => Serialize(EngineService.Analyze(Deserialize(tmforgeJson), ruleOptions).Findings);
 
+        /// <summary>
+        /// Runs one analysis action: evaluates the rule set once and returns both the findings and the
+        /// threats projected from the same evaluation, plus the effective rule packs and diagnostics.
+        /// A UI that shows both should call this instead of Analyze and Threats, which would evaluate
+        /// every enabled rule twice for one user action.
+        /// </summary>
+        /// <param name="tmforgeJson">The canonical tmforge-json model.</param>
+        /// <returns>The analysis result as JSON (the /v1 AnalysisResultDto shape).</returns>
+        [JSExport]
+        public static string Analysis(string tmforgeJson)
+            => Serialize(EngineService.RunAnalysis(Deserialize(tmforgeJson), ruleOptions));
+
         /// <summary>Projects the model's validation findings into STRIDE threats via the shared engine.</summary>
         /// <param name="tmforgeJson">The canonical tmforge-json model.</param>
         /// <returns>The generated threats as a JSON array (the /v1 ThreatDto shape).</returns>

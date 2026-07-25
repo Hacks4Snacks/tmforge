@@ -50,9 +50,27 @@ namespace ThreatModelForge.Analysis
             RuleEvaluationContext context = new RuleEvaluationContext(model, collector);
             ruleSet.Evaluate(context);
 
+            return Project(collector.Messages);
+        }
+
+        /// <summary>
+        /// Projects threats from messages a rule set has already produced. This is the projection half
+        /// of <see cref="Generate(ThreatModel, RuleSet)"/>, split out so a caller that needs both the
+        /// findings and the threats of one analysis evaluates the rules once and derives both from the
+        /// same messages, instead of running the same detection twice.
+        /// </summary>
+        /// <param name="messages">The messages collected from one rule-set evaluation.</param>
+        /// <returns>The generated threats, in stable order.</returns>
+        public static GenerationResult Project(IEnumerable<Message> messages)
+        {
+            if (messages == null)
+            {
+                throw new ArgumentNullException(nameof(messages));
+            }
+
             List<GeneratedThreat> threats = new List<GeneratedThreat>();
             HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (Message message in collector.Messages)
+            foreach (Message message in messages)
             {
                 Rule? rule = message.Source;
                 Entity? target = message.Target;

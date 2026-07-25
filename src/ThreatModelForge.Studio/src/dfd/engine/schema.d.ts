@@ -157,7 +157,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["AnalyzeModelWithEvidence"];
+        post: operations["RunAnalysis"];
         delete?: never;
         options?: never;
         head?: never;
@@ -282,6 +282,7 @@ export interface components {
     schemas: {
         AnalysisResultDto: {
             findings?: components["schemas"]["FindingDto"][];
+            threats?: components["schemas"]["ThreatDto"][];
             rulePacks?: components["schemas"]["RulePackInfoDto"][];
             diagnostics?: string[];
         };
@@ -685,7 +686,7 @@ export interface operations {
             };
         };
     };
-    AnalyzeModelWithEvidence: {
+    RunAnalysis: {
         parameters: {
             query?: never;
             header?: never;

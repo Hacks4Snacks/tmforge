@@ -163,6 +163,17 @@ export interface RuleBundle {
   diagnostics: string[];
 }
 
+/**
+ * The result of one analysis action: the findings and the threats projected from a single rule-set
+ * evaluation, plus the evidence of which rule content produced them.
+ */
+export interface AnalysisResult {
+  findings: Finding[];
+  threats: Threat[];
+  rulePacks: RulePackIdentity[];
+  diagnostics: string[];
+}
+
 /** A typed element-property definition: drives typed Inspector controls and canonical values. */
 export interface PropertyDescriptorInfo {
   /** The DFD primitive this property applies to ('process' | 'datastore' | 'external' | 'flow'). */
@@ -196,6 +207,12 @@ export interface IEngineClient {
   analyze(model: TmForgeModel): Promise<Finding[]>;
   /** Projects the model's threat-bearing findings into the categorized threat register (the same detection as analyze). */
   generateThreats(model: TmForgeModel): Promise<Threat[]>;
+  /**
+   * Runs one analysis action: the engine evaluates the rule set once and returns both the findings
+   * and the threats. Prefer this over calling `analyze` and `generateThreats` together, which makes
+   * the engine evaluate every enabled rule twice for a single user action.
+   */
+  runAnalysis(model: TmForgeModel): Promise<AnalysisResult>;
   exportTm7(model: TmForgeModel): Promise<Blob>;
   /**
    * Selects the custom rule packs this engine runs, and reports what actually loaded. The selection
@@ -359,6 +376,17 @@ function toRuleBundle(dto: components['schemas']['RuleBundleDto'] | undefined): 
   };
 }
 
+/** Normalizes one analysis action's result (findings, threats, and rule evidence) onto the UI shape. */
+function toAnalysisResult(dto: components['schemas']['AnalysisResultDto'] | undefined): AnalysisResult {
+  const bundle = toRuleBundle(dto);
+  return {
+    findings: (dto?.findings ?? []).map(toFinding),
+    threats: (dto?.threats ?? []).map(toThreat),
+    rulePacks: bundle.rulePacks,
+    diagnostics: bundle.diagnostics,
+  };
+}
+
 /** Normalizes a generated PropertyDescriptor (all fields optional) onto the UI's PropertyDescriptorInfo. */
 function toPropertyDescriptor(dto: components['schemas']['PropertyDescriptor']): PropertyDescriptorInfo {
   return {
@@ -436,6 +464,17 @@ function toMergeResult(dto: components['schemas']['MergeResultDto']): MergeResul
   };
 }
 
+/** Normalizes a generated FindingDto (all fields optional/nullable) onto the UI's Finding. */
+function toFinding(dto: components['schemas']['FindingDto']): Finding {
+  return {
+    id: dto.id ?? '',
+    severity: (dto.severity ?? 'info') as Severity,
+    ruleId: dto.ruleId ?? undefined,
+    message: dto.message ?? '',
+    elementIds: dto.elementIds ?? [],
+  };
+}
+
 /** Normalizes a generated ThreatDto (all fields optional) onto the UI's Threat. */
 function toThreat(dto: components['schemas']['ThreatDto']): Threat {
   return {
@@ -495,6 +534,15 @@ class OfflineEngineClient implements IEngineClient {
 
   public generateThreats(): Promise<Threat[]> {
     // Same honesty as analyze: without the engine there is no rule set to project threats from.
+    return Promise.reject(
+      new Error(
+        'The analysis engine has not loaded. WebAssembly may be disabled or blocked (for example by a ' +
+          'Content-Security-Policy), or is still downloading — reload the page, or use the hosted app.',
+      ),
+    );
+  }
+
+  public runAnalysis(): Promise<AnalysisResult> {
     return Promise.reject(
       new Error(
         'The analysis engine has not loaded. WebAssembly may be disabled or blocked (for example by a ' +
@@ -614,13 +662,7 @@ class HttpEngineClient implements IEngineClient {
       throw new Error(`Engine analyze failed (${response.status}).`);
     }
     // The generated FindingDto has every field optional/nullable; normalize onto the UI's Finding.
-    return (data ?? []).map((f) => ({
-      id: f.id ?? '',
-      severity: (f.severity ?? 'info') as Severity,
-      ruleId: f.ruleId ?? undefined,
-      message: f.message ?? '',
-      elementIds: f.elementIds ?? [],
-    }));
+    return (data ?? []).map(toFinding);
   }
 
   public async generateThreats(model: TmForgeModel): Promise<Threat[]> {
@@ -629,6 +671,14 @@ class HttpEngineClient implements IEngineClient {
       throw new Error(`Engine threat generation failed (${response.status}).`);
     }
     return (data ?? []).map(toThreat);
+  }
+
+  public async runAnalysis(model: TmForgeModel): Promise<AnalysisResult> {
+    const { data, response } = await this.client.POST('/v1/model/analysis', { body: model });
+    if (!response.ok) {
+      throw new Error(`Engine analysis failed (${response.status}).`);
+    }
+    return toAnalysisResult(data);
   }
 
   public async exportTm7(model: TmForgeModel): Promise<Blob> {
@@ -787,6 +837,7 @@ interface WasmEngineExports {
   Merge(baseJson: string, oursJson: string, theirsJson: string): string;
   SetRules(sourcesJson: string): string;
   RuleBundle(): string;
+  Analysis(tmforgeJson: string): string;
 }
 
 /**
@@ -813,18 +864,18 @@ class WasmEngineClient implements IEngineClient {
 
   public async analyze(model: TmForgeModel): Promise<Finding[]> {
     const findings = JSON.parse(this.wasm.Analyze(JSON.stringify(model))) as Array<components['schemas']['FindingDto']>;
-    return findings.map((f) => ({
-      id: f.id ?? '',
-      severity: (f.severity ?? 'info') as Severity,
-      ruleId: f.ruleId ?? undefined,
-      message: f.message ?? '',
-      elementIds: f.elementIds ?? [],
-    }));
+    return findings.map(toFinding);
   }
 
   public async generateThreats(model: TmForgeModel): Promise<Threat[]> {
     const threats = JSON.parse(this.wasm.Threats(JSON.stringify(model))) as Array<components['schemas']['ThreatDto']>;
     return threats.map(toThreat);
+  }
+
+  public async runAnalysis(model: TmForgeModel): Promise<AnalysisResult> {
+    return toAnalysisResult(
+      JSON.parse(this.wasm.Analysis(JSON.stringify(model))) as components['schemas']['AnalysisResultDto'],
+    );
   }
 
   public async exportTm7(model: TmForgeModel): Promise<Blob> {

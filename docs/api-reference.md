@@ -35,7 +35,7 @@ and `/openapi` are matched first.
 | `GET /v1/rule-bundle` | Catalog | Report which custom rule packs this host loaded, and any load diagnostics. |
 | `GET /v1/property-schema` | Catalog | List the typed custom-property schema the rules read. |
 | `POST /v1/model/analyze` | Model | Analyze a model and return findings. |
-| `POST /v1/model/analysis` | Model | Analyze a model and return findings plus the effective rule packs and diagnostics. |
+| `POST /v1/model/analysis` | Model | One analysis action: findings **and** threats from a single rule evaluation, plus the effective rule packs and diagnostics. |
 | `POST /v1/model/threats` | Model | Generate the STRIDE threat register (rule threats plus the model's author overlay). |
 | `POST /v1/model/read` | Model | Parse uploaded bytes (base64) into the canonical model. |
 | `POST /v1/model/convert?to=<format>` | Model | Convert a model to another format. |
@@ -45,6 +45,23 @@ and `/openapi` are matched first.
 
 `<format>` is one of `tm7`, `tmforge-json`, `drawio`, or `vsdx`. See
 [Formats & interoperability](formats.md).
+
+## One analysis action
+
+Findings and threats are the same detection: a threat is a finding from a rule that declares a threat
+category, kept for its lifecycle (open → mitigated → accepted). Asking for them separately makes the
+engine evaluate every enabled rule twice for one user action, so a UI that shows both should call
+`POST /v1/model/analysis`, which evaluates once and projects both:
+
+```bash
+curl -s -X POST http://localhost:8080/v1/model/analysis \
+  -H 'Content-Type: application/json' --data @model.tmforge.json
+# { "findings": […], "threats": […], "rulePacks": […], "diagnostics": [] }
+```
+
+`POST /v1/model/analyze` and `POST /v1/model/threats` remain available and return exactly what the
+combined action returns for their half; they exist for callers that genuinely need only one
+projection, and they do not materialize the other.
 
 ## Custom rule packs
 

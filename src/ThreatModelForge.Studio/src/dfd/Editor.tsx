@@ -249,6 +249,41 @@ export function buildAnalysis(
   return analysis.disabledPacks || analysis.disabledRuleIds || analysis.expectedPacks ? analysis : undefined;
 }
 
+/**
+ * Runs one analysis action against the engine and shapes it for the panel. This is a single engine
+ * request on purpose: findings and threats are the same detection, so asking for them separately
+ * makes the engine evaluate every enabled rule twice for one click.
+ *
+ * The presentation rule lives here too: threat-bearing rules are already shown as threats, so their
+ * findings are dropped from "Other findings" — while `flaggedIds` still spans every finding, so the
+ * canvas overlay marks everything the analysis touched.
+ *
+ * @param engine The engine client to analyze with.
+ * @param model The model to analyze.
+ * @returns The threats, the non-threat findings, the ids to flag, and the rule evidence.
+ */
+export async function analyzeModel(
+  engine: IEngineClient,
+  model: TmForgeModel,
+): Promise<{
+  threats: Threat[];
+  otherFindings: Finding[];
+  flaggedIds: Set<string>;
+  ruleBundle: RuleBundle;
+}> {
+  const result = await engine.runAnalysis(model);
+  const threatRuleIds = new Set(result.threats.map((t) => t.ruleId));
+  return {
+    threats: result.threats,
+    otherFindings: result.findings.filter((f) => !f.ruleId || !threatRuleIds.has(f.ruleId)),
+    flaggedIds: new Set([
+      ...result.threats.flatMap((t) => t.elementIds),
+      ...result.findings.flatMap((f) => f.elementIds),
+    ]),
+    ruleBundle: { rulePacks: result.rulePacks, diagnostics: result.diagnostics },
+  };
+}
+
 /** Returns copies of the graph with the `flagged` class applied to elements a finding referenced. */
 export function applyFlags(
   nodes: DfdNode[],
@@ -1069,31 +1104,24 @@ export function Editor() {
     analysisActiveRef.current = false;
   }, [setNodes, setEdges]);
 
-  // Analyze the model: generate the STRIDE threat register and, in parallel, the model-hygiene
-  // findings. Threats (threat-bearing rules) and findings (the rest) are the same detection, so they
-  // share one panel: the register leads, non-threat findings trail. The register carries the model's
-  // acceptance triage, so accepted risks come back Accepted.
+  // Analyze the model: one request, one rule-set evaluation. The engine returns the STRIDE threat
+  // register and the model-hygiene findings projected from the same detection pass, so they share one
+  // panel: the register leads, non-threat findings trail. The register carries the model's acceptance
+  // triage, so accepted risks come back Accepted.
   const runAnalyze = useCallback(async () => {
-    let generated: Threat[];
-    let allFindings: Finding[];
+    let analysis: Awaited<ReturnType<typeof analyzeModel>>;
     try {
-      [generated, allFindings] = await Promise.all([
-        engine.generateThreats(currentModel),
-        engine.analyze(currentModel),
-      ]);
+      analysis = await analyzeModel(engine, currentModel);
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Analysis failed.', 'error');
       return;
     }
-    setThreats(generated);
-    // "Other findings" = findings from non-threat-bearing (hygiene) rules; the threat-bearing ones
-    // are already shown as threats.
-    const threatRuleIds = new Set(generated.map((t) => t.ruleId));
-    setFindings(allFindings.filter((f) => !f.ruleId || !threatRuleIds.has(f.ruleId)));
+    setThreats(analysis.threats);
+    setFindings(analysis.otherFindings);
+    setRuleBundle(analysis.ruleBundle);
     analysisActiveRef.current = true;
-    const flagged = new Set([...generated.flatMap((t) => t.elementIds), ...allFindings.flatMap((f) => f.elementIds)]);
-    flaggedIdsRef.current = flagged;
-    const applied = applyFlags(nodes, edges, flagged);
+    flaggedIdsRef.current = analysis.flaggedIds;
+    const applied = applyFlags(nodes, edges, analysis.flaggedIds);
     setNodes(applied.nodes);
     setEdges(applied.edges);
   }, [engine, currentModel, nodes, edges, setNodes, setEdges]);
