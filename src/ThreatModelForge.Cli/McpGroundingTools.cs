@@ -1,5 +1,6 @@
 namespace ThreatModelForge.Cli
 {
+    using System;
     using System.Collections.Generic;
     using System.ComponentModel;
     using ModelContextProtocol.Server;
@@ -32,16 +33,26 @@ namespace ThreatModelForge.Cli
         public static IReadOnlyList<ThreatModelForge.Editing.PropertyDescriptor> PropertySchema() => EngineService.GetPropertySchema();
 
         /// <summary>Lists the analysis rules the engine evaluates.</summary>
+        /// <param name="services">The MCP request services.</param>
+        /// <param name="rulesPath">An optional custom rule pack inside the workspace root.</param>
         /// <returns>The available rules.</returns>
         [McpServerTool(Name = "rules")]
         [Description("Lists the analysis rules the engine evaluates, with pack, severity, and help link.")]
-        public static IReadOnlyList<RuleDto> Rules() => EngineService.GetRules();
+        public static IReadOnlyList<RuleDto> Rules(
+            IServiceProvider services,
+            [Description("Optional path to a custom .tmrules.json pack inside the configured MCP workspace root; omit to list the built-in rules only.")] string? rulesPath = null)
+            => EngineService.GetRules(McpToolSupport.LoadRules(services, rulesPath));
 
         /// <summary>Lists the analysis rule packs available for per-model toggles.</summary>
+        /// <param name="services">The MCP request services.</param>
+        /// <param name="rulesPath">An optional custom rule pack inside the workspace root.</param>
         /// <returns>The available rule packs.</returns>
         [McpServerTool(Name = "rule_packs")]
         [Description("Lists the analysis rule packs (groupings of rules) available for per-model toggles.")]
-        public static IReadOnlyList<RulePackDto> RulePacks() => EngineService.GetRulePacks();
+        public static IReadOnlyList<RulePackDto> RulePacks(
+            IServiceProvider services,
+            [Description("Optional path to a custom .tmrules.json pack inside the configured MCP workspace root; omit to list the built-in packs only.")] string? rulesPath = null)
+            => EngineService.GetRulePacks(McpToolSupport.LoadRules(services, rulesPath));
 
         /// <summary>Describes the declarative manifest shape accepted by the <c>apply</c> tool.</summary>
         /// <returns>The manifest grounding text.</returns>

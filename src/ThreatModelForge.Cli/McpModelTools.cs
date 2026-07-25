@@ -90,43 +90,60 @@ namespace ThreatModelForge.Cli
         /// Runs the analysis rule set over the model and returns the findings.
         /// </summary>
         /// <param name="model">The tmforge-json model to analyze.</param>
+        /// <param name="services">The MCP request services.</param>
+        /// <param name="rulesPath">An optional custom rule pack inside the workspace root.</param>
         /// <returns>The findings.</returns>
         [McpServerTool(Name = "analyze")]
         [Description("Runs the analysis rule set over the model and returns the findings (rule id, severity, message, affected element ids).")]
-        public static IReadOnlyList<FindingDto> Analyze([Description("The tmforge-json model to analyze.")] TmForgeModelDto model)
+        public static IReadOnlyList<FindingDto> Analyze(
+            [Description("The tmforge-json model to analyze.")] TmForgeModelDto model,
+            IServiceProvider services,
+            [Description("Optional path to a custom .tmrules.json pack inside the configured MCP workspace root; omit to run the built-in rules only.")] string? rulesPath = null)
         {
             McpToolSupport.ValidateModel(model);
-            return McpToolSupport.ValidateResponse(EngineService.Analyze(model));
+            EngineRuleOptions? rules = McpToolSupport.LoadRules(services, rulesPath);
+            return McpToolSupport.ValidateResponse(EngineService.Analyze(model, rules).Findings);
         }
 
         /// <summary>
         /// Projects the model's threat-bearing findings into threats (the persistable, triaged view).
         /// </summary>
         /// <param name="model">The tmforge-json model.</param>
+        /// <param name="services">The MCP request services.</param>
+        /// <param name="rulesPath">An optional custom rule pack inside the workspace root.</param>
         /// <returns>The generated threats.</returns>
         [McpServerTool(Name = "threats")]
         [Description("Projects the model's threat-bearing findings into threats (the persistable, triaged view with category, title, mitigation, and references).")]
-        public static IReadOnlyList<ThreatDto> Threats([Description("The tmforge-json model.")] TmForgeModelDto model)
+        public static IReadOnlyList<ThreatDto> Threats(
+            [Description("The tmforge-json model.")] TmForgeModelDto model,
+            IServiceProvider services,
+            [Description("Optional path to a custom .tmrules.json pack inside the configured MCP workspace root; omit to run the built-in rules only.")] string? rulesPath = null)
         {
             McpToolSupport.ValidateModel(model);
-            return McpToolSupport.ValidateResponse(EngineService.GenerateThreats(model));
+            EngineRuleOptions? rules = McpToolSupport.LoadRules(services, rulesPath);
+            return McpToolSupport.ValidateResponse(EngineService.GenerateThreats(model, rules));
         }
 
         /// <summary>
         /// Renders a self-contained report for the model as text (HTML or SVG).
         /// </summary>
         /// <param name="model">The tmforge-json model.</param>
+        /// <param name="services">The MCP request services.</param>
         /// <param name="format">The report format: <c>html</c> (default) or <c>svg</c>.</param>
+        /// <param name="rulesPath">An optional custom rule pack inside the workspace root.</param>
         /// <returns>The report content.</returns>
         [McpServerTool(Name = "report")]
         [Description("Renders a self-contained report for the model as text. Format 'html' (default) or 'svg'.")]
         public static string Report(
             [Description("The tmforge-json model.")] TmForgeModelDto model,
-            [Description("The report format: html or svg.")] string format = "html")
+            IServiceProvider services,
+            [Description("The report format: html or svg.")] string format = "html",
+            [Description("Optional path to a custom .tmrules.json pack inside the configured MCP workspace root; omit to run the built-in rules only.")] string? rulesPath = null)
         {
             McpToolSupport.ValidateModel(model);
             McpToolSupport.ValidateArguments(new[] { format });
-            return McpToolSupport.ValidateResponse(Encoding.UTF8.GetString(EngineService.Report(model, format)));
+            EngineRuleOptions? rules = McpToolSupport.LoadRules(services, rulesPath);
+            return McpToolSupport.ValidateResponse(Encoding.UTF8.GetString(EngineService.Report(model, format, rules)));
         }
 
         /// <summary>

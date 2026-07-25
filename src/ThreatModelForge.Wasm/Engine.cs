@@ -19,11 +19,42 @@ namespace ThreatModelForge.Wasm
             PropertyNameCaseInsensitive = true,
         };
 
+        private static EngineRuleOptions ruleOptions = new EngineRuleOptions();
+
         /// <summary>Sanity check that the module loaded and interop works.</summary>
         /// <returns>The engine runtime banner.</returns>
         [JSExport]
         public static string Ping()
             => $".NET {Environment.Version} WASM engine ready";
+
+        /// <summary>
+        /// Selects the custom rule packs this engine instance runs, and reports what actually loaded.
+        /// The selection persists until it is replaced, so every later call — catalogs, analysis, threat
+        /// generation, reports, and exports — uses one effective bundle, exactly as a configured API
+        /// host does.
+        /// </summary>
+        /// <param name="sourcesJson">A JSON array of <c>{ name, json }</c> rule packs, or an empty string to clear.</param>
+        /// <returns>The loaded packs and diagnostics as JSON (the /v1 RuleBundleDto shape).</returns>
+        [JSExport]
+        public static string SetRules(string sourcesJson)
+        {
+            if (string.IsNullOrWhiteSpace(sourcesJson))
+            {
+                ruleOptions = new EngineRuleOptions();
+                return Serialize(EngineService.DescribeRules(ruleOptions));
+            }
+
+            RuleSourceDto[] sources = JsonSerializer.Deserialize<RuleSourceDto[]>(sourcesJson, JsonOptions)
+                ?? Array.Empty<RuleSourceDto>();
+            ruleOptions = new EngineRuleOptions { Sources = sources };
+            return Serialize(EngineService.DescribeRules(ruleOptions));
+        }
+
+        /// <summary>Describes the custom rule packs this engine instance currently runs.</summary>
+        /// <returns>The loaded packs and diagnostics as JSON (the /v1 RuleBundleDto shape).</returns>
+        [JSExport]
+        public static string RuleBundle()
+            => Serialize(EngineService.DescribeRules(ruleOptions));
 
         /// <summary>Lists the registered file formats and their capabilities.</summary>
         /// <returns>The formats as a JSON array.</returns>
@@ -47,13 +78,13 @@ namespace ThreatModelForge.Wasm
         /// <returns>The rules as a JSON array.</returns>
         [JSExport]
         public static string Rules()
-            => Serialize(EngineService.GetRules());
+            => Serialize(EngineService.GetRules(ruleOptions));
 
         /// <summary>Lists the rule packs offered by the engine.</summary>
         /// <returns>The rule packs as a JSON array.</returns>
         [JSExport]
         public static string RulePacks()
-            => Serialize(EngineService.GetRulePacks());
+            => Serialize(EngineService.GetRulePacks(ruleOptions));
 
         /// <summary>Lists the typed element-property schema.</summary>
         /// <returns>The property descriptors as a JSON array.</returns>
@@ -66,14 +97,26 @@ namespace ThreatModelForge.Wasm
         /// <returns>The findings as a JSON array (the /v1 FindingDto shape).</returns>
         [JSExport]
         public static string Analyze(string tmforgeJson)
-            => Serialize(EngineService.Analyze(Deserialize(tmforgeJson)));
+            => Serialize(EngineService.Analyze(Deserialize(tmforgeJson), ruleOptions).Findings);
+
+        /// <summary>
+        /// Runs one analysis action: evaluates the rule set once and returns both the findings and the
+        /// threats projected from the same evaluation, plus the effective rule packs and diagnostics.
+        /// A UI that shows both should call this instead of Analyze and Threats, which would evaluate
+        /// every enabled rule twice for one user action.
+        /// </summary>
+        /// <param name="tmforgeJson">The canonical tmforge-json model.</param>
+        /// <returns>The analysis result as JSON (the /v1 AnalysisResultDto shape).</returns>
+        [JSExport]
+        public static string Analysis(string tmforgeJson)
+            => Serialize(EngineService.RunAnalysis(Deserialize(tmforgeJson), ruleOptions));
 
         /// <summary>Projects the model's validation findings into STRIDE threats via the shared engine.</summary>
         /// <param name="tmforgeJson">The canonical tmforge-json model.</param>
         /// <returns>The generated threats as a JSON array (the /v1 ThreatDto shape).</returns>
         [JSExport]
         public static string Threats(string tmforgeJson)
-            => Serialize(EngineService.GenerateThreats(Deserialize(tmforgeJson)));
+            => Serialize(EngineService.GenerateThreats(Deserialize(tmforgeJson), ruleOptions));
 
         /// <summary>Merges two edited tmforge-json models, keyed by element identity.</summary>
         /// <param name="baseJson">The common ancestor model, or an empty string for a two-way merge.</param>
@@ -115,7 +158,7 @@ namespace ThreatModelForge.Wasm
         /// <returns>The <c>.tm7</c> document bytes, base64-encoded.</returns>
         [JSExport]
         public static string ExportTm7(string tmforgeJson)
-            => Convert.ToBase64String(EngineService.ExportTm7(Deserialize(tmforgeJson)));
+            => Convert.ToBase64String(EngineService.ExportTm7(Deserialize(tmforgeJson), ruleOptions));
 
         /// <summary>Serializes a tmforge-json model to another registered format, returned as base64.</summary>
         /// <param name="tmforgeJson">The canonical tmforge-json model.</param>
@@ -123,7 +166,7 @@ namespace ThreatModelForge.Wasm
         /// <returns>The serialized document bytes, base64-encoded.</returns>
         [JSExport]
         public static string ConvertModel(string tmforgeJson, string toFormatId)
-            => Convert.ToBase64String(EngineService.Convert(Deserialize(tmforgeJson), toFormatId));
+            => Convert.ToBase64String(EngineService.Convert(Deserialize(tmforgeJson), toFormatId, ruleOptions));
 
         /// <summary>Renders an HTML or SVG report for a tmforge-json model, returned as base64.</summary>
         /// <param name="tmforgeJson">The canonical tmforge-json model.</param>
@@ -131,7 +174,7 @@ namespace ThreatModelForge.Wasm
         /// <returns>The report bytes (UTF-8), base64-encoded.</returns>
         [JSExport]
         public static string Report(string tmforgeJson, string format)
-            => Convert.ToBase64String(EngineService.Report(Deserialize(tmforgeJson), format));
+            => Convert.ToBase64String(EngineService.Report(Deserialize(tmforgeJson), format, ruleOptions));
 
         private static string Serialize<T>(T value)
             => JsonSerializer.Serialize(value, JsonOptions);

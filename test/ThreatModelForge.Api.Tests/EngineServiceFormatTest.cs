@@ -9,8 +9,8 @@ namespace ThreatModelForge.Api.Tests
 
     /// <summary>
     /// Unit tests for the format-facing methods of <see cref="EngineService"/> —
-    /// <see cref="EngineService.ReadModel"/>, <see cref="EngineService.Convert"/>,
-    /// <see cref="EngineService.Detect"/>, and <see cref="EngineService.Report"/> — which are the
+    /// <see cref="EngineService.ReadModel"/>, <see cref="EngineService.Convert(TmForgeModelDto, string)"/>,
+    /// <see cref="EngineService.Detect"/>, and <see cref="EngineService.Report(TmForgeModelDto, string)"/> — which are the
     /// single seam the CLI, API, and WebAssembly hosts all funnel document I/O through.
     /// </summary>
     [TestClass]
@@ -83,7 +83,7 @@ namespace ThreatModelForge.Api.Tests
         }
 
         /// <summary>
-        /// <see cref="EngineService.Convert"/> rejects an empty or null format id.
+        /// <see cref="EngineService.Convert(TmForgeModelDto, string)"/> rejects an empty or null format id.
         /// </summary>
         [TestMethod]
         public void ConvertEmptyFormatIdThrows()
@@ -93,7 +93,7 @@ namespace ThreatModelForge.Api.Tests
         }
 
         /// <summary>
-        /// <see cref="EngineService.Convert"/> rejects a format id that is not registered.
+        /// <see cref="EngineService.Convert(TmForgeModelDto, string)"/> rejects a format id that is not registered.
         /// </summary>
         [TestMethod]
         public void ConvertUnknownFormatIdThrows()
@@ -151,7 +151,7 @@ namespace ThreatModelForge.Api.Tests
         }
 
         /// <summary>
-        /// <see cref="EngineService.Report"/> renders an HTML document for the default format.
+        /// <see cref="EngineService.Report(TmForgeModelDto, string)"/> renders an HTML document for the default format.
         /// </summary>
         [TestMethod]
         public void ReportHtmlProducesHtmlDocument()
@@ -166,7 +166,7 @@ namespace ThreatModelForge.Api.Tests
         }
 
         /// <summary>
-        /// <see cref="EngineService.Report"/> includes the rule-backed threats generated for the model,
+        /// <see cref="EngineService.Report(TmForgeModelDto, string)"/> includes the rule-backed threats generated for the model,
         /// not only threats that were manually authored into its register.
         /// </summary>
         [TestMethod]
@@ -185,7 +185,7 @@ namespace ThreatModelForge.Api.Tests
         }
 
         /// <summary>
-        /// <see cref="EngineService.Report"/> enriches sparse accepted triage with the generated threat
+        /// <see cref="EngineService.Report(TmForgeModelDto, string)"/> enriches sparse accepted triage with the generated threat
         /// details while retaining the author's state and justification.
         /// </summary>
         [TestMethod]
@@ -212,7 +212,7 @@ namespace ThreatModelForge.Api.Tests
         }
 
         /// <summary>
-        /// <see cref="EngineService.Report"/> renders SVG when asked, matching the format string
+        /// <see cref="EngineService.Report(TmForgeModelDto, string)"/> renders SVG when asked, matching the format string
         /// case-insensitively.
         /// </summary>
         [TestMethod]
@@ -227,7 +227,7 @@ namespace ThreatModelForge.Api.Tests
         }
 
         /// <summary>
-        /// <see cref="EngineService.Report"/> falls back to HTML for an unrecognized report format.
+        /// <see cref="EngineService.Report(TmForgeModelDto, string)"/> falls back to HTML for an unrecognized report format.
         /// </summary>
         [TestMethod]
         public void ReportUnknownFormatFallsBackToHtml()

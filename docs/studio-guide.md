@@ -96,6 +96,23 @@ If the engine is offline, Studio falls back to an offline stub so the canvas kee
 it to a running API to get the real rule set. See [Analysis rules & CI](analysis-rules.md) for
 what the rules check.
 
+### Custom rule packs
+
+Open **Analysis Rules** and choose **Load rule pack…** to analyze against your own declarative pack
+(`*.tmrules.json`) alongside the built-in rules. The in-browser engine loads the pack locally — the
+file is never uploaded — and the panel then lists each pack that loaded with its id, version, rule
+count, and content fingerprint, plus any diagnostic the loader raised. A pack that fails to parse
+says so instead of quietly leaving you on the built-in rules.
+
+Loading a pack also **pins it in the model**: the saved `.tmforge.json` records the pack id and
+fingerprint. If the model is later analyzed without that pack, or the pack's content changed,
+analysis reports an error finding rather than looking clean. **Use built-in rules** clears both the
+loaded pack and the pin.
+
+When Studio is talking to a `/v1` API instead of the in-browser engine, rule packs are the server's
+configuration, so the loader reports that rather than pretending a local pack took effect — see
+[the API reference](api-reference.md#custom-rule-packs).
+
 ## Authoring & editing threats
 
 **Analyze** also returns the model's **STRIDE threat register** — the threat-bearing findings framed as

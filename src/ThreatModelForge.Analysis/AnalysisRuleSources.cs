@@ -2,6 +2,7 @@ namespace ThreatModelForge.Analysis
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Reflection;
 
     /// <summary>
@@ -35,10 +36,24 @@ namespace ThreatModelForge.Analysis
         /// <returns>A new rule set. The caller owns and disposes it.</returns>
         public static RuleSet Create(RuleSourceOptions? options = null)
         {
+            return Create(options, out _);
+        }
+
+        /// <summary>
+        /// Creates a rule set as <see cref="Create(RuleSourceOptions)"/> does and reports the effective
+        /// custom rule packs it loaded, so a host can show which pack content actually ran (id, version,
+        /// and content fingerprint) instead of assuming a selection was honored.
+        /// </summary>
+        /// <param name="options">The opt-in rule sources, or <see langword="null"/> for built-in rules only.</param>
+        /// <param name="packs">The custom rule packs that contributed rules to the returned set.</param>
+        /// <returns>A new rule set. The caller owns and disposes it.</returns>
+        public static RuleSet Create(RuleSourceOptions? options, out IReadOnlyList<RulePackDefinition> packs)
+        {
             Action<string>? diagnostics = options?.Diagnostics;
             RuleSet ruleSet = RuleSet.LoadDefault(BuiltInAssemblies(), diagnostics);
+            packs = Array.Empty<RulePackDefinition>();
 
-            if (options == null || options.SpecPaths.Count == 0)
+            if (options == null || options.IsEmpty)
             {
                 return ruleSet;
             }
@@ -49,7 +64,9 @@ namespace ThreatModelForge.Analysis
                 ids.Add(existing.ID);
             }
 
-            foreach (Rule rule in DeclarativeRuleProvider.Load(options.SpecPaths, diagnostics))
+            RuleBundle bundle = DeclarativeRuleProvider.LoadBundle(options.SpecPaths, options.Contents, diagnostics);
+            HashSet<string> loadedPackIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Rule rule in bundle.Rules)
             {
                 if (!ids.Add(rule.ID))
                 {
@@ -58,9 +75,15 @@ namespace ThreatModelForge.Analysis
                     continue;
                 }
 
+                if (rule.PackDefinition != null)
+                {
+                    loadedPackIds.Add(rule.PackDefinition.Id);
+                }
+
                 ruleSet.Rules.Add(rule);
             }
 
+            packs = bundle.Packs.Where(pack => loadedPackIds.Contains(pack.Id)).ToList();
             return ruleSet;
         }
     }

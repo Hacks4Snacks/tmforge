@@ -76,6 +76,18 @@ export interface TmForgeAnalysis {
   disabledPacks?: string[];
   /** Individual rule ids to skip (for example, 'TM1002'). */
   disabledRuleIds?: string[];
+  /**
+   * Custom rule packs this model expects to be analyzed with, pinned by content fingerprint. The
+   * engine reports a missing pack or a changed fingerprint as an error finding, so a model is never
+   * quietly analyzed against different rules than the ones it was reviewed with.
+   */
+  expectedPacks?: TmForgeExpectedRulePack[];
+}
+
+/** A custom rule pack a model expects, pinned by id and (optionally) content fingerprint. */
+export interface TmForgeExpectedRulePack {
+  id: string;
+  fingerprint?: string;
 }
 
 /**

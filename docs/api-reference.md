@@ -32,8 +32,10 @@ and `/openapi` are matched first.
 | `GET /v1/stencil-packs` | Catalog | List stencil packs. |
 | `GET /v1/rules` | Catalog | List analysis rules. |
 | `GET /v1/rule-packs` | Catalog | List rule packs. |
+| `GET /v1/rule-bundle` | Catalog | Report which custom rule packs this host loaded, and any load diagnostics. |
 | `GET /v1/property-schema` | Catalog | List the typed custom-property schema the rules read. |
 | `POST /v1/model/analyze` | Model | Analyze a model and return findings. |
+| `POST /v1/model/analysis` | Model | One analysis action: findings **and** threats from a single rule evaluation, plus the effective rule packs and diagnostics. |
 | `POST /v1/model/threats` | Model | Generate the STRIDE threat register (rule threats plus the model's author overlay). |
 | `POST /v1/model/read` | Model | Parse uploaded bytes (base64) into the canonical model. |
 | `POST /v1/model/convert?to=<format>` | Model | Convert a model to another format. |
@@ -43,6 +45,47 @@ and `/openapi` are matched first.
 
 `<format>` is one of `tm7`, `tmforge-json`, `drawio`, or `vsdx`. See
 [Formats & interoperability](formats.md).
+
+## One analysis action
+
+Findings and threats are the same detection: a threat is a finding from a rule that declares a threat
+category, kept for its lifecycle (open → mitigated → accepted). Asking for them separately makes the
+engine evaluate every enabled rule twice for one user action, so a UI that shows both should call
+`POST /v1/model/analysis`, which evaluates once and projects both:
+
+```bash
+curl -s -X POST http://localhost:8080/v1/model/analysis \
+  -H 'Content-Type: application/json' --data @model.tmforge.json
+# { "findings": […], "threats": […], "rulePacks": […], "diagnostics": [] }
+```
+
+`POST /v1/model/analyze` and `POST /v1/model/threats` remain available and return exactly what the
+combined action returns for their half; they exist for callers that genuinely need only one
+projection, and they do not materialize the other.
+
+## Custom rule packs
+
+Custom rules are deployment configuration, not request input: this host never loads rules from a
+request body, so a caller cannot inject detection logic. Name the packs (files or directories) with
+the `TmForge:Rules` setting and they are read once at startup, then applied to every rule-reading
+endpoint — catalogs, analysis, threats, reports, and `.tm7` export — as one effective bundle:
+
+```bash
+# a single pack, or a ';'-separated list
+TmForge__Rules='/etc/tmforge/corporate.tmrules.json' dotnet ThreatModelForge.Api.dll
+```
+
+Confirm what actually loaded before trusting a clean run:
+
+```bash
+curl http://localhost:8080/v1/rule-bundle
+# { "rulePacks": [ { "id": "corporate", "version": "2.1", "fingerprint": "sha256:…", "ruleCount": 12 } ],
+#   "diagnostics": [] }
+```
+
+A model may pin the packs it was reviewed with; a missing or changed pack becomes an `error` finding
+with rule id `rule-pack-mismatch`. See
+[Custom rules on every surface](analysis-rules.md#custom-rules-on-every-surface).
 
 ## Usage examples
 

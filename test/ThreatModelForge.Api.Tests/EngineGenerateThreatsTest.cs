@@ -9,7 +9,7 @@ namespace ThreatModelForge.Api.Tests
     using ThreatModelForge.Model;
 
     /// <summary>
-    /// Unit tests for <see cref="EngineService.GenerateThreats"/>, confirming the shared engine seam
+    /// Unit tests for <see cref="EngineService.GenerateThreats(TmForgeModelDto)"/>, confirming the shared engine seam
     /// projects the same rule findings the CLI does (parity by construction) and honors the per-model
     /// rule selection.
     /// </summary>

@@ -1,6 +1,8 @@
 namespace ThreatModelForge.Api
 {
     using System;
+    using System.Collections.Generic;
+    using System.Linq;
     using Microsoft.AspNetCore.Builder;
     using Microsoft.AspNetCore.Http;
     using Microsoft.AspNetCore.Http.HttpResults;
@@ -36,6 +38,11 @@ namespace ThreatModelForge.Api
             WebApplication app = builder.Build();
             app.UseCors();
 
+            // Custom rule packs are deployment configuration, not request input: they are named by the
+            // operator, read once here, and applied to every rule-reading endpoint, so this host's
+            // catalogs, findings, threats, reports, and exports all come from one effective bundle.
+            (EngineRuleOptions rules, IReadOnlyList<string> ruleDiagnostics) = ApiRuleSources.Load(builder.Configuration);
+
             // Serve the built Studio SPA's static assets from wwwroot (populated by the build).
             app.UseStaticFiles();
 
@@ -53,19 +60,25 @@ namespace ThreatModelForge.Api
             app.MapGet("/v1/stencil-packs", () => TypedResults.Ok(EngineService.GetStencilPacks()))
                 .WithName("GetStencilPacks")
                 .WithTags("Catalog");
-            app.MapGet("/v1/rules", () => TypedResults.Ok(EngineService.GetRules()))
+            app.MapGet("/v1/rules", () => TypedResults.Ok(EngineService.GetRules(rules)))
                 .WithName("GetRules")
                 .WithTags("Catalog");
-            app.MapGet("/v1/rule-packs", () => TypedResults.Ok(EngineService.GetRulePacks()))
+            app.MapGet("/v1/rule-packs", () => TypedResults.Ok(EngineService.GetRulePacks(rules)))
                 .WithName("GetRulePacks")
+                .WithTags("Catalog");
+            app.MapGet("/v1/rule-bundle", () => TypedResults.Ok(DescribeRuleBundle(rules, ruleDiagnostics)))
+                .WithName("GetRuleBundle")
                 .WithTags("Catalog");
             app.MapGet("/v1/property-schema", () => TypedResults.Ok(EngineService.GetPropertySchema()))
                 .WithName("GetPropertySchema")
                 .WithTags("Catalog");
-            app.MapPost("/v1/model/analyze", (TmForgeModelDto model) => TypedResults.Ok(EngineService.Analyze(model)))
+            app.MapPost("/v1/model/analyze", (TmForgeModelDto model) => TypedResults.Ok(EngineService.Analyze(model, rules).Findings))
                 .WithName("AnalyzeModel")
                 .WithTags("Model");
-            app.MapPost("/v1/model/threats", (TmForgeModelDto model) => TypedResults.Ok(EngineService.GenerateThreats(model)))
+            app.MapPost("/v1/model/analysis", (TmForgeModelDto model) => TypedResults.Ok(EngineService.RunAnalysis(model, rules)))
+                .WithName("RunAnalysis")
+                .WithTags("Model");
+            app.MapPost("/v1/model/threats", (TmForgeModelDto model) => TypedResults.Ok(EngineService.GenerateThreats(model, rules)))
                 .WithName("GenerateThreats")
                 .WithTags("Model");
             app.MapPost(
@@ -79,12 +92,12 @@ namespace ThreatModelForge.Api
                 .WithTags("Model");
             app.MapPost(
                 "/v1/model/export/tm7",
-                (TmForgeModelDto model) => TypedResults.File(EngineService.ExportTm7(model), "application/xml", "model.tm7"))
+                (TmForgeModelDto model) => TypedResults.File(EngineService.ExportTm7(model, rules), "application/xml", "model.tm7"))
                 .WithName("ExportModelTm7")
                 .WithTags("Model");
             app.MapPost("/v1/model/convert", (TmForgeModelDto model, string to) =>
                 {
-                    byte[] bytes = EngineService.Convert(model, to);
+                    byte[] bytes = EngineService.Convert(model, to, rules);
                     (string contentType, string fileName) = DescribeConversion(to);
                     return TypedResults.File(bytes, contentType, fileName);
                 })
@@ -99,7 +112,7 @@ namespace ThreatModelForge.Api
             app.MapPost("/v1/model/report", (TmForgeModelDto model, string format) =>
                 {
                     bool svg = string.Equals(format, "svg", StringComparison.OrdinalIgnoreCase);
-                    byte[] bytes = EngineService.Report(model, format);
+                    byte[] bytes = EngineService.Report(model, format, rules);
                     return TypedResults.File(bytes, svg ? "image/svg+xml" : "text/html", svg ? "report.svg" : "report.html");
                 })
                 .WithName("ReportModel")
@@ -113,6 +126,18 @@ namespace ThreatModelForge.Api
             app.MapFallbackToFile("index.html");
 
             app.Run();
+        }
+
+        private static RuleBundleDto DescribeRuleBundle(EngineRuleOptions rules, IReadOnlyList<string> hostDiagnostics)
+        {
+            RuleBundleDto bundle = EngineService.DescribeRules(rules);
+            return hostDiagnostics.Count == 0
+                ? bundle
+                : new RuleBundleDto
+                {
+                    RulePacks = bundle.RulePacks,
+                    Diagnostics = hostDiagnostics.Concat(bundle.Diagnostics).ToList(),
+                };
         }
 
         private static Results<Ok<FormatDto>, NotFound> DetectFormat(FileContentDto file)
