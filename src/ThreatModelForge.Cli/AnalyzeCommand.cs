@@ -8,6 +8,7 @@
     using System.Text.Json;
     using ThreatModelForge.Analysis;
     using ThreatModelForge.Analysis.Reporting;
+    using ThreatModelForge.Engine;
     using ThreatModelForge.Formats;
     using ThreatModelForge.Model;
 
@@ -70,11 +71,18 @@
 
                     if (!string.IsNullOrWhiteSpace(arguments.ReportFolderPath))
                     {
+                        if (!TryLoadTaxonomy(arguments.TaxonomyPath, out AnalysisTaxonomyMap? taxonomy))
+                        {
+                            return ErrorExitCode;
+                        }
+
                         ModelReport report = context.GenerateReport(ruleSet);
                         ModelListing listing = context.GenerateListing();
                         WriteReports(
                             report,
                             listing,
+                            model,
+                            taxonomy,
                             arguments.ReportFolderPath);
                     }
 
@@ -129,6 +137,8 @@
         private static void WriteReports(
             ModelReport report,
             ModelListing listing,
+            ThreatModel model,
+            AnalysisTaxonomyMap? taxonomy,
             string reportFolderPath)
         {
             if (!Directory.Exists(reportFolderPath))
@@ -174,6 +184,54 @@
             {
                 writer.Write(report);
             }
+
+            // The versioned evidence artifact. The files above are for people and for code-scanning
+            // dashboards; this one is the record meant to be stored and compared against the next run,
+            // so it is written with no timestamp and with a disposition on every finding.
+            string analysisPath = Path.Join(
+                reportFolderPath,
+                $"{targetFileName!}.analysis.json");
+            File.WriteAllText(
+                analysisPath,
+                JsonSerializer.Serialize(AnalysisDocumentBuilder.FromReport(report, model, null, taxonomy), options));
+        }
+
+        /// <summary>
+        /// Loads the optional taxonomy mapping. A mapping that cannot be read is an error rather than a
+        /// silent skip: the caller asked for their catalogue ids on the evidence, and evidence that
+        /// quietly omits them looks the same as evidence for unmapped rules.
+        /// </summary>
+        /// <param name="path">The mapping path, or empty when none was requested.</param>
+        /// <param name="taxonomy">On success, the mapping, or <see langword="null"/> when none was requested.</param>
+        /// <returns><see langword="true"/> when there is nothing to report.</returns>
+        private static bool TryLoadTaxonomy(string path, out AnalysisTaxonomyMap? taxonomy)
+        {
+            taxonomy = null;
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return true;
+            }
+
+            if (!File.Exists(path))
+            {
+                Console.Error.WriteLine("File not found: " + path);
+                return false;
+            }
+
+            if (!AnalysisTaxonomyMap.TryRead(
+                File.ReadAllText(path),
+                out taxonomy,
+                out IReadOnlyList<string> problems))
+            {
+                foreach (string problem in problems)
+                {
+                    Console.Error.WriteLine(path + ": " + problem);
+                }
+
+                return false;
+            }
+
+            return true;
         }
 
         private static RuleSet GetRuleSet(string ruleSetPath, string rulePath)

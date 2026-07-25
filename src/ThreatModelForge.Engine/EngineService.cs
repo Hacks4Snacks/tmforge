@@ -288,20 +288,27 @@ namespace ThreatModelForge.Engine
             _ = dto ?? throw new ArgumentNullException(nameof(dto));
 
             List<AnalysisFindingDto> evidence = new List<AnalysisFindingDto>();
-            AnalysisResultDto result = RunAnalysis(dto, rules, AnalysisProjection.Evidence, evidence);
+            string analyzerFingerprint = string.Empty;
+            AnalysisResultDto result = RunAnalysis(
+                dto,
+                rules,
+                AnalysisProjection.Evidence,
+                evidence,
+                ruleSet => analyzerFingerprint =
+                    AnalysisDocumentBuilder.AnalyzerFingerprint(AnalyzerName, AnalyzerVersion, ruleSet));
 
             return new AnalysisDocumentDto
             {
                 Model = new AnalysisIdentityDto
                 {
                     Name = AnalysisReportName(dto),
-                    Fingerprint = ModelFingerprint(dto),
+                    Fingerprint = AnalysisDocumentBuilder.ModelFingerprint(dto),
                 },
                 Analyzer = new AnalysisIdentityDto
                 {
                     Name = AnalyzerName,
                     Version = AnalyzerVersion,
-                    Fingerprint = AnalyzerFingerprint(dto, result.RulePacks),
+                    Fingerprint = analyzerFingerprint,
                 },
                 RulePacks = result.RulePacks,
                 Findings = evidence,
@@ -622,12 +629,14 @@ namespace ThreatModelForge.Engine
         /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
         /// <param name="projections">The projections to materialize.</param>
         /// <param name="evidence">Receives the persistable evidence when that projection is requested.</param>
+        /// <param name="onRuleSet">Invoked with the effective rule set once the selection has been applied.</param>
         /// <returns>The requested projections, the effective custom packs, and any load diagnostics.</returns>
         private static AnalysisResultDto RunAnalysis(
             TmForgeModelDto dto,
             EngineRuleOptions? rules,
             AnalysisProjection projections,
-            List<AnalysisFindingDto>? evidence = null)
+            List<AnalysisFindingDto>? evidence = null,
+            Action<RuleSet>? onRuleSet = null)
         {
             bool wantFindings = (projections & AnalysisProjection.Findings) != 0;
             bool wantThreats = (projections & AnalysisProjection.Threats) != 0;
@@ -673,6 +682,10 @@ namespace ThreatModelForge.Engine
                     {
                         ruleSet.Disable(dto.Analysis.DisabledPacks, dto.Analysis.DisabledRuleIds);
                     }
+
+                    // Provenance is taken from the effective catalog, after selection, so it records
+                    // the rules that actually ran rather than the ones that were offered.
+                    onRuleSet?.Invoke(ruleSet);
 
                     // One evaluation, one shared operation budget, every projection. Detection happens
                     // here and nowhere else; findings, threats, and evidence differ only in lifecycle.
@@ -875,115 +888,21 @@ namespace ThreatModelForge.Engine
                     Message = message.Text ?? string.Empty,
                     Diagram = diagramKey,
                     ElementIds = elementIds,
-                    Disposition = DispositionFor(threatId, overlay),
+                    Disposition = FindingDispositions.Classify(false, threatId, Triage(threatId, overlay)),
                     ThreatId = threatId,
                 });
             }
         }
 
-        /// <summary>
-        /// Decides what an analysis concluded about one finding. A finding with no threat linkage is
-        /// hygiene; otherwise the author's triage of that threat decides, and an untriaged threat is
-        /// reported as generated.
-        /// </summary>
-        /// <param name="threatId">The register id this finding projects to, or <see langword="null"/>.</param>
+        /// <summary>Reads the author's recorded state for a threat, if they recorded one.</summary>
+        /// <param name="threatId">The register id, or <see langword="null"/>.</param>
         /// <param name="overlay">The author's triage, keyed by register id.</param>
-        /// <returns>The disposition.</returns>
-        private static string DispositionFor(string? threatId, IReadOnlyDictionary<string, ThreatStateDto> overlay)
+        /// <returns>The recorded state, or <see langword="null"/>.</returns>
+        private static string? Triage(string? threatId, IReadOnlyDictionary<string, ThreatStateDto> overlay)
         {
-            if (threatId == null)
-            {
-                return FindingDispositions.Hygiene;
-            }
-
-            if (!overlay.TryGetValue(threatId, out ThreatStateDto? state))
-            {
-                return FindingDispositions.GeneratedThreat;
-            }
-
-            switch (NormalizeState(state.State))
-            {
-                case "Accepted":
-                    return FindingDispositions.Accepted;
-                case "Mitigated":
-                    return FindingDispositions.Mitigated;
-                case "NeedsInvestigation":
-                    return FindingDispositions.Unresolved;
-                default:
-                    return FindingDispositions.GeneratedThreat;
-            }
-        }
-
-        /// <summary>
-        /// Fingerprints the structural model: the elements, flows, and pages the rules actually read.
-        /// </summary>
-        /// <remarks>
-        /// The rule selection and the triage overlay are deliberately excluded. Selection belongs to the
-        /// analyzer fingerprint, and triage is author state that changes what a finding's disposition
-        /// says without changing what the model is — folding either in here would report "the model
-        /// changed" every time somebody accepted a risk.
-        /// </remarks>
-        /// <param name="dto">The canonical model.</param>
-        /// <returns>A <c>sha256:</c>-prefixed fingerprint.</returns>
-        private static string ModelFingerprint(TmForgeModelDto dto)
-        {
-            TmForgeModelDto structural = new TmForgeModelDto
-            {
-                Schema = dto.Schema,
-                Version = dto.Version,
-                Elements = dto.Elements,
-                Flows = dto.Flows,
-                Diagrams = dto.Diagrams,
-            };
-
-            return RulePackIdentity.CreateFingerprint(
-                JsonSerializer.SerializeToUtf8Bytes(structural, CanonicalJsonOptions));
-        }
-
-        /// <summary>
-        /// Fingerprints everything that decides which rules run and how: the analyzer build, the custom
-        /// packs and their content, and the model's disabled selection.
-        /// </summary>
-        /// <remarks>
-        /// Built from values the run already produced, so recording provenance costs no second bundle
-        /// load. The pack and selection lists are sorted, because listing the same disabled rules in a
-        /// different order is the same rule selection and must not look like a different one.
-        /// </remarks>
-        /// <param name="dto">The canonical model, which carries the disabled selection.</param>
-        /// <param name="packs">The custom packs that contributed rules to this run.</param>
-        /// <returns>A <c>sha256:</c>-prefixed fingerprint.</returns>
-        private static string AnalyzerFingerprint(TmForgeModelDto dto, IReadOnlyList<RulePackInfoDto> packs)
-        {
-            StringBuilder builder = new StringBuilder();
-            builder.Append(AnalyzerName).Append('@').Append(AnalyzerVersion).Append('\n');
-
-            foreach (RulePackInfoDto pack in packs.OrderBy(pack => pack.Id, StringComparer.Ordinal))
-            {
-                builder.Append("pack:").Append(pack.Id).Append('@').Append(pack.Version)
-                    .Append('=').Append(pack.Fingerprint).Append('\n');
-            }
-
-            foreach (string disabled in Sorted(dto.Analysis?.DisabledPacks))
-            {
-                builder.Append("-pack:").Append(disabled).Append('\n');
-            }
-
-            foreach (string disabled in Sorted(dto.Analysis?.DisabledRuleIds))
-            {
-                builder.Append("-rule:").Append(disabled).Append('\n');
-            }
-
-            return RulePackIdentity.CreateFingerprint(Encoding.UTF8.GetBytes(builder.ToString()));
-        }
-
-        /// <summary>Orders a selection so an equivalent selection fingerprints identically.</summary>
-        /// <param name="values">The selection, which may be absent.</param>
-        /// <returns>The values in ordinal order.</returns>
-        private static IEnumerable<string> Sorted(IReadOnlyList<string>? values)
-        {
-            return (values ?? Array.Empty<string>())
-                .Where(value => !string.IsNullOrWhiteSpace(value))
-                .OrderBy(value => value, StringComparer.Ordinal);
+            return threatId != null && overlay.TryGetValue(threatId, out ThreatStateDto? state)
+                ? state.State
+                : null;
         }
 
         /// <summary>

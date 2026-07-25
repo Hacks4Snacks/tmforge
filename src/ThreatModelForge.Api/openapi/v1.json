@@ -602,6 +602,12 @@
               "null",
               "string"
             ]
+          },
+          "canonicalIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

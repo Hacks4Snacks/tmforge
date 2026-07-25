@@ -52,9 +52,26 @@ namespace ThreatModelForge.Engine
                 ValidateIdentity(finding, where, seen, problems);
                 ValidateDisposition(finding, where, problems);
                 ValidateRuleReference(finding, where, packIds, problems);
+                ValidateCanonicalIds(finding, where, problems);
             }
 
             return problems;
+        }
+
+        private static void ValidateCanonicalIds(
+            AnalysisFindingDto finding,
+            string where,
+            ICollection<string> problems)
+        {
+            // An unmapped finding carries no canonical ids at all. A blank one is different: it claims
+            // a mapping exists and then fails to name it.
+            foreach (string id in finding.CanonicalIds ?? Array.Empty<string>())
+            {
+                if (string.IsNullOrWhiteSpace(id))
+                {
+                    problems.Add($"{where} ('{finding.Id}') has a blank canonical id.");
+                }
+            }
         }
 
         private static void ValidateEnvelope(AnalysisDocumentDto document, ICollection<string> problems)

@@ -2,6 +2,7 @@ namespace ThreatModelForge.Engine
 {
     using System;
     using System.Collections.Generic;
+    using ThreatModelForge.Formats;
 
     /// <summary>
     /// The structural disposition of a finding: what the analysis concluded should happen to it.
@@ -79,5 +80,43 @@ namespace ThreatModelForge.Engine
             string.Equals(value, Unresolved, StringComparison.Ordinal) ||
             string.Equals(value, Accepted, StringComparison.Ordinal) ||
             string.Equals(value, Mitigated, StringComparison.Ordinal);
+
+        /// <summary>
+        /// Decides what an analysis concluded about one finding.
+        /// </summary>
+        /// <remarks>
+        /// This is the whole disposition policy, in one place, because it has more than one producer:
+        /// the engine derives evidence from a canonical model, and the CLI derives it from a report
+        /// over a <c>.tm7</c>. They key elements differently, but they must agree on what a finding
+        /// means, so only the inputs differ here — never the rule.
+        /// </remarks>
+        /// <param name="suppressed">Whether a suppression silenced the finding.</param>
+        /// <param name="threatId">The register id the finding projects to, or <see langword="null"/> when the rule declares no threat category.</param>
+        /// <param name="triageState">The author's recorded lifecycle state for that threat, if any.</param>
+        /// <returns>The disposition.</returns>
+        public static string Classify(bool suppressed, string? threatId, string? triageState)
+        {
+            if (suppressed)
+            {
+                return Suppressed;
+            }
+
+            if (string.IsNullOrEmpty(threatId))
+            {
+                return Hygiene;
+            }
+
+            switch (ThreatStateWire.Canonical(triageState))
+            {
+                case "Accepted":
+                    return Accepted;
+                case "Mitigated":
+                    return Mitigated;
+                case "NeedsInvestigation":
+                    return Unresolved;
+                default:
+                    return GeneratedThreat;
+            }
+        }
     }
 }

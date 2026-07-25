@@ -45,5 +45,11 @@ namespace ThreatModelForge.Engine
         /// lets a consumer join analysis evidence to the threat register.
         /// </summary>
         public string? ThreatId { get; init; }
+
+        /// <summary>
+        /// Gets the engagement's own threat-catalogue ids for this finding, when a taxonomy mapping was
+        /// supplied. Empty means the rule is unmapped — never that a mapping was guessed.
+        /// </summary>
+        public IReadOnlyList<string> CanonicalIds { get; init; } = Array.Empty<string>();
     }
 }

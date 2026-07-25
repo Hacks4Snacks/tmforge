@@ -494,10 +494,95 @@ affect the exit code.
 - **SARIF**: for code-scanning dashboards and PR annotations.
 - **HTML**: a human-readable findings report.
 - **JSON listing**: a structured enumeration of the model.
+- **`<model>.analysis.json`**: the versioned `tmforge-analysis` document — the run recorded as evidence.
 
 ```bash
 tmforge analyze model.tm7 --reportFolder "$CI_ARTIFACTS/threatmodel"
 ```
+
+### The analysis document
+
+The other artifacts are for people and dashboards. `<model>.analysis.json` is the one meant to be
+**stored and compared against the next run**:
+
+```jsonc
+{
+  "schema": "tmforge-analysis",
+  "version": 1,
+  "model":    { "name": "Webshop", "fingerprint": "sha256:187a6d5d…" },
+  "analyzer": { "name": "tmforge", "version": "0.7.0.0", "fingerprint": "sha256:5bf32a1d…" },
+  "findings": [
+    {
+      "id": "TM1021:48761fb5…:6b3c361c…:0",
+      "ruleId": "TM1021",
+      "disposition": "generated-threat",
+      "threatId": "6b3c361c…:TM1021"
+    }
+  ]
+}
+```
+
+Every finding carries exactly one **disposition**:
+
+| Disposition | Meaning |
+| --- | --- |
+| `generated-threat` | Threat-bearing and not yet triaged. |
+| `unresolved` | Threat-bearing and explicitly marked as needing investigation. |
+| `accepted` | Threat-bearing and accepted as a risk. |
+| `mitigated` | Threat-bearing and mitigated. |
+| `hygiene` | The rule declares no threat category, so this is a modelling-quality observation, not a risk. |
+| `suppressed` | A suppression silenced it. |
+
+The four threat-bearing dispositions carry a `threatId` that joins to `tmforge threats`; `hygiene` and
+`suppressed` never do. That separation is the point — you should not have to accept "this diagram has
+no trust boundary" as a *risk* to clear a gate.
+
+A **suppressed** finding is recorded, not dropped. It keeps its identity, so a reviewer reading the
+evidence can see the finding is still being produced and is deliberately silenced, rather than it
+quietly vanishing from the record. It carries no `threatId`, because a suppression says this one does
+not count.
+
+The finding ids are the same ones the SARIF `partialFingerprints` carry, so the two artifacts from one
+run describe the same findings. The document carries **no timestamp**: two analyses of the same model
+with the same rules are byte-identical, so diffing yesterday's document against today's shows only
+what actually changed.
+
+Validate a stored document — and find out whether it still describes the model in front of you — with
+[`tmforge analysis validate`](cli-reference.md#analysis):
+
+```bash
+tmforge analysis validate findings/payments.analysis.json --model payments.tm7
+```
+
+### Mapping to your own taxonomy
+
+If your team already runs a threat catalogue, `--taxonomy` annotates the analysis document with your
+ids:
+
+```jsonc
+// acme-taxonomy.json
+{
+  "schema": "tmforge-taxonomy",
+  "version": 1,
+  "rules": {
+    "TM1021": ["ACME-T-017", "ACME-T-018"],
+    "corporate/CORP-1": ["ACME-T-004"]
+  }
+}
+```
+
+```bash
+tmforge analyze payments.tm7 --taxonomy acme-taxonomy.json --reportFolder ./findings
+```
+
+Each finding then carries a `canonicalIds` array. Two properties are deliberate:
+
+- **Your catalogue is never part of detection.** The mapping is applied after everything else is
+  decided, so no rule fires, changes severity, or changes disposition because of it. Remove the
+  mapping and the findings, their ids, and their dispositions are identical.
+- **Nothing is ever inferred.** A rule the mapping does not name gets an empty `canonicalIds` — never
+  a guess derived from the rule id or the STRIDE category. An invented mapping is worse than an absent
+  one, because a reader cannot tell it was guessed.
 
 ### Finding identity
 
