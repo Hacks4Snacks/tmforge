@@ -246,6 +246,36 @@
         }
       }
     },
+    "/v1/model/analysis-document": {
+      "post": {
+        "tags": [
+          "Model"
+        ],
+        "operationId": "DescribeAnalysis",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TmForgeModelDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisDocumentDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/model/threats": {
       "post": {
         "tags": [
@@ -497,6 +527,101 @@
   },
   "components": {
     "schemas": {
+      "AnalysisDocumentDto": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "model": {
+            "$ref": "#/components/schemas/AnalysisIdentityDto"
+          },
+          "analyzer": {
+            "$ref": "#/components/schemas/AnalysisIdentityDto"
+          },
+          "rulePacks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RulePackInfoDto"
+            }
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnalysisFindingDto"
+            }
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AnalysisFindingDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ruleId": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "diagram": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "elementIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "disposition": {
+            "type": "string"
+          },
+          "threatId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AnalysisIdentityDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "fingerprint": {
+            "type": "string"
+          }
+        }
+      },
       "AnalysisResultDto": {
         "type": "object",
         "properties": {

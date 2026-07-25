@@ -223,17 +223,7 @@ namespace ThreatModelForge.Engine
         /// </summary>
         /// <param name="alias">The authoring alias.</param>
         /// <returns>A deterministic GUID for the alias.</returns>
-        public static Guid DeterministicId(string alias)
-        {
-            byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes("tmforge-alias:" + alias));
-            byte[] guidBytes = new byte[16];
-            Array.Copy(hash, guidBytes, 16);
-
-            // Stamp the RFC 4122 version (5, name-based) and variant bits so the id is well-formed.
-            guidBytes[7] = (byte)((guidBytes[7] & 0x0F) | 0x50);
-            guidBytes[8] = (byte)((guidBytes[8] & 0x3F) | 0x80);
-            return new Guid(guidBytes);
-        }
+        public static Guid DeterministicId(string alias) => DeterministicGuid.FromElementId(alias);
 
         /// <summary>
         /// Re-keys a component to a new GUID within its diagram, updating both the dictionary key and

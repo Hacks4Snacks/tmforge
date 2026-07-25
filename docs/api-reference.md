@@ -36,6 +36,7 @@ and `/openapi` are matched first.
 | `GET /v1/property-schema` | Catalog | List the typed custom-property schema the rules read. |
 | `POST /v1/model/analyze` | Model | Analyze a model and return findings. |
 | `POST /v1/model/analysis` | Model | One analysis action: findings **and** threats from a single rule evaluation, plus the effective rule packs and diagnostics. |
+| `POST /v1/model/analysis-document` | Model | Record the analysis as a versioned, reconcilable `tmforge-analysis` document. |
 | `POST /v1/model/threats` | Model | Generate the STRIDE threat register (rule threats plus the model's author overlay). |
 | `POST /v1/model/read` | Model | Parse uploaded bytes (base64) into the canonical model. |
 | `POST /v1/model/convert?to=<format>` | Model | Convert a model to another format. |
@@ -121,6 +122,58 @@ about the model or a whole diagram). The same model analyzed twice produces the 
 enabling or disabling an unrelated rule leaves the other ids alone — so a caller can reconcile a
 finding against a previous run. See
 [finding identity](analysis-rules.md#finding-identity) for the details and the one caveat.
+
+### Record the analysis
+
+`POST /v1/model/analysis-document` returns a versioned `tmforge-analysis` document — the analysis as
+**evidence** rather than as something to render:
+
+```jsonc
+{
+  "schema": "tmforge-analysis",
+  "version": 1,
+  "model":    { "name": "Payments", "fingerprint": "sha256:b5c79b9a…" },
+  "analyzer": { "name": "ThreatModelForge.Analysis", "version": "0.7.0.0", "fingerprint": "sha256:6f6d4de7…" },
+  "rulePacks": [],
+  "findings": [
+    {
+      "id": "TM1013:7e3f1d52…:f1:0",
+      "ruleId": "TM1013",
+      "severity": "warning",
+      "message": "…",
+      "diagram": "7e3f1d52…",
+      "elementIds": ["f1"],
+      "disposition": "generated-threat",
+      "threatId": "80f5b13b…:TM1013"
+    }
+  ],
+  "diagnostics": []
+}
+```
+
+Every finding carries exactly one **disposition**:
+
+| Disposition | Meaning |
+| --- | --- |
+| `generated-threat` | Threat-bearing and not yet triaged. |
+| `unresolved` | Threat-bearing and explicitly marked as needing investigation. |
+| `accepted` | Threat-bearing and accepted as a risk. |
+| `mitigated` | Threat-bearing and mitigated. |
+| `hygiene` | The rule declares no threat category, so this is a modelling-quality observation, not a risk. |
+| `suppressed` | A suppression silenced it; it is recorded rather than dropped. |
+
+The four threat-bearing dispositions always carry a `threatId` that joins to
+`POST /v1/model/threats`; `hygiene` and `suppressed` never do. That separation is the point: a
+reviewer should not have to accept "this diagram has no trust boundary" as a *risk* in order to clear
+a gate.
+
+Two things make the document comparable between runs. The **fingerprints** let a consumer detect that
+a stored analysis no longer describes the model or rule selection in front of it — the model
+fingerprint covers the structural model only, so triaging a threat does not report the model as
+changed, while loading a pack or disabling a rule does move the analyzer fingerprint. And the document
+carries **no timestamp**, so two analyses of the same inputs are byte-identical and a diff shows only
+what actually changed. When a run happened is something CI already records; putting it here would cost
+the property the artifact exists for.
 
 ### Generate threats
 
