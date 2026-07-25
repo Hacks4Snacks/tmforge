@@ -9,6 +9,11 @@
 
   The engine assemblies are small (netstandard2.0), so we preserve them whole and let the linker
   still trim the framework / BCL — that is where the payload win is.
+
+  Sarif and Newtonsoft.Json are preserved whole because SARIF is produced by serializing the SARIF
+  object model reflectively: trimming an unused-looking property there does not fail the build, it
+  silently drops a field from the report. A findings artifact that is quietly incomplete is worse
+  than a larger download.
 -->
 <linker>
   <assembly fullname="ThreatModelForge.Core" preserve="all" />
@@ -16,6 +21,9 @@
   <assembly fullname="ThreatModelForge.Formats" preserve="all" />
   <assembly fullname="ThreatModelForge.Analysis" preserve="all" />
   <assembly fullname="ThreatModelForge.Analysis.Rules" preserve="all" />
+  <assembly fullname="ThreatModelForge.Analysis.Reporting" preserve="all" />
   <assembly fullname="ThreatModelForge.Reporting" preserve="all" />
   <assembly fullname="ThreatModelForge.Engine" preserve="all" />
+  <assembly fullname="Sarif" preserve="all" />
+  <assembly fullname="Newtonsoft.Json" preserve="all" />
 </linker>

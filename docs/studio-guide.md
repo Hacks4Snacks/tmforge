@@ -137,6 +137,23 @@ stored on the wire.
 > and recreate the underlying element (giving it a new id), its rule threat is a fresh threat and the
 > earlier edit no longer applies. Manual threats are keyed independently and are unaffected.
 
+## Downloading reports
+
+The **Report** menu offers every artifact the engine can render, and it renders them with the same
+effective rules and disabled selections the **Analyze** button used:
+
+| Choice | Artifact | Use it for |
+| --- | --- | --- |
+| Threat model report | HTML | The document a reviewer reads: threats, mitigations, and a diagram per page. |
+| Diagram only | SVG | Just the picture, every page stacked. It runs no analysis, so it is not a threat report. |
+| Findings report | HTML | The analysis results in readable form. |
+| Findings (SARIF) | SARIF 2.1.0 | Upload to code scanning, or attach to a build. |
+| Findings (JSON) | JSON | Automation over the raw analysis report. |
+
+The last three are the same artifacts [`tmforge analyze --reportFolder`](cli-reference.md#analyze)
+writes, so evidence produced in Studio and evidence produced in CI are the same document. With the
+in-browser engine they are generated locally — the model never leaves the page.
+
 ## Importing and exporting
 
 Studio round-trips through the canonical **`tmforge-json`** wire model:

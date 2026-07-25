@@ -428,6 +428,39 @@
         }
       }
     },
+    "/v1/model/analysis-report": {
+      "post": {
+        "tags": [
+          "Report"
+        ],
+        "operationId": "AnalysisReport",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TmForgeModelDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/v1/detect": {
       "post": {
         "tags": [

@@ -6,8 +6,29 @@ interface ExportFormat {
   displayName: string;
 }
 
-/** A compact dropdown for Export/convert — replaces a native <select> that stretched to its widest option. */
-function ExportMenu({ formats, onExport }: { formats: ExportFormat[]; onExport: (formatId: string) => void }) {
+/** One entry in a toolbar dropdown. */
+interface MenuOption {
+  id: string;
+  label: string;
+  /** Secondary line explaining what the artifact actually is. */
+  hint?: string;
+}
+
+/**
+ * A compact toolbar dropdown. It replaces a native `<select>`, which stretched to its widest option,
+ * and closes on outside click or Escape.
+ */
+function ToolbarMenu({
+  label,
+  title,
+  options,
+  onSelect,
+}: {
+  label: string;
+  title: string;
+  options: MenuOption[];
+  onSelect: (id: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -37,28 +58,29 @@ function ExportMenu({ formats, onExport }: { formats: ExportFormat[]; onExport: 
     <div className="menu" ref={ref}>
       <button
         className="btn"
-        disabled={formats.length === 0}
+        disabled={options.length === 0}
         aria-haspopup="menu"
         aria-expanded={open}
-        title="Export or convert to a file format"
+        title={title}
         onClick={() => setOpen((value) => !value)}
       >
-        Export ▾
+        {label} ▾
       </button>
       {open && (
         <div className="menu-list" role="menu">
-          {formats.map((format) => (
+          {options.map((option) => (
             <button
-              key={format.id}
+              key={option.id}
               type="button"
               role="menuitem"
               className="menu-item"
               onClick={() => {
-                onExport(format.id);
+                onSelect(option.id);
                 setOpen(false);
               }}
             >
-              {format.displayName}
+              <span>{option.label}</span>
+              {option.hint ? <span className="menu-item-hint">{option.hint}</span> : null}
             </button>
           ))}
         </div>
@@ -66,6 +88,31 @@ function ExportMenu({ formats, onExport }: { formats: ExportFormat[]; onExport: 
     </div>
   );
 }
+
+/** A compact dropdown for Export/convert. */
+function ExportMenu({ formats, onExport }: { formats: ExportFormat[]; onExport: (formatId: string) => void }) {
+  return (
+    <ToolbarMenu
+      label="Export"
+      title="Export or convert to a file format"
+      options={formats.map((format) => ({ id: format.id, label: format.displayName }))}
+      onSelect={onExport}
+    />
+  );
+}
+
+/**
+ * The report formats the engine can render. Threat-model reports and analysis (findings) artifacts
+ * are deliberately separated: the first is the document a reviewer reads, the second is the evidence
+ * a pipeline gates on. The SVG entry says "diagram" because it is the picture, not a threat report.
+ */
+export const REPORT_OPTIONS: MenuOption[] = [
+  { id: 'html', label: 'Threat model report', hint: 'HTML · threats, mitigations, diagrams' },
+  { id: 'svg', label: 'Diagram only', hint: 'SVG · every page, no analysis' },
+  { id: 'findings-html', label: 'Findings report', hint: 'HTML · analysis results' },
+  { id: 'findings-sarif', label: 'Findings (SARIF)', hint: 'SARIF · code scanning / CI' },
+  { id: 'findings-json', label: 'Findings (JSON)', hint: 'JSON · automation' },
+];
 
 interface ToolbarProps {
   engineLabel: string;
@@ -83,8 +130,8 @@ interface ToolbarProps {
   /** Name of the file the model is bound to (what Save overwrites), or null when unsaved. */
   fileName: string | null;
   onAnalyze: () => void;
-  /** Downloads a self-contained HTML threat report from the engine. */
-  onReport: () => void;
+  /** Downloads a report from the engine, by report format id. */
+  onReport: (reportId: string) => void;
   onClear: () => void;
   onFit: () => void;
   /** Auto-sizes shapes to fit their text, routes flows through facing ports, and separates flow labels on the current page. */
@@ -148,13 +195,12 @@ export function Toolbar(props: ToolbarProps) {
       >
         Analyze
       </button>
-      <button
-        className="btn"
-        onClick={props.onReport}
-        title="Download a self-contained HTML threat report"
-      >
-        Report
-      </button>
+      <ToolbarMenu
+        label="Report"
+        title="Download a threat model report, the diagram, or the analysis findings"
+        options={REPORT_OPTIONS}
+        onSelect={props.onReport}
+      />
 
       <span className="toolbar-spacer" />
 

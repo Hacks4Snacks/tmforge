@@ -174,6 +174,9 @@ export interface AnalysisResult {
   diagnostics: string[];
 }
 
+/** The analysis (findings) report formats the engine renders. */
+export type AnalysisReportFormat = 'sarif' | 'html' | 'json';
+
 /** A typed element-property definition: drives typed Inspector controls and canonical values. */
 export interface PropertyDescriptorInfo {
   /** The DFD primitive this property applies to ('process' | 'datastore' | 'external' | 'flow'). */
@@ -244,6 +247,11 @@ export interface IEngineClient {
   /** Renders an HTML or SVG report for the model. */
   report(model: TmForgeModel, format: 'html' | 'svg'): Promise<Blob>;
   /**
+   * Renders an analysis (findings) report: the SARIF, HTML, or JSON artifacts a pipeline gates on.
+   * Distinct from `report`, which renders the threat-model document a reviewer reads.
+   */
+  analysisReport(model: TmForgeModel, format: AnalysisReportFormat): Promise<Blob>;
+  /**
    * Merges two edited models, matched by element id. With a `base` (common ancestor) it is a
    * three-way merge so non-overlapping edits combine automatically; pass `null` when the ancestor
    * is unavailable for a two-way merge, where any overlapping difference is reported as a conflict.
@@ -299,6 +307,18 @@ function mimeForFormat(formatId: string): string {
       return 'application/json';
     default:
       return 'application/xml';
+  }
+}
+
+/** The download content-type for an analysis (findings) report. */
+function analysisReportMime(format: AnalysisReportFormat): string {
+  switch (format) {
+    case 'sarif':
+      return 'application/sarif+json';
+    case 'json':
+      return 'application/json';
+    default:
+      return 'text/html';
   }
 }
 
@@ -632,6 +652,12 @@ class OfflineEngineClient implements IEngineClient {
     );
   }
 
+  public analysisReport(): Promise<Blob> {
+    return Promise.reject(
+      new Error('Findings reports require the analysis engine. Reload the page, or use the hosted app.'),
+    );
+  }
+
   public merge(): Promise<MergeResult> {
     return Promise.reject(
       new Error('Three-way merge requires the .NET engine. Start the API (or use the hosted app), then reload.'),
@@ -807,6 +833,18 @@ class HttpEngineClient implements IEngineClient {
     return await response.blob();
   }
 
+  public async analysisReport(model: TmForgeModel, format: AnalysisReportFormat): Promise<Blob> {
+    const { response } = await this.client.POST('/v1/model/analysis-report', {
+      params: { query: { format } },
+      body: model,
+      parseAs: 'stream',
+    });
+    if (!response.ok) {
+      throw new Error(`Engine findings report failed (${response.status}).`);
+    }
+    return await response.blob();
+  }
+
   public async merge(base: TmForgeModel | null, ours: TmForgeModel, theirs: TmForgeModel): Promise<MergeResult> {
     const { data, response } = await this.client.POST('/v1/model/merge', {
       body: { base: base ?? undefined, ours, theirs },
@@ -838,6 +876,7 @@ interface WasmEngineExports {
   SetRules(sourcesJson: string): string;
   RuleBundle(): string;
   Analysis(tmforgeJson: string): string;
+  AnalysisReport(tmforgeJson: string, format: string): string;
 }
 
 /**
@@ -932,6 +971,13 @@ class WasmEngineClient implements IEngineClient {
 
   public async report(model: TmForgeModel, format: 'html' | 'svg'): Promise<Blob> {
     return blobFromBase64(this.wasm.Report(JSON.stringify(model), format), format === 'svg' ? 'image/svg+xml' : 'text/html');
+  }
+
+  public async analysisReport(model: TmForgeModel, format: AnalysisReportFormat): Promise<Blob> {
+    return blobFromBase64(
+      this.wasm.AnalysisReport(JSON.stringify(model), format),
+      analysisReportMime(format),
+    );
   }
 
   public async merge(base: TmForgeModel | null, ours: TmForgeModel, theirs: TmForgeModel): Promise<MergeResult> {

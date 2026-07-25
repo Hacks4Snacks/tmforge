@@ -30,7 +30,7 @@ import { Toolbar } from './Toolbar';
 import { Inspector } from './Inspector';
 import { AnalysisSettings } from './AnalysisSettings';
 import { FALLBACK_PACKS, FALLBACK_STENCILS } from './stencils';
-import { createHttpEngine, loadWasmEngine, offlineEngine, probeEngine, type Finding, type FormatInfo, type IEngineClient, type PackInfo, type PropertyDescriptorInfo, type RuleBundle, type RuleInfo, type RulePackInfo, type StencilInfo, type Threat } from './engineClient';
+import { createHttpEngine, loadWasmEngine, offlineEngine, probeEngine, type AnalysisReportFormat, type Finding, type FormatInfo, type IEngineClient, type PackInfo, type PropertyDescriptorInfo, type RuleBundle, type RuleInfo, type RulePackInfo, type StencilInfo, type Threat } from './engineClient';
 import { ThreatsPanel, type NewThreatDraft, type ThreatEdit, type ThreatScopeOption } from './ThreatsPanel';
 import { CanvasSearch, type SearchItem } from './CanvasSearch';
 import { DEFAULT_NODE_SIZE, modelFromPages, pagesFromModel, type PageGraph } from './mapping';
@@ -283,6 +283,19 @@ export async function analyzeModel(
     ruleBundle: { rulePacks: result.rulePacks, diagnostics: result.diagnostics },
   };
 }
+
+/**
+ * Maps a Report menu choice to the engine call and download name behind it. Threat-model reports
+ * describe the model; `analysis` reports are the findings evidence, rendered by a different engine
+ * operation. The file names match what the CLI writes, so a download drops into a review folder.
+ */
+export const REPORT_DOWNLOADS: Record<string, { format: string; fileName: string; analysis: boolean }> = {
+  html: { format: 'html', fileName: 'threat-model-report.html', analysis: false },
+  svg: { format: 'svg', fileName: 'threat-model-diagram.svg', analysis: false },
+  'findings-html': { format: 'html', fileName: 'findings.html', analysis: true },
+  'findings-sarif': { format: 'sarif', fileName: 'findings.sarif', analysis: true },
+  'findings-json': { format: 'json', fileName: 'findings.json', analysis: true },
+};
 
 /** Returns copies of the graph with the `flagged` class applied to elements a finding referenced. */
 export function applyFlags(
@@ -1330,16 +1343,27 @@ export function Editor() {
     [engine, currentModel, formats],
   );
 
-  // Download a self-contained HTML threat report from the engine. The offline client rejects with a
-  // hint to start the engine, which surfaces as a toast — the same seam Export/Analyze already use.
-  const downloadReport = useCallback(async () => {
-    try {
-      const blob = await engine.report(currentModel, 'html');
-      downloadBlob(blob, 'threat-model-report.html');
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), 'error');
-    }
-  }, [engine, currentModel]);
+  // Download a report from the engine. The threat-model report and the diagram describe the model;
+  // the findings artifacts are the analysis evidence a pipeline gates on, and they run against the
+  // same effective rules and disabled selections the Analyze button used. The offline client rejects
+  // with a hint to start the engine, which surfaces as a toast — the seam Export/Analyze already use.
+  const downloadReport = useCallback(
+    async (reportId: string) => {
+      try {
+        const spec = REPORT_DOWNLOADS[reportId];
+        if (!spec) {
+          return;
+        }
+        const blob = spec.analysis
+          ? await engine.analysisReport(currentModel, spec.format as AnalysisReportFormat)
+          : await engine.report(currentModel, spec.format as 'html' | 'svg');
+        downloadBlob(blob, spec.fileName);
+      } catch (err) {
+        toast(err instanceof Error ? err.message : String(err), 'error');
+      }
+    },
+    [engine, currentModel],
+  );
 
   const loadModel = useCallback(
     (model: TmForgeModel) => {

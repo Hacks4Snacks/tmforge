@@ -176,6 +176,17 @@ namespace ThreatModelForge.Wasm
         public static string Report(string tmforgeJson, string format)
             => Convert.ToBase64String(EngineService.Report(Deserialize(tmforgeJson), format, ruleOptions));
 
+        /// <summary>
+        /// Renders an analysis (findings) report for a tmforge-json model, returned as base64. These
+        /// are the same artifacts the CLI writes for CI, produced here with no backend.
+        /// </summary>
+        /// <param name="tmforgeJson">The canonical tmforge-json model.</param>
+        /// <param name="format">The report format: <c>sarif</c>, <c>html</c>, or <c>json</c>.</param>
+        /// <returns>The report bytes (UTF-8), base64-encoded.</returns>
+        [JSExport]
+        public static string AnalysisReport(string tmforgeJson, string format)
+            => Convert.ToBase64String(EngineService.AnalysisReport(Deserialize(tmforgeJson), format, ruleOptions));
+
         private static string Serialize<T>(T value)
             => JsonSerializer.Serialize(value, JsonOptions);
 

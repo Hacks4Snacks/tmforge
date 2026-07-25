@@ -41,6 +41,7 @@ and `/openapi` are matched first.
 | `POST /v1/model/convert?to=<format>` | Model | Convert a model to another format. |
 | `POST /v1/model/export/tm7` | Model | Export a model as a `.tm7` file. |
 | `POST /v1/model/report?format=<html\|svg>` | Report | Render a model to an HTML or SVG report. |
+| `POST /v1/model/analysis-report?format=<sarif\|html\|json>` | Report | Render the analysis findings as SARIF, HTML, or JSON. |
 | `GET /openapi/v1.json` | n/a | The OpenAPI document. |
 
 `<format>` is one of `tm7`, `tmforge-json`, `drawio`, or `vsdx`. See
@@ -144,6 +145,19 @@ equivalent of `tmforge report`. Multi-page models render every diagram: the HTML
 section per page, and the SVG stacks the pages. HTML reports generate the enabled rule-backed threats
 on demand, overlay the model's manual threats and triage, and show rule id, STRIDE category, scope,
 priority, mitigation, references, and decision note. SVG output renders diagrams only.
+
+`POST /v1/model/analysis-report?format=sarif` (or `html` / `json`) renders the *analysis* artifacts
+instead — the findings evidence, not the threat-model document. These are the same artifacts
+`tmforge analyze --reportFolder` writes, so a report served here and a file written in CI are the
+same document. An unrecognized format falls back to the readable findings HTML.
+
+```bash
+curl -s -X POST 'http://localhost:8080/v1/model/analysis-report?format=sarif' \
+  -H 'Content-Type: application/json' --data @model.tmforge.json -o findings.sarif
+```
+
+Both report endpoints run the host's configured rule packs and honor the model's own disabled
+selection, so a report always matches the analysis it claims to describe.
 
 ## OpenAPI & client generation
 
