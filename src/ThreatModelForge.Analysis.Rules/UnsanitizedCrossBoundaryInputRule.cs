@@ -29,7 +29,7 @@ namespace ThreatModelForge.Analysis.Rules
         /// <inheritdoc/>
         public override IReadOnlyList<PropertyBinding> PropertyBindings => new[]
         {
-            new PropertyBinding("process", "SanitizesInput", "No"),
+            new PropertyBinding("process", "SanitizesInput", ControlEvidenceValues.Unknown, "No"),
         };
 
         /// <inheritdoc/>
@@ -57,16 +57,20 @@ namespace ThreatModelForge.Analysis.Rules
                         continue;
                     }
 
-                    if (SanitizesInput(component))
+                    ControlEvidence sanitization = ClassifyInputSanitization(component);
+                    if (sanitization == ControlEvidence.Present)
                     {
                         continue;
                     }
 
                     if (HasInboundTrustBoundaryCrossing(diagram, component))
                     {
+                        string template = sanitization == ControlEvidence.Unevidenced
+                            ? UnsanitizedCrossBoundaryInputRuleResources.MessageTextUnevidenced
+                            : UnsanitizedCrossBoundaryInputRuleResources.MessageText;
                         string text = string.Format(
                             System.Globalization.CultureInfo.CurrentCulture,
-                            UnsanitizedCrossBoundaryInputRuleResources.MessageText,
+                            template,
                             GetEntityDisplayText(component));
                         context.Writer.Write(this.CreateMessage(component, diagram, text));
                     }
@@ -74,10 +78,10 @@ namespace ThreatModelForge.Analysis.Rules
             }
         }
 
-        private static bool SanitizesInput(Entity component)
+        private static ControlEvidence ClassifyInputSanitization(Entity component)
         {
-            return component.TryGetCustomPropertyValue("SanitizesInput", out string? value) &&
-                string.Equals(value, "Yes", StringComparison.OrdinalIgnoreCase);
+            component.TryGetCustomPropertyValue("SanitizesInput", out string? value);
+            return ControlEvidenceValues.ClassifyByPresentValues(value, "Yes");
         }
 
         private static bool HasInboundTrustBoundaryCrossing(DrawingSurfaceModel diagram, Entity component)

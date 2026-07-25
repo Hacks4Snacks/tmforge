@@ -86,5 +86,14 @@ namespace ThreatModelForge.Analysis.Rules {
                 return ResourceManager.GetString("MessageText", resourceCulture);
             }
         }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Data store [{0}] stores credentials and its Encrypted property is not evidenced, so the model does not show that stored secrets are protected at rest..
+        /// </summary>
+        internal static string MessageTextUnevidenced {
+            get {
+                return ResourceManager.GetString("MessageTextUnevidenced", resourceCulture);
+            }
+        }
     }
 }

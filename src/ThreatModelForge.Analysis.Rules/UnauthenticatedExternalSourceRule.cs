@@ -32,8 +32,8 @@ namespace ThreatModelForge.Analysis.Rules
         /// <inheritdoc/>
         public override IReadOnlyList<PropertyBinding> PropertyBindings => new[]
         {
-            new PropertyBinding("external", "AuthenticatesItself", "No"),
-            new PropertyBinding("external", "AuthenticationScheme", "None"),
+            new PropertyBinding("external", "AuthenticatesItself", ControlEvidenceValues.Unknown, "No"),
+            new PropertyBinding("external", "AuthenticationScheme", ControlEvidenceValues.Unknown, "None"),
         };
 
         /// <inheritdoc/>
@@ -60,16 +60,20 @@ namespace ThreatModelForge.Analysis.Rules
                         continue;
                     }
 
-                    if (AuthenticatesItself(component))
+                    ControlEvidence authentication = ClassifySelfAuthentication(component);
+                    if (authentication == ControlEvidence.Present)
                     {
                         continue;
                     }
 
                     if (InitiatesFlowIntoSystem(diagram, component))
                     {
+                        string template = authentication == ControlEvidence.Unevidenced
+                            ? UnauthenticatedExternalSourceRuleResources.MessageTextUnevidenced
+                            : UnauthenticatedExternalSourceRuleResources.MessageText;
                         string text = string.Format(
                             System.Globalization.CultureInfo.CurrentCulture,
-                            UnauthenticatedExternalSourceRuleResources.MessageText,
+                            template,
                             GetEntityDisplayText(component));
                         context.Writer.Write(this.CreateMessage(component, diagram, text));
                     }
@@ -77,20 +81,30 @@ namespace ThreatModelForge.Analysis.Rules
             }
         }
 
-        private static bool AuthenticatesItself(Entity component)
+        private static ControlEvidence ClassifySelfAuthentication(Entity component)
         {
-            if (component.TryGetCustomPropertyValue("AuthenticatesItself", out string? value) &&
-                string.Equals(value, "Yes", StringComparison.OrdinalIgnoreCase))
+            component.TryGetCustomPropertyValue("AuthenticatesItself", out string? value);
+            ControlEvidence declared = ControlEvidenceValues.ClassifyByPresentValues(value, "Yes");
+            if (declared == ControlEvidence.Present)
             {
-                return true;
+                return ControlEvidence.Present;
             }
 
             // A declared authentication scheme (for example an ARM RP token or an operator's SSH public
-            // key) also establishes the external's identity, so treat any scheme other than "None" as
-            // authenticating.
-            return component.TryGetCustomPropertyValue("AuthenticationScheme", out string? scheme) &&
-                !string.IsNullOrWhiteSpace(scheme) &&
-                !string.Equals(scheme, "None", StringComparison.OrdinalIgnoreCase);
+            // key) also establishes the external's identity, so treat any evidenced scheme other than
+            // "None" as authenticating. An unevidenced scheme establishes nothing.
+            component.TryGetCustomPropertyValue("AuthenticationScheme", out string? scheme);
+            ControlEvidence viaScheme = ControlEvidenceValues.ClassifyByAbsentValues(scheme, "None");
+            if (viaScheme == ControlEvidence.Present)
+            {
+                return ControlEvidence.Present;
+            }
+
+            // Only claim a confirmed absence when one of the two properties actually says so; if both
+            // are silent the honest answer is that the model carries no evidence either way.
+            return declared == ControlEvidence.Absent || viaScheme == ControlEvidence.Absent
+                ? ControlEvidence.Absent
+                : ControlEvidence.Unevidenced;
         }
 
         private static bool InitiatesFlowIntoSystem(DrawingSurfaceModel diagram, Entity external)

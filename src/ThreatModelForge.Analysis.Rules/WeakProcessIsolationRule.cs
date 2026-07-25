@@ -29,7 +29,7 @@ namespace ThreatModelForge.Analysis.Rules
         /// <inheritdoc/>
         public override IReadOnlyList<PropertyBinding> PropertyBindings => new[]
         {
-            new PropertyBinding("process", "Isolation", "None"),
+            new PropertyBinding("process", "Isolation", ControlEvidenceValues.Unknown, "None"),
         };
 
         /// <inheritdoc/>
@@ -56,16 +56,20 @@ namespace ThreatModelForge.Analysis.Rules
                         continue;
                     }
 
-                    if (IsIsolated(component))
+                    ControlEvidence isolation = ClassifyIsolation(component);
+                    if (isolation == ControlEvidence.Present)
                     {
                         continue;
                     }
 
                     if (HasInboundTrustBoundaryCrossing(diagram, component))
                     {
+                        string template = isolation == ControlEvidence.Unevidenced
+                            ? WeakProcessIsolationRuleResources.MessageTextUnevidenced
+                            : WeakProcessIsolationRuleResources.MessageText;
                         string text = string.Format(
                             System.Globalization.CultureInfo.CurrentCulture,
-                            WeakProcessIsolationRuleResources.MessageText,
+                            template,
                             GetEntityDisplayText(component));
                         context.Writer.Write(this.CreateMessage(component, diagram, text));
                     }
@@ -73,11 +77,13 @@ namespace ThreatModelForge.Analysis.Rules
             }
         }
 
-        private static bool IsIsolated(Entity component)
+        private static ControlEvidence ClassifyIsolation(Entity component)
         {
-            return component.TryGetCustomPropertyValue("Isolation", out string? value) &&
-                !string.IsNullOrWhiteSpace(value) &&
-                !string.Equals(value, "None", StringComparison.OrdinalIgnoreCase);
+            component.TryGetCustomPropertyValue("Isolation", out string? value);
+
+            // "Unknown" and an absent value both mean nobody recorded an isolation boundary, which is
+            // not the same as having one: only an evidenced mechanism counts as isolation.
+            return ControlEvidenceValues.ClassifyByAbsentValues(value, "None");
         }
 
         private static bool HasInboundTrustBoundaryCrossing(DrawingSurfaceModel diagram, Entity component)

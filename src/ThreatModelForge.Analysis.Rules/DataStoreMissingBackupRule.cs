@@ -36,7 +36,7 @@ namespace ThreatModelForge.Analysis.Rules
         /// <inheritdoc/>
         public override IReadOnlyList<PropertyBinding> PropertyBindings => new[]
         {
-            new PropertyBinding("datastore", BackupCustomAttributeName, "No"),
+            new PropertyBinding("datastore", BackupCustomAttributeName, ControlEvidenceValues.Unknown, "No"),
             new PropertyBinding("datastore", "StoresCredentials"),
             new PropertyBinding("datastore", "StoresLogData"),
         };
@@ -65,14 +65,24 @@ namespace ThreatModelForge.Analysis.Rules
                         continue;
                     }
 
-                    if (!HoldsImportantData(component) || IsBackedUp(component))
+                    if (!HoldsImportantData(component))
                     {
                         continue;
                     }
 
+                    component.TryGetCustomPropertyValue(BackupCustomAttributeName, out string? backup);
+                    ControlEvidence recoverability = ControlEvidenceValues.ClassifyByPresentValues(backup, "Yes");
+                    if (recoverability == ControlEvidence.Present)
+                    {
+                        continue;
+                    }
+
+                    string template = recoverability == ControlEvidence.Unevidenced
+                        ? DataStoreMissingBackupRuleResources.MessageTextUnevidenced
+                        : DataStoreMissingBackupRuleResources.MessageText;
                     string text = string.Format(
                         System.Globalization.CultureInfo.CurrentCulture,
-                        DataStoreMissingBackupRuleResources.MessageText,
+                        template,
                         GetEntityDisplayText(component));
                     context.Writer.Write(this.CreateMessage(component, diagram, text));
                 }
@@ -82,11 +92,6 @@ namespace ThreatModelForge.Analysis.Rules
         private static bool HoldsImportantData(Entity component)
         {
             return IsYes(component, "StoresCredentials") || IsYes(component, "StoresLogData");
-        }
-
-        private static bool IsBackedUp(Entity component)
-        {
-            return IsYes(component, BackupCustomAttributeName);
         }
 
         private static bool IsYes(Entity component, string propertyName)

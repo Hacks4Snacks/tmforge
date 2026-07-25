@@ -149,6 +149,33 @@ Common rule-checked properties include `Protocol`, `Port`, `DataType` / data cla
 encryption/at-rest flags. In [Studio](studio-guide.md), edit the same properties in the inspector and
 re-**Analyze**.
 
+### `Unknown` and the three states of a control
+
+A control property carries three distinct states, and they are not interchangeable:
+
+| Value | Meaning | Effect |
+| --- | --- | --- |
+| `Encrypted=TDE` | The control is in place. | Finding cleared. |
+| `Encrypted=No` | Somebody checked; the control is not in place. | Finding, worded as a confirmed absence. |
+| `Encrypted=Unknown`, blank, or the property absent | Nobody has recorded anything. | Finding, worded as an evidence gap. |
+
+`Unknown` is a real, schema-valid value on every control-like property, so you can record honest
+uncertainty without `--force` and without claiming the control is missing:
+
+```bash
+tmforge set model.tm7 --id <store-guid> --property Encrypted=Unknown
+```
+
+**`Unknown` never clears a finding.** It reports at the same rule id and the same severity as an
+absent control; only the message changes, from "is not encrypted at rest" to "its `Encrypted` property
+is not evidenced". This is deliberate. A missing property has always produced a finding, so letting
+`Unknown` suppress one would mean an author could silence a real risk by typing a word — and a report
+that says "no findings" because nobody looked is worse than no report at all.
+
+`Unknown` survives every format hop (`tmforge-json`, `.tm7`, manifests) and every surface (CLI, API,
+MCP, WASM, Studio). Existing `No` and `None` values are left exactly as they are; there is no
+migration, because those values are statements an author made.
+
 ## Customizing the rule set
 
 ### Selecting rules and packs
@@ -380,7 +407,7 @@ array, and each rule may declare its own `pack` value:
       "message": "Data store {name} does not declare encryption at rest.",
       "fullDescription": "Persisted data must be encrypted at rest.",
       "helpText": "Set Encrypted to At-rest, TDE, Client-side, or Platform.",
-      "assert": { "property": "Encrypted", "notAnyOf": ["No"] }
+      "assert": { "property": "Encrypted", "anyOf": ["At-rest", "TDE", "Client-side", "Platform"] }
     },
     {
       "id": "ACME002",
@@ -412,6 +439,14 @@ present":
 | `property` + `present` | any | The property is present (`true`) or absent (`false`). |
 | `crossesTrustBoundary` | `flow` | The flow crosses (`true`) or does not cross (`false`) a trust boundary. |
 | `source` / `target` | `flow` | A condition on the flow's endpoint: its `kind` (`process`/`datastore`/`external`) and/or a property matcher. |
+
+- **Assert what a control *is*, not what it is not.** `anyOf` and `equals` compare exact strings, so
+  `Unknown` satisfies them only if you list it. `notAnyOf` is a denylist: `{"property": "Encrypted",
+  "notAnyOf": ["No"]}` treats `Unknown` — and every typo — as encrypted, which suppresses exactly the
+  finding you wrote the rule for. Prefer `anyOf` with the values that actually satisfy the control.
+  A bare `property` matcher tests only that the property is *recorded*; `Unknown` is recorded, so
+  presence is not evidence that a control exists. See
+  [`Unknown` and the three states of a control](#unknown-and-the-three-states-of-a-control).
 
 - **Ids persist.** Legacy ids are preserved verbatim. Version 2 ids are pack-qualified as described
   above. A collision with an already-loaded built-in is dropped with a warning, so the built-in

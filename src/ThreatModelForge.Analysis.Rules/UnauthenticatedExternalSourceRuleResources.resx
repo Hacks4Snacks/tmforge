@@ -71,4 +71,7 @@ If the entity does not actually initiate flows into the system, correct the dire
   <data name="MessageText" xml:space="preserve">
     <value>External entity [{0}] initiates data flows into the system but does not authenticate itself, allowing an attacker to spoof its identity.</value>
   </data>
+  <data name="MessageTextUnevidenced" xml:space="preserve">
+    <value>External entity [{0}] initiates data flows into the system and its AuthenticatesItself property is not evidenced, so the model does not show that its identity can be relied on. Set AuthenticatesItself to Yes together with the scheme in use, or to No to state that it does not authenticate.</value>
+  </data>
 </root>

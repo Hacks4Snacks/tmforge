@@ -21,6 +21,9 @@
     <ProjectReference Include="..\ThreatModelForge.Analysis.Rules\ThreatModelForge.Analysis.Rules.csproj" />
     <!-- Report facade (HTML / SVG) renders via the reporting library. -->
     <ProjectReference Include="..\ThreatModelForge.Reporting\ThreatModelForge.Reporting.csproj" />
+    <!-- Analysis-report facade (SARIF / findings HTML / findings JSON) so every host can produce the
+         same artifacts the CLI's analyze report folder writes. -->
+    <ProjectReference Include="..\ThreatModelForge.Analysis.Reporting\ThreatModelForge.Analysis.Reporting.csproj" />
   </ItemGroup>
 
 </Project>

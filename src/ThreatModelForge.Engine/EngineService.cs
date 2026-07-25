@@ -6,7 +6,10 @@ namespace ThreatModelForge.Engine
     using System.Linq;
     using System.Text;
     using System.Text.Json;
+    using System.Text.Json.Serialization;
+    using System.Xml;
     using ThreatModelForge.Analysis;
+    using ThreatModelForge.Analysis.Reporting;
     using ThreatModelForge.Analysis.Rules;
     using ThreatModelForge.Editing;
     using ThreatModelForge.Formats;
@@ -32,6 +35,19 @@ namespace ThreatModelForge.Engine
         {
             PropertyNameCaseInsensitive = true,
         };
+
+        /// <summary>
+        /// Matches the shape <c>tmforge analyze --reportFolder</c> writes, so the findings JSON a host
+        /// serves and the file the CLI writes are the same document.
+        /// </summary>
+        private static readonly JsonSerializerOptions AnalysisReportJsonOptions = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() },
+        };
+
+        private static readonly UTF8Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
         /// <summary>
         /// Lists the registered file-format providers and their capabilities.
@@ -416,6 +432,90 @@ namespace ThreatModelForge.Engine
         }
 
         /// <summary>
+        /// Renders an <em>analysis</em> report: the findings artifacts, as distinct from
+        /// <see cref="Report(TmForgeModelDto, string)"/>, which renders the threat-model document.
+        /// These are the same artifacts <c>tmforge analyze --reportFolder</c> writes, so a review
+        /// produced in the Studio and one produced in CI are the same evidence.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <param name="format">The report format: <c>sarif</c>, <c>html</c>, or <c>json</c>.</param>
+        /// <returns>The report bytes (UTF-8).</returns>
+        public static byte[] AnalysisReport(TmForgeModelDto dto, string format) => AnalysisReport(dto, format, null);
+
+        /// <summary>
+        /// Renders an analysis report against the effective rule set, so a custom pack's findings and
+        /// the model's disabled selections are carried into SARIF and the findings documents.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <param name="format">The report format: <c>sarif</c>, <c>html</c>, or <c>json</c>.</param>
+        /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
+        /// <returns>The report bytes (UTF-8).</returns>
+        public static byte[] AnalysisReport(TmForgeModelDto dto, string format, EngineRuleOptions? rules)
+        {
+            using (MemoryStream stream = new MemoryStream())
+            {
+                WriteAnalysisReport(dto, format, stream, rules);
+                return stream.ToArray();
+            }
+        }
+
+        /// <summary>
+        /// Writes an analysis report to a stream, so a host can stream a large findings document
+        /// straight to its response or to disk instead of buffering it.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <param name="format">The report format: <c>sarif</c>, <c>html</c>, or <c>json</c>.</param>
+        /// <param name="output">The destination stream, which remains open.</param>
+        /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
+        public static void WriteAnalysisReport(
+            TmForgeModelDto dto,
+            string format,
+            Stream output,
+            EngineRuleOptions? rules)
+        {
+            if (output == null)
+            {
+                throw new ArgumentNullException(nameof(output));
+            }
+
+            string reportName = AnalysisReportName(dto);
+            ModelReport report = BuildAnalysisReport(dto, rules, reportName);
+            switch ((format ?? string.Empty).ToUpperInvariant())
+            {
+                case "SARIF":
+                    using (SarifReportWriter writer = new SarifReportWriter(new NonClosingStream(output), reportName + ".sarif"))
+                    {
+                        writer.Write(report);
+                    }
+
+                    break;
+
+                case "JSON":
+                    using (StreamWriter text = new StreamWriter(output, Utf8NoBom, 1024, leaveOpen: true))
+                    {
+                        text.Write(JsonSerializer.Serialize(report, AnalysisReportJsonOptions));
+                    }
+
+                    break;
+
+                default:
+                    // Findings HTML is the readable form of the same report; it is also the fallback,
+                    // matching Report's behavior for an unrecognized format.
+                    using (XmlWriter xml = XmlWriter.Create(
+                        output,
+                        new XmlWriterSettings { Indent = true, CloseOutput = false, ConformanceLevel = ConformanceLevel.Document }))
+                    {
+                        using (FindingsHtmlReportWriter writer = new FindingsHtmlReportWriter(xml, reportName + ".html"))
+                        {
+                            writer.Write(report);
+                        }
+                    }
+
+                    break;
+            }
+        }
+
+        /// <summary>
         /// Merges two edited models, keyed by element identity. When <paramref name="baseModel"/> is
         /// supplied it is a three-way merge against that common ancestor, so non-overlapping edits
         /// combine automatically; when it is <c>null</c> (the ancestor is unavailable) it falls back
@@ -546,6 +646,58 @@ namespace ThreatModelForge.Engine
                 RulePacks = effectivePacks,
                 Diagnostics = diagnostics,
             };
+        }
+
+        /// <summary>
+        /// Evaluates the effective rule set once and captures the run as a <see cref="ModelReport"/> —
+        /// the same structure the CLI serializes to SARIF, findings HTML, and findings JSON. It goes
+        /// through the same bundle load and disabled-selection policy as every other analysis action,
+        /// so a report can never disagree with the analysis it claims to describe.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
+        /// <param name="sourceName">The logical model name recorded as the report's source.</param>
+        /// <returns>The analysis report.</returns>
+        private static ModelReport BuildAnalysisReport(TmForgeModelDto dto, EngineRuleOptions? rules, string sourceName)
+        {
+            ThreatModel model = BuildModel(dto, out _);
+            using (RuleSet ruleSet = LoadRuleSet(rules, null, out _))
+            {
+                if (dto.Analysis != null)
+                {
+                    ruleSet.Disable(dto.Analysis.DisabledPacks, dto.Analysis.DisabledRuleIds);
+                }
+
+                CollectingMessageWriter writer = new CollectingMessageWriter();
+                RuleEvaluationContext context = new RuleEvaluationContext(model, writer, null, sourceName);
+                ruleSet.Evaluate(context);
+                return context.GenerateReport(ruleSet);
+            }
+        }
+
+        /// <summary>
+        /// Names the analyzed document. The engine has no filesystem path, but SARIF and the findings
+        /// documents identify what was analyzed, so derive a stable logical name from the model. The
+        /// model's own metadata name still wins in the report; this only fills the artifact location.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <returns>The logical source name, without an extension.</returns>
+        private static string AnalysisReportName(TmForgeModelDto dto)
+        {
+            string? name = dto?.Diagrams?.FirstOrDefault()?.Name;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return "model";
+            }
+
+            char[] invalid = Path.GetInvalidFileNameChars();
+            StringBuilder builder = new StringBuilder(name!.Length);
+            foreach (char character in name!)
+            {
+                builder.Append(Array.IndexOf(invalid, character) >= 0 ? '_' : character);
+            }
+
+            return builder.ToString();
         }
 
         /// <summary>Projects every collected message as a transient finding.</summary>

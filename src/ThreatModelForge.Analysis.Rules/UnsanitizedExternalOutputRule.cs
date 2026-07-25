@@ -29,7 +29,7 @@ namespace ThreatModelForge.Analysis.Rules
         /// <inheritdoc/>
         public override IReadOnlyList<PropertyBinding> PropertyBindings => new[]
         {
-            new PropertyBinding("process", "SanitizesOutput", "No"),
+            new PropertyBinding("process", "SanitizesOutput", ControlEvidenceValues.Unknown, "No"),
         };
 
         /// <inheritdoc/>
@@ -57,16 +57,20 @@ namespace ThreatModelForge.Analysis.Rules
                         continue;
                     }
 
-                    if (SanitizesOutput(component))
+                    ControlEvidence sanitization = ClassifyOutputSanitization(component);
+                    if (sanitization == ControlEvidence.Present)
                     {
                         continue;
                     }
 
                     if (HasOutboundToExternalInteractor(diagram, component))
                     {
+                        string template = sanitization == ControlEvidence.Unevidenced
+                            ? UnsanitizedExternalOutputRuleResources.MessageTextUnevidenced
+                            : UnsanitizedExternalOutputRuleResources.MessageText;
                         string text = string.Format(
                             System.Globalization.CultureInfo.CurrentCulture,
-                            UnsanitizedExternalOutputRuleResources.MessageText,
+                            template,
                             GetEntityDisplayText(component));
                         context.Writer.Write(this.CreateMessage(component, diagram, text));
                     }
@@ -74,10 +78,10 @@ namespace ThreatModelForge.Analysis.Rules
             }
         }
 
-        private static bool SanitizesOutput(Entity component)
+        private static ControlEvidence ClassifyOutputSanitization(Entity component)
         {
-            return component.TryGetCustomPropertyValue("SanitizesOutput", out string? value) &&
-                string.Equals(value, "Yes", StringComparison.OrdinalIgnoreCase);
+            component.TryGetCustomPropertyValue("SanitizesOutput", out string? value);
+            return ControlEvidenceValues.ClassifyByPresentValues(value, "Yes");
         }
 
         private static bool HasOutboundToExternalInteractor(DrawingSurfaceModel diagram, Entity component)

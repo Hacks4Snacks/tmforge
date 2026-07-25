@@ -86,5 +86,14 @@ namespace ThreatModelForge.Analysis.Rules {
                 return ResourceManager.GetString("MessageText", resourceCulture);
             }
         }
+
+        /// <summary>
+        ///   Looks up a localized string similar to The {0} holds important data and its Backup property is not evidenced....
+        /// </summary>
+        internal static string MessageTextUnevidenced {
+            get {
+                return ResourceManager.GetString("MessageTextUnevidenced", resourceCulture);
+            }
+        }
     }
 }

@@ -28,7 +28,7 @@ namespace ThreatModelForge.Analysis.Rules
         /// <inheritdoc/>
         public override IReadOnlyList<PropertyBinding> PropertyBindings => new[]
         {
-            new PropertyBinding("datastore", "Signed", "No"),
+            new PropertyBinding("datastore", "Signed", ControlEvidenceValues.Unknown, "No"),
             new PropertyBinding("datastore", "StoresLogData"),
         };
 
@@ -61,22 +61,21 @@ namespace ThreatModelForge.Analysis.Rules
                         continue;
                     }
 
-                    if (!IsSigned(component))
+                    component.TryGetCustomPropertyValue("Signed", out string? signed);
+                    ControlEvidence signing = ControlEvidenceValues.ClassifyByPresentValues(signed, "Yes");
+                    if (signing != ControlEvidence.Present)
                     {
+                        string template = signing == ControlEvidence.Unevidenced
+                            ? UnsignedAuditLogStoreRuleResources.MessageTextUnevidenced
+                            : UnsignedAuditLogStoreRuleResources.MessageText;
                         string text = string.Format(
                             System.Globalization.CultureInfo.CurrentCulture,
-                            UnsignedAuditLogStoreRuleResources.MessageText,
+                            template,
                             GetEntityDisplayText(component));
                         context.Writer.Write(this.CreateMessage(component, diagram, text));
                     }
                 }
             }
-        }
-
-        private static bool IsSigned(Entity component)
-        {
-            return component.TryGetCustomPropertyValue("Signed", out string? value) &&
-                string.Equals(value, "Yes", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

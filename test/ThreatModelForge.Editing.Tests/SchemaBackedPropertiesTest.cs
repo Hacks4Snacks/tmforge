@@ -78,7 +78,8 @@ namespace ThreatModelForge.Editing.Tests
         }
 
         /// <summary>
-        /// Verifies that a boolean custom property becomes a Select/Yes/No list selection.
+        /// Verifies that a boolean custom property becomes a Select/Unknown/Yes/No list selection, so an
+        /// author can record that the answer is not evidenced rather than being forced to pick Yes or No.
         /// </summary>
         [TestMethod]
         public void ApplyTypesBooleanPropertyAsYesNoList()
@@ -91,7 +92,7 @@ namespace ThreatModelForge.Editing.Tests
             ListDisplayAttribute typed = store.Properties.OfType<ListDisplayAttribute>()
                 .Single(p => p.DisplayName == "StoresCredentials");
             string[] options = (string[])typed.Value!;
-            CollectionAssert.AreEqual(new[] { "Select", "Yes", "No" }, options);
+            CollectionAssert.AreEqual(new[] { "Select", "Unknown", "Yes", "No" }, options);
             Assert.AreEqual("Yes", options[typed.SelectedIndex]);
         }
 

@@ -28,7 +28,7 @@ namespace ThreatModelForge.Analysis.Rules
         /// <inheritdoc/>
         public override IReadOnlyList<PropertyBinding> PropertyBindings => new[]
         {
-            new PropertyBinding("datastore", "AccessControl", "None", "Public"),
+            new PropertyBinding("datastore", "AccessControl", ControlEvidenceValues.Unknown, "None", "Public"),
             new PropertyBinding("datastore", "StoresCredentials"),
         };
 
@@ -61,25 +61,24 @@ namespace ThreatModelForge.Analysis.Rules
                         continue;
                     }
 
+                    // Only role- or list-based access control restricts who can reach the store, so the
+                    // allow list is the evidence. "None" and "Public" are a stated absence; absent,
+                    // blank, and "Unknown" mean nobody recorded the control at all.
                     component.TryGetCustomPropertyValue("AccessControl", out string? accessControl);
-                    if (!HasMeaningfulAccessControl(accessControl))
+                    ControlEvidence access = ControlEvidenceValues.ClassifyByPresentValues(accessControl, "RBAC", "ACL");
+                    if (access != ControlEvidence.Present)
                     {
+                        string template = access == ControlEvidence.Unevidenced
+                            ? UnprotectedCredentialStoreRuleResources.MessageTextUnevidenced
+                            : UnprotectedCredentialStoreRuleResources.MessageText;
                         string text = string.Format(
                             System.Globalization.CultureInfo.CurrentCulture,
-                            UnprotectedCredentialStoreRuleResources.MessageText,
+                            template,
                             GetEntityDisplayText(component));
                         context.Writer.Write(this.CreateMessage(component, diagram, text));
                     }
                 }
             }
-        }
-
-        private static bool HasMeaningfulAccessControl(string? accessControl)
-        {
-            // Only role- or list-based access control restricts who can reach the store. An unset value
-            // and the "None" or "Public" values are treated as no meaningful access control.
-            return string.Equals(accessControl, "RBAC", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(accessControl, "ACL", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

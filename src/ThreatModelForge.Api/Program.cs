@@ -117,6 +117,14 @@ namespace ThreatModelForge.Api
                 })
                 .WithName("ReportModel")
                 .WithTags("Report");
+            app.MapPost("/v1/model/analysis-report", (TmForgeModelDto model, string format) =>
+                {
+                    byte[] bytes = EngineService.AnalysisReport(model, format, rules);
+                    (string contentType, string fileName) = DescribeAnalysisReport(format);
+                    return TypedResults.File(bytes, contentType, fileName);
+                })
+                .WithName("AnalysisReport")
+                .WithTags("Report");
             app.MapPost("/v1/detect", DetectFormat)
                 .WithName("DetectFormat")
                 .WithTags("Formats");
@@ -126,6 +134,25 @@ namespace ThreatModelForge.Api
             app.MapFallbackToFile("index.html");
 
             app.Run();
+        }
+
+        /// <summary>
+        /// Describes how an analysis report is delivered. The names match what
+        /// <c>tmforge analyze</c> writes, so a downloaded artifact drops straight into a review folder.
+        /// </summary>
+        /// <param name="formatId">The requested report format.</param>
+        /// <returns>The content type and download file name.</returns>
+        private static (string ContentType, string FileName) DescribeAnalysisReport(string formatId)
+        {
+            switch ((formatId ?? string.Empty).ToUpperInvariant())
+            {
+                case "SARIF":
+                    return ("application/sarif+json", "findings.sarif");
+                case "JSON":
+                    return ("application/json", "findings.json");
+                default:
+                    return ("text/html", "findings.html");
+            }
         }
 
         private static RuleBundleDto DescribeRuleBundle(EngineRuleOptions rules, IReadOnlyList<string> hostDiagnostics)

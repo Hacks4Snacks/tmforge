@@ -86,5 +86,14 @@ namespace ThreatModelForge.Analysis.Rules {
                 return ResourceManager.GetString("MessageText", resourceCulture);
             }
         }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Data store [{0}] holds log or audit data and its Signed property is not evidenced....
+        /// </summary>
+        internal static string MessageTextUnevidenced {
+            get {
+                return ResourceManager.GetString("MessageTextUnevidenced", resourceCulture);
+            }
+        }
     }
 }

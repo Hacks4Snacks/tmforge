@@ -130,4 +130,7 @@ If the inbound flow does not actually cross a trust boundary, correct the placem
   <data name="MessageText" xml:space="preserve">
     <value>Process [{0}] receives input across a trust boundary but does not declare an authentication scheme, allowing spoofing or elevation of privilege.</value>
   </data>
+  <data name="MessageTextUnevidenced" xml:space="preserve">
+    <value>Process [{0}] receives input across a trust boundary and its AuthenticationScheme property is not evidenced, so the model does not show that callers from the less trusted zone are authenticated. Record the scheme actually in use, or set AuthenticationScheme to None to state that there is none.</value>
+  </data>
 </root>
