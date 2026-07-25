@@ -711,19 +711,60 @@ namespace ThreatModelForge.Engine
             Dictionary<string, List<string>> nameToIds,
             List<FindingDto> findings)
         {
-            int sequence = 0;
+            FindingIdentity identity = new FindingIdentity();
             foreach (Message message in messages)
             {
                 string ruleId = message.Source?.ID ?? string.Empty;
+                IReadOnlyList<string> elementIds = ResolveIds(message.Target, originalIds, nameToIds);
                 findings.Add(new FindingDto
                 {
-                    Id = $"{ruleId}:{sequence++}",
+                    Id = identity.Next(
+                        ruleId,
+                        StableKey(message.Model?.Guid, originalIds),
+                        TargetKey(message.Target, elementIds)),
                     Severity = MapSeverity(message.Severity),
                     RuleId = ruleId,
                     Message = message.Text ?? string.Empty,
-                    ElementIds = ResolveIds(message.Target, originalIds, nameToIds),
+                    ElementIds = elementIds,
                 });
             }
+        }
+
+        /// <summary>
+        /// Resolves the caller-facing key for a model guid, falling back to the guid itself. The
+        /// caller's own id is preferred because a model whose element ids are not guid-shaped is
+        /// assigned fresh guids on every load, which would churn any identity built on them.
+        /// </summary>
+        /// <param name="guid">The internal guid, if any.</param>
+        /// <param name="originalIds">The map from model guid to the caller's id.</param>
+        /// <returns>The stable key, or <see langword="null"/> when there is nothing to key on.</returns>
+        private static string? StableKey(Guid? guid, IReadOnlyDictionary<Guid, string> originalIds)
+        {
+            if (guid == null)
+            {
+                return null;
+            }
+
+            return originalIds.TryGetValue(guid.Value, out string? original)
+                ? original
+                : guid.Value.ToString("N");
+        }
+
+        /// <summary>
+        /// Resolves the key for a finding's target, reusing the ids already reported to the caller so
+        /// the identity and the highlight refer to the same element.
+        /// </summary>
+        /// <param name="target">The target entity, if any.</param>
+        /// <param name="elementIds">The caller-facing ids resolved for that target.</param>
+        /// <returns>The stable key, or <see langword="null"/> for a finding with no target.</returns>
+        private static string? TargetKey(Entity? target, IReadOnlyList<string> elementIds)
+        {
+            if (target == null)
+            {
+                return null;
+            }
+
+            return elementIds.Count == 1 ? elementIds[0] : target.Guid.ToString("N");
         }
 
         /// <summary>
@@ -1174,7 +1215,7 @@ namespace ThreatModelForge.Engine
                 {
                     findings.Add(new FindingDto
                     {
-                        Id = $"{RulePackMismatchRuleId}:{findings.Count}",
+                        Id = FindingIdentity.Format(RulePackMismatchRuleId, null, entry.Id, 0),
                         Severity = "error",
                         RuleId = RulePackMismatchRuleId,
                         Message = $"Expected rule pack '{entry.Id}' did not load, so this model was analyzed without it.",
@@ -1187,7 +1228,7 @@ namespace ThreatModelForge.Engine
                 {
                     findings.Add(new FindingDto
                     {
-                        Id = $"{RulePackMismatchRuleId}:{findings.Count}",
+                        Id = FindingIdentity.Format(RulePackMismatchRuleId, null, entry.Id, 0),
                         Severity = "error",
                         RuleId = RulePackMismatchRuleId,
                         Message =

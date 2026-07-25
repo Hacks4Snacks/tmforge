@@ -115,6 +115,13 @@ curl http://localhost:8080/v1/stencils         # authoring stencils
 `POST /v1/model/analyze` returns findings for a supplied model, the same rule engine `tmforge analyze`
 uses. This is how Studio's **Analyze** button overlays findings on the canvas.
 
+Each finding's `id` is stable: `{ruleId}:{diagram}:{target}:{occurrence}`, where the diagram and
+target segments are the element ids from the request model (they read `model` when the finding is
+about the model or a whole diagram). The same model analyzed twice produces the same ids, and
+enabling or disabling an unrelated rule leaves the other ids alone — so a caller can reconcile a
+finding against a previous run. See
+[finding identity](analysis-rules.md#finding-identity) for the details and the one caveat.
+
 ### Generate threats
 
 `POST /v1/model/threats` returns the model's **STRIDE threat register** the same rule findings as

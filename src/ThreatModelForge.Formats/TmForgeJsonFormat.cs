@@ -259,6 +259,15 @@ namespace ThreatModelForge.Formats
                         : page.Name;
                     DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = ResolveSurfaceGuid(page.Id), Header = header };
                     model.DrawingSurfaceList.Add(surface);
+
+                    // Record the page's wire id too. A page id that is not guid-shaped gets a fresh
+                    // surface guid on every load, so anything that has to be stable across runs (a
+                    // finding identity, for one) must key off the author's id rather than the guid.
+                    if (!string.IsNullOrWhiteSpace(page.Id))
+                    {
+                        originalIds?[surface.Guid] = page.Id!;
+                    }
+
                     PopulateSurface(editor, surface, page.Elements, page.Flows, originalIds);
                     index++;
                 }

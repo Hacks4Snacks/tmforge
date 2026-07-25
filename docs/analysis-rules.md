@@ -499,6 +499,35 @@ affect the exit code.
 tmforge analyze model.tm7 --reportFolder "$CI_ARTIFACTS/threatmodel"
 ```
 
+### Finding identity
+
+Every finding carries a stable id of the form `{ruleId}:{diagram}:{target}:{occurrence}`:
+
+```text
+TM1021:48761fb5…c0b5:6b3c361c…6686:0
+```
+
+Each segment names something that determines the finding, so the id survives the things that must not
+change it — evaluating rules in a different order, enabling or disabling an unrelated rule, and
+rewording a message. A segment reads `model` when the finding is about the model or a whole diagram
+rather than one element. The trailing counter distinguishes a rule that legitimately fires more than
+once against the same target.
+
+This is what makes a finding reconcilable across runs. In SARIF the id is emitted as the
+`tmforgeFindingId/v1` **partial fingerprint**, which is how code scanning recognises an alert it has
+already seen — without it, every run closes and reopens the whole set and any triage a reviewer
+recorded is lost. Results also carry the element as a **logical location**, because a `.tm7` has no
+line numbers and the physical location can only name the model file.
+
+Element keys come from the model: a `.tm7` supplies its persisted guids, and canonical model JSON
+supplies the author's own element and page ids. Ids that are not guid-shaped are re-keyed internally
+on every load, so the author's id is what gets used — an identity built on the internal guid would
+differ on every run.
+
+The occurrence counter is the one positional segment. If a rule fires several times against the same
+target and you fix some of them, the survivors can renumber; reconcile on the first three segments
+when triage has to cross that kind of edit.
+
 ## CI integration
 
 Gate a pipeline on threat-model findings. The example uses GitHub Actions; adapt the runner and paths
