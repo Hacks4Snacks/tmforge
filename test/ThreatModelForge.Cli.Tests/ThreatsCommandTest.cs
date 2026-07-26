@@ -372,6 +372,51 @@ namespace ThreatModelForge.Cli.Tests
             Assert.AreEqual(1, exit);
         }
 
+        /// <summary>
+        /// Pruning keeps a stale entry that carries triage and names it, so a recorded decision is
+        /// never lost just because its rule went quiet. <c>--force</c> is the explicit way to drop it.
+        /// </summary>
+        [TestMethod]
+        public void RemoveStaleKeepsTriagedEntriesUntilForced()
+        {
+            Capture(() => NewCommand.Run(new[] { this.ModelPath, "--name", "Stale Test" }));
+            string external = this.AddElement("external", "Client");
+            string process = this.AddElement("process", "Gateway");
+            this.Connect(external, process);
+            string path = this.ModelPath;
+            Assert.AreEqual(0, ThreatsCommand.Run(new[] { path, "--write" }));
+
+            (ThreatModel written, _) = CliModelLoader.Load(path);
+            Threat target = written.AllThreatsDictionary.Values.First(threat => !string.IsNullOrEmpty(threat.TypeId));
+            string key = target.InteractionKey!;
+            Assert.AreEqual(0, ThreatsCommand.Run(new[] { path, "--edit", key, "--state", "Mitigated" }));
+
+            // Delete the elements the findings were about. The rules stay loaded and enabled, they
+            // simply produce nothing now, which is what makes the stored entries stale rather than
+            // unevaluated.
+            Capture(() => RemoveCommand.Run(new[] { path, "--id", process }));
+            Capture(() => RemoveCommand.Run(new[] { path, "--id", external }));
+
+            (int kept, string keptOut) = Capture(() => ThreatsCommand.Run(new[] { path, "--remove-stale", "--json" }));
+            Assert.AreEqual(0, kept);
+            JsonElement data = JsonDocument.Parse(keptOut).RootElement.GetProperty("data");
+            Assert.AreEqual("remove-stale", data.GetProperty("action").GetString());
+            Assert.IsTrue(
+                data.GetProperty("retainedWithTriage").EnumerateArray().Any(id => id.GetString() == key),
+                "The triaged entry must be reported, not removed.");
+
+            (ThreatModel afterKeep, _) = CliModelLoader.Load(path);
+            Assert.IsTrue(afterKeep.AllThreatsDictionary.Values.Any(threat => threat.InteractionKey == key));
+
+            (int forced, string forcedOut) = Capture(() => ThreatsCommand.Run(new[] { path, "--remove-stale", "--force", "--json" }));
+            Assert.AreEqual(0, forced);
+            JsonElement forcedData = JsonDocument.Parse(forcedOut).RootElement.GetProperty("data");
+            Assert.IsTrue(forcedData.GetProperty("removed").EnumerateArray().Any(id => id.GetString() == key));
+
+            (ThreatModel afterForce, _) = CliModelLoader.Load(path);
+            Assert.IsFalse(afterForce.AllThreatsDictionary.Values.Any(threat => threat.InteractionKey == key));
+        }
+
         private static (int Exit, string Stdout) Capture(Func<int> run)
         {
             using StringWriter outWriter = new StringWriter();

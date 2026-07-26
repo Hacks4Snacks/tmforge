@@ -35,7 +35,7 @@ namespace ThreatModelForge.Cli
             CliArgs parsed = CliArgs.Parse(
                 args,
                 new[] { "rules", "edit", "remove", "id", "title", "category", "scope", "state", "priority", "mitigation", "description", "note" },
-                new[] { "write", "add" });
+                new[] { "write", "add", "remove-stale", "force" });
             if (parsed.Help)
             {
                 PrintUsage();
@@ -63,11 +63,12 @@ namespace ThreatModelForge.Cli
             }
 
             bool add = parsed.HasFlag("add");
+            bool removeStale = parsed.HasFlag("remove-stale");
             string? editId = parsed.Get("edit");
             string? removeId = parsed.Get("remove");
-            if (add || editId != null || removeId != null)
+            if (add || removeStale || editId != null || removeId != null)
             {
-                return RunAuthoring(parsed, input!, add, editId, removeId);
+                return RunAuthoring(parsed, input!, add, removeStale, editId, removeId);
             }
 
             (ThreatModel model, IThreatModelFormat? format) = CliModelLoader.Load(input!);
@@ -103,7 +104,7 @@ namespace ThreatModelForge.Cli
             return 0;
         }
 
-        private static int RunAuthoring(CliArgs parsed, string input, bool add, string? editId, string? removeId)
+        private static int RunAuthoring(CliArgs parsed, string input, bool add, bool removeStale, string? editId, string? removeId)
         {
             (ThreatModel model, IThreatModelFormat? format) = CliModelLoader.Load(input);
             if (format == null || !format.Capabilities.CanWrite)
@@ -116,6 +117,11 @@ namespace ThreatModelForge.Cli
             if (add)
             {
                 return RunAdd(parsed, input, model, format, ruleSet);
+            }
+
+            if (removeStale)
+            {
+                return RunRemoveStale(parsed, input, model, format, ruleSet);
             }
 
             if (editId != null)
@@ -263,9 +269,17 @@ namespace ThreatModelForge.Cli
             RuleSet ruleSet,
             string removeId)
         {
-            if (!ThreatGenerator.Remove(model, removeId))
+            // A rule-derived threat that the rules still produce would come straight back, so removal
+            // is only offered for a manual threat or one the register classifies as stale.
+            ThreatRegisterSummary register = ThreatRegisterClassifier.Classify(
+                model,
+                ThreatGenerator.Generate(model, ruleSet),
+                ruleSet);
+            if (!ThreatGenerator.Remove(model, removeId, register))
             {
-                Console.Error.WriteLine("No manual threat to remove for: " + removeId + " (rule threats regenerate from the rules; accept or edit them instead).");
+                Console.Error.WriteLine(
+                    "No manual or stale threat to remove for: " + removeId +
+                    " (a threat the rules still produce would regenerate; accept or edit it instead).");
                 return 1;
             }
 
@@ -278,6 +292,62 @@ namespace ThreatModelForge.Cli
             else
             {
                 Console.Error.WriteLine("Removed threat " + removeId + " from " + input + ".");
+            }
+
+            return 0;
+        }
+
+        private static int RunRemoveStale(
+            CliArgs parsed,
+            string input,
+            ThreatModel model,
+            IThreatModelFormat format,
+            RuleSet ruleSet)
+        {
+            ThreatRegisterSummary register = ThreatRegisterClassifier.Classify(
+                model,
+                ThreatGenerator.Generate(model, ruleSet),
+                ruleSet);
+
+            // An entry whose rule was absent or disabled is not stale and must not be swept up: the
+            // rule never ran, so its silence says nothing. Name them so the author can rerun with the
+            // right bundle instead of losing real findings.
+            if (register.IndeterminateGenerated > 0)
+            {
+                Console.Error.WriteLine(
+                    "Refusing to prune: " + register.IndeterminateGenerated +
+                    " entries could not be checked because their rules were not part of this run (" +
+                    string.Join(", ", register.UnavailableRuleIds) +
+                    "). Re-run with --rules so those rules are evaluated.");
+                return 1;
+            }
+
+            bool force = parsed.HasFlag("force");
+            StaleRemovalResult removal = ThreatGenerator.RemoveStale(model, register, force);
+            if (removal.Removed.Count > 0)
+            {
+                AuthoringSupport.Save(model, input, format, ruleSet);
+            }
+
+            if (parsed.Json)
+            {
+                CliJson.WriteEnvelope("threats", new
+                {
+                    action = "remove-stale",
+                    removed = removal.Removed,
+                    retainedWithTriage = removal.RetainedWithTriage,
+                });
+            }
+            else
+            {
+                Console.Error.WriteLine("Removed " + removal.Removed.Count + " stale threats from " + input + ".");
+                if (removal.RetainedWithTriage.Count > 0)
+                {
+                    Console.Error.WriteLine(
+                        "Kept " + removal.RetainedWithTriage.Count +
+                        " stale threats that carry triage: " + string.Join(", ", removal.RetainedWithTriage) + ".");
+                    Console.Error.WriteLine("Re-run with --force to discard their triage too.");
+                }
             }
 
             return 0;
@@ -389,12 +459,14 @@ namespace ThreatModelForge.Cli
             Console.Error.WriteLine("  tmforge threats --add --title <t> --category <STRIDE> [--id <id>] [--scope <id>] [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] [--json] <file>");
             Console.Error.WriteLine("  tmforge threats --edit <id> [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] [--note <n>] [--json] <file>");
             Console.Error.WriteLine("  tmforge threats --remove <id> [--json] <file>");
+            Console.Error.WriteLine("  tmforge threats --remove-stale [--force] [--rules <path>] [--json] <file>");
             Console.Error.WriteLine();
             Console.Error.WriteLine("--write     persist the generated threats into the model's register (preserves prior triage).");
             Console.Error.WriteLine("--add       author a manual threat; --category is a STRIDE category (Spoofing / Tampering / Repudiation / InformationDisclosure / DenialOfService / ElevationOfPrivilege).");
             Console.Error.WriteLine("--id        the threat's id, so you can reference it elsewhere and re-run the same authoring safely; letters, digits, '-', '_', '.' (a 'manual:' prefix is added if you omit it). Defaults to a generated id.");
             Console.Error.WriteLine("--edit      change a threat's state (Open / NeedsInvestigation / Mitigated / Accepted), priority, mitigation, description, or note.");
-            Console.Error.WriteLine("--remove    delete a manual threat (rule threats regenerate; accept or edit them instead).");
+            Console.Error.WriteLine("--remove    delete a manual threat, or one that has gone stale (a threat the rules still produce would regenerate; accept or edit it instead).");
+            Console.Error.WriteLine("--remove-stale  delete every stale entry — stored threats whose rule no longer fires. Entries carrying triage are kept and listed; --force discards them too.");
             Console.Error.WriteLine();
             Console.Error.WriteLine("Detection is the rule set (see 'tmforge analyze'); each threat carries a category,");
             Console.Error.WriteLine("the rule's mitigation, and CWE/CAPEC references. List the register with 'tmforge list threats'.");

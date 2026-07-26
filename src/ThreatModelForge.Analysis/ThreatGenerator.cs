@@ -339,7 +339,25 @@ namespace ThreatModelForge.Analysis
         /// <param name="model">The model containing the threat.</param>
         /// <param name="threatId">The threat's register key, interaction key, or numeric id.</param>
         /// <returns><see langword="true"/> if a manual threat was found and removed; otherwise <see langword="false"/>.</returns>
-        public static bool Remove(ThreatModel model, string threatId)
+        public static bool Remove(ThreatModel model, string threatId) => Remove(model, threatId, null);
+
+        /// <summary>
+        /// Removes a manually-authored threat, or a rule-derived threat the supplied register summary
+        /// classifies as stale.
+        /// </summary>
+        /// <remarks>
+        /// A rule-derived threat that the rules still produce cannot be removed: it would reappear on
+        /// the next run, so refusing is more honest than pretending. A <em>stale</em> one will not
+        /// reappear, which is exactly why it needs an explicit way out. Removal is never automatic —
+        /// the caller must have classified the register and asked for this entry by name.
+        /// </remarks>
+        /// <param name="model">The model containing the threat.</param>
+        /// <param name="threatId">The threat's register key, interaction key, or numeric id.</param>
+        /// <param name="register">
+        /// The classified register, or <see langword="null"/> to allow manual threats only.
+        /// </param>
+        /// <returns><see langword="true"/> if a threat was found and removed; otherwise <see langword="false"/>.</returns>
+        public static bool Remove(ThreatModel model, string threatId, ThreatRegisterSummary? register)
         {
             if (model == null)
             {
@@ -361,11 +379,95 @@ namespace ThreatModelForge.Analysis
                     string.Equals(pair.Value.Id.ToString(CultureInfo.InvariantCulture), threatId, StringComparison.Ordinal);
                 if (matches)
                 {
-                    if (!manual)
+                    if (!manual && !IsStale(register, interaction))
                     {
                         return false;
                     }
 
+                    model.AllThreatsDictionary.Remove(pair.Key);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Removes every stale entry from the register.
+        /// </summary>
+        /// <remarks>
+        /// Entries carrying triage are kept unless <paramref name="discardTriage"/> is set, and are
+        /// reported back either way. Losing a rule is not a reason to lose the decision someone
+        /// recorded against it, so discarding that has to be asked for.
+        /// </remarks>
+        /// <param name="model">The model whose register is pruned.</param>
+        /// <param name="register">The classified register identifying the stale entries.</param>
+        /// <param name="discardTriage">Whether to also remove stale entries that carry triage.</param>
+        /// <returns>What was removed and what was kept.</returns>
+        public static StaleRemovalResult RemoveStale(
+            ThreatModel model,
+            ThreatRegisterSummary register,
+            bool discardTriage)
+        {
+            if (model == null)
+            {
+                throw new ArgumentNullException(nameof(model));
+            }
+
+            if (register == null)
+            {
+                throw new ArgumentNullException(nameof(register));
+            }
+
+            List<string> removed = new List<string>();
+            List<string> retained = new List<string>();
+            foreach (ThreatRegisterEntry entry in register.Entries)
+            {
+                if (entry.State != ThreatRegisterStates.StaleGenerated)
+                {
+                    continue;
+                }
+
+                if (entry.HasTriage && !discardTriage)
+                {
+                    retained.Add(entry.Id);
+                    continue;
+                }
+
+                if (RemoveByKey(model, entry.Id))
+                {
+                    removed.Add(entry.Id);
+                }
+            }
+
+            return new StaleRemovalResult { Removed = removed, RetainedWithTriage = retained };
+        }
+
+        private static bool IsStale(ThreatRegisterSummary? register, string interaction)
+        {
+            if (register == null)
+            {
+                return false;
+            }
+
+            foreach (ThreatRegisterEntry entry in register.Entries)
+            {
+                if (string.Equals(entry.Id, interaction, StringComparison.OrdinalIgnoreCase))
+                {
+                    return entry.State == ThreatRegisterStates.StaleGenerated;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool RemoveByKey(ThreatModel model, string key)
+        {
+            foreach (KeyValuePair<string, Threat> pair in model.AllThreatsDictionary)
+            {
+                string interaction = string.IsNullOrEmpty(pair.Value.InteractionKey) ? pair.Key : pair.Value.InteractionKey!;
+                if (string.Equals(interaction, key, StringComparison.OrdinalIgnoreCase))
+                {
                     model.AllThreatsDictionary.Remove(pair.Key);
                     return true;
                 }

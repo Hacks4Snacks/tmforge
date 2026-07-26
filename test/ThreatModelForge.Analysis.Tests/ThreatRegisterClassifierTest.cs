@@ -162,6 +162,113 @@ namespace ThreatModelForge.Analysis.Tests
             Assert.AreEqual(3, summary.Entries.Count);
         }
 
+        /// <summary>A stale entry without triage is pruned.</summary>
+        [TestMethod]
+        public void RemoveStaleDropsUntriagedStaleEntries()
+        {
+            ThreatModel model = new ThreatModel();
+            string stale = AddGeneratedEntry(model, "TM1021", "Audit log is unsigned");
+            using RuleSet rules = RuleSetWith("TM1021");
+            ThreatRegisterSummary summary = ThreatRegisterClassifier.Classify(model, Generated(), rules);
+
+            StaleRemovalResult removal = ThreatGenerator.RemoveStale(model, summary, discardTriage: false);
+
+            CollectionAssert.AreEqual(new[] { stale }, removal.Removed.ToArray());
+            Assert.AreEqual(0, removal.RetainedWithTriage.Count);
+            Assert.AreEqual(0, model.AllThreatsDictionary.Count);
+        }
+
+        /// <summary>
+        /// A stale entry carrying triage is kept and reported. The rule falling silent retires the
+        /// finding, not the decision someone recorded against it.
+        /// </summary>
+        [TestMethod]
+        public void RemoveStaleKeepsTriagedEntriesAndReportsThem()
+        {
+            ThreatModel model = new ThreatModel();
+            string stale = AddGeneratedEntry(model, "TM1021", "Audit log is unsigned");
+            model.AllThreatsDictionary[stale].State = ThreatState.Mitigated;
+            using RuleSet rules = RuleSetWith("TM1021");
+            ThreatRegisterSummary summary = ThreatRegisterClassifier.Classify(model, Generated(), rules);
+
+            StaleRemovalResult removal = ThreatGenerator.RemoveStale(model, summary, discardTriage: false);
+
+            Assert.AreEqual(0, removal.Removed.Count);
+            CollectionAssert.AreEqual(new[] { stale }, removal.RetainedWithTriage.ToArray());
+            Assert.AreEqual(1, model.AllThreatsDictionary.Count, "The decision must survive the rule going quiet.");
+        }
+
+        /// <summary>Discarding triage is possible, but only when explicitly asked for.</summary>
+        [TestMethod]
+        public void RemoveStaleDiscardsTriageOnlyWhenAsked()
+        {
+            ThreatModel model = new ThreatModel();
+            string stale = AddGeneratedEntry(model, "TM1021", "Audit log is unsigned");
+            model.AllThreatsDictionary[stale].State = ThreatState.Mitigated;
+            using RuleSet rules = RuleSetWith("TM1021");
+            ThreatRegisterSummary summary = ThreatRegisterClassifier.Classify(model, Generated(), rules);
+
+            StaleRemovalResult removal = ThreatGenerator.RemoveStale(model, summary, discardTriage: true);
+
+            CollectionAssert.AreEqual(new[] { stale }, removal.Removed.ToArray());
+            Assert.AreEqual(0, model.AllThreatsDictionary.Count);
+        }
+
+        /// <summary>Pruning never touches a current entry or a manual one.</summary>
+        [TestMethod]
+        public void RemoveStaleLeavesCurrentAndManualEntriesAlone()
+        {
+            ThreatModel model = new ThreatModel();
+            AddManualEntry(model, "manual:vendor-access", "Vendor access is unreviewed");
+            string live = AddGeneratedEntry(model, "TM1021", "Audit log is unsigned");
+            AddGeneratedEntry(model, "TM1029", "No audit trail");
+            using RuleSet rules = RuleSetWith("TM1021", "TM1029");
+            ThreatRegisterSummary summary = ThreatRegisterClassifier.Classify(model, Generated((live, "TM1021")), rules);
+
+            StaleRemovalResult removal = ThreatGenerator.RemoveStale(model, summary, discardTriage: true);
+
+            Assert.AreEqual(1, removal.Removed.Count);
+            Assert.AreEqual(2, model.AllThreatsDictionary.Count);
+            Assert.IsTrue(model.AllThreatsDictionary.ContainsKey("manual:vendor-access"));
+            Assert.IsTrue(model.AllThreatsDictionary.ContainsKey(live));
+        }
+
+        /// <summary>
+        /// An entry whose rule was never evaluated is not pruned, because it was never stale. Sweeping
+        /// it up would delete a real finding whenever a rule bundle failed to load.
+        /// </summary>
+        [TestMethod]
+        public void RemoveStaleLeavesIndeterminateEntriesAlone()
+        {
+            ThreatModel model = new ThreatModel();
+            AddGeneratedEntry(model, "CORP-1", "Store declares no owner");
+            using RuleSet rules = RuleSetWith("TM1021");
+            ThreatRegisterSummary summary = ThreatRegisterClassifier.Classify(model, Generated(), rules);
+
+            StaleRemovalResult removal = ThreatGenerator.RemoveStale(model, summary, discardTriage: true);
+
+            Assert.AreEqual(0, removal.Removed.Count);
+            Assert.AreEqual(1, model.AllThreatsDictionary.Count);
+        }
+
+        /// <summary>
+        /// A single stale entry can be removed by id, while one the rules still produce is refused —
+        /// removing it would only bring it back on the next run.
+        /// </summary>
+        [TestMethod]
+        public void RemoveByIdAcceptsStaleButRefusesCurrent()
+        {
+            ThreatModel model = new ThreatModel();
+            string live = AddGeneratedEntry(model, "TM1021", "Audit log is unsigned");
+            string stale = AddGeneratedEntry(model, "TM1029", "No audit trail");
+            using RuleSet rules = RuleSetWith("TM1021", "TM1029");
+            ThreatRegisterSummary summary = ThreatRegisterClassifier.Classify(model, Generated((live, "TM1021")), rules);
+
+            Assert.IsFalse(ThreatGenerator.Remove(model, live, summary), "A live rule threat regenerates.");
+            Assert.IsTrue(ThreatGenerator.Remove(model, stale, summary));
+            Assert.AreEqual(1, model.AllThreatsDictionary.Count);
+        }
+
         private static void AddManualEntry(ThreatModel model, string id, string title)
         {
             model.AllThreatsDictionary[id] = new Threat
