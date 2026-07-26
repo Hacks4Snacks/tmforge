@@ -1205,11 +1205,13 @@ namespace ThreatModelForge.Engine
             // patches so the rules regenerate those threats with their full title and category, but keep
             // the manual threats (which no rule produces), then re-apply the author's edits on top so a
             // lossless export carries a complete, titled register with the author's state and edits.
+            Dictionary<string, Threat> seeded = new Dictionary<string, Threat>(StringComparer.OrdinalIgnoreCase);
             List<string> ruleSeeded = model.AllThreatsDictionary.Keys
                 .Where(key => !ThreatStateWire.IsManualKey(key))
                 .ToList();
             foreach (string key in ruleSeeded)
             {
+                seeded[key] = model.AllThreatsDictionary[key];
                 model.AllThreatsDictionary.Remove(key);
             }
 
@@ -1224,8 +1226,39 @@ namespace ThreatModelForge.Engine
                 ThreatGenerator.Apply(model, generation);
             }
 
+            RestoreUnregeneratedEntries(model, seeded);
             ApplyOverlayEdits(model, dto.Threats);
             return model;
+        }
+
+        /// <summary>
+        /// Puts back any seeded entry the rules did not regenerate.
+        /// </summary>
+        /// <remarks>
+        /// A rule-derived entry only reaches the overlay because someone triaged, described, or
+        /// re-prioritized it, so every one carries author intent. Dropping the sparse patch is safe when
+        /// the rule regenerates the threat, and only then: if the rule has fallen silent there is
+        /// nothing to regenerate, and leaving it out would delete the decision along with the finding.
+        /// The entry keeps its rule id, so it is reported as stale rather than reappearing as manual.
+        /// </remarks>
+        /// <param name="model">The regenerated model.</param>
+        /// <param name="seeded">The entries removed before regeneration, keyed by register key.</param>
+        private static void RestoreUnregeneratedEntries(ThreatModel model, Dictionary<string, Threat> seeded)
+        {
+            int nextId = model.AllThreatsDictionary.Values.Count == 0
+                ? 1
+                : model.AllThreatsDictionary.Values.Max(threat => threat.Id) + 1;
+            foreach (KeyValuePair<string, Threat> pair in seeded)
+            {
+                if (model.AllThreatsDictionary.ContainsKey(pair.Key))
+                {
+                    continue;
+                }
+
+                // Renumber so the restored entry cannot collide with one the regeneration just assigned.
+                pair.Value.Id = nextId++;
+                model.AllThreatsDictionary[pair.Key] = pair.Value;
+            }
         }
 
         /// <summary>
