@@ -212,6 +212,23 @@ The import preserves source expressions and metadata in provenance. A non-strict
 exactly representable threats and reports skipped threats; `--strict` writes nothing if any threat is
 skipped. Generated packs remain subject to the source template's license and attribution terms.
 
+#### `ROOT` rules run once per diagram
+
+An imported threat whose filter is `source is 'ROOT'` — the six migrated STRIDE types `SU`, `TU`,
+`RU`, `IU`, `DU`, and `EU` in Microsoft's default template — is evaluated **once per diagram**, and
+reports the diagram itself as the finding's target.
+
+This is a deliberate difference from the Microsoft Threat Modeling Tool, which generates strictly once
+per interaction and never fires these rules at all: it builds an element's type chain without the
+virtual `ROOT` type at its head, so `source is 'ROOT'` cannot hold for any element. The types are
+inert there, and their own descriptions record them as migrated from version 3.
+
+Threat Model Forge keeps them live because a per-diagram STRIDE sweep is useful coverage, so expect
+these rules to report findings the tool does not. They are Threat Model Forge behavior rather than a
+parity claim. Nothing changes on export: a rule that cannot fire in the tool contributes no threats to
+an exported `.tm7`. The evidence is the committed capture under
+`test/ThreatModelForge.Analysis.Tests/Fixtures/MtmtDifferential/`.
+
 Because a spec is inspectable data — not an assembly — it is safe to share and review, and it runs
 everywhere the CLI does. Custom rules are **added to** the built-in rules, never a replacement for
 them: `--rules` loads your rules *alongside* the full built-in set and both are evaluated together

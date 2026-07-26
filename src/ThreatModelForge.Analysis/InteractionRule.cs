@@ -116,6 +116,14 @@ namespace ThreatModelForge.Analysis
             foreach (DrawingSurfaceModel diagram in context.Model.DrawingSurfaceList)
             {
                 context.AccountDeclarativeOperations(diagram.Lines.Count);
+
+                // A deliberate divergence from the Microsoft Threat Modeling Tool, recorded by
+                // MtmtRootDifferentialTests against a capture taken from the pinned tool build. The tool
+                // cannot fire a ROOT predicate at all: it builds an element's type chain without the
+                // virtual ROOT type at its head, so "source is 'ROOT'" is never true and the six
+                // migrated ROOT threat types are inert. Threat Model Forge keeps them live as a
+                // per-diagram STRIDE sweep - coverage the tool lost - so a ROOT rule fires once per
+                // diagram rather than once per interaction.
                 if (this.evaluatesRoot)
                 {
                     InteractionExpression.EvaluationContext root = InteractionExpression.EvaluationContext.Root(diagram);

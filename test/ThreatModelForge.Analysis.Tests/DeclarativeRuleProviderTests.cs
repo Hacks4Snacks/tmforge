@@ -312,9 +312,9 @@ namespace ThreatModelForge.Analysis.Tests
             Assert.AreEqual("medical-device/privacy", exportedType.Category);
             Assert.AreEqual("High", exportedType.PropertiesMetaData.Single().Values.Single());
             Assert.IsTrue(knowledgeBase.ThreatMetaData!.IsPriorityUsed);
-            CollectionAssert.AreEqual(
-                new[] { "Critical", "High", "Medium", "Low" },
-                knowledgeBase.ThreatMetaData.PropertiesMetaData.Single().Values);
+            ThreatMetaDatum exportedPriority = knowledgeBase.ThreatMetaData.PropertiesMetaData
+                .Single(datum => datum.Name == "Priority");
+            CollectionAssert.AreEqual(new[] { "Critical", "High", "Medium", "Low" }, exportedPriority.Values);
         }
 
         /// <summary>Default threat priority must be valid and attached to a threat-bearing rule.</summary>

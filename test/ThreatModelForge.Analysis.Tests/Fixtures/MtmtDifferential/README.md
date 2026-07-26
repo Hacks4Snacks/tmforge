@@ -63,7 +63,29 @@ Interpret the normalized `rootThreatCount` as follows:
 - `0`: the migrated ROOT definitions are not generated; or
 - any other result: an unexpected contract requiring investigation.
 
-`DeclarativeRuleProviderTests.RootEvaluatesOncePerDiagram` locks tmforge's provisional per-diagram
-contract. Do not mark MTMT ROOT conformance complete until a Windows capture is reviewed and committed.
-The macOS runtime cannot execute this oracle: MTMT `ElementType` derives from
-`System.Windows.DependencyObject`, and loading the embedded knowledge base requires WPF.
+## Captured result
+
+`root-scope.mtmt.json` is the committed capture from MTMT `7.3.51110.1`. It records
+`rootThreatCount: 0` and `interpretation: "not-generated"`, alongside the six ROOT threat types the
+knowledge base declares with the filter `source is 'ROOT'`. The types were available to the run and
+produced nothing.
+
+That is the tool's own behavior, not a defect in either product. `KnowledgeBaseModel.GetElementTypeChain`
+walks an element's parents and stops before appending the virtual `ROOT` type, `PopulateNamespace`
+publishes that chain as `SOURCE.OBJTYPE`, and the script host's `IS` operator tests it by equality or
+`:`-delimited containment. `source is 'ROOT'` therefore cannot hold for any element, which leaves the
+six types inert. Their own descriptions record them as migrated from version 3.
+
+The capture also shows the tool generating strictly once per interaction: Diagram A holds one
+connector and yields 21 threats, Diagram B holds two and yields 42. There is no per-diagram or
+model-wide generation path in the tool at all — `GenerateThreatsForDrawingSurface` iterates the
+connectors on a surface and evaluates every threat type against each one.
+
+**Threat Model Forge deliberately diverges.** It keeps the six ROOT rules live and evaluates each once
+per diagram, so this fixture yields 12 findings where the tool yields none. This is a decision to keep
+STRIDE-per-diagram coverage the tool lost, not a parity claim; the imported ROOT rules are Threat Model
+Forge behavior. `MtmtRootDifferentialTests` locks both halves — what the capture recorded and what the
+engine does — so neither side can drift without restating the decision.
+
+Because a ROOT rule cannot fire in the tool, the six rules never contribute threats to an exported
+`.tm7`, so the divergence does not affect what the tool reads back.
