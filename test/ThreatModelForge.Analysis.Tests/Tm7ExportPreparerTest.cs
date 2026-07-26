@@ -337,6 +337,87 @@ namespace ThreatModelForge.Analysis.Tests
             Assert.AreEqual(60, process.Top);
         }
 
+        /// <summary>
+        /// Verifies that a surface reaching past the tool's maximum border coordinate is translated back
+        /// as a whole, so the furthest element lands on the maximum with the layout intact.
+        /// </summary>
+        [TestMethod]
+        public void PrepareShiftsSurfaceBelowTheToolMaximum()
+        {
+            StencilEllipse far = new StencilEllipse { Guid = Guid.NewGuid(), Left = 2000, Top = 100, Width = 100, Height = 60 };
+            StencilRectangle near = new StencilRectangle { Guid = Guid.NewGuid(), Left = 1800, Top = 100, Width = 120, Height = 60 };
+            DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = Guid.NewGuid() };
+            surface.Borders[far.Guid] = far;
+            surface.Borders[near.Guid] = near;
+            ThreatModel model = new ThreatModel();
+            model.DrawingSurfaceList.Add(surface);
+
+            Tm7ExportPreparer.Prepare(model);
+
+            // A whole-surface shift of -110 lands the furthest border on the maximum and keeps the 200px
+            // gap between the two.
+            Assert.AreEqual(1890, far.Left);
+            Assert.AreEqual(1690, near.Left);
+
+            // The vertical extent was already legal, so y is untouched.
+            Assert.AreEqual(100, far.Top);
+            Assert.AreEqual(100, near.Top);
+        }
+
+        /// <summary>
+        /// Verifies that the tool's higher allowance for connector coordinates is respected: a connector
+        /// reaching past the border maximum is legal on its own and must not drag the surface backwards.
+        /// </summary>
+        [TestMethod]
+        public void PrepareAllowsConnectorsBeyondTheBorderMaximum()
+        {
+            StencilEllipse process = new StencilEllipse { Guid = Guid.NewGuid(), Left = 1890, Top = 100, Width = 100, Height = 60 };
+            Connector flow = new Connector
+            {
+                Guid = Guid.NewGuid(),
+                GenericTypeId = "GE.DF",
+                SourceX = 1900,
+                SourceY = 100,
+                TargetX = 1950,
+                TargetY = 100,
+                HandleX = 1925,
+                HandleY = 100,
+            };
+
+            DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = Guid.NewGuid() };
+            surface.Borders[process.Guid] = process;
+            surface.Lines[flow.Guid] = flow;
+            ThreatModel model = new ThreatModel();
+            model.DrawingSurfaceList.Add(surface);
+
+            Tm7ExportPreparer.Prepare(model);
+
+            Assert.AreEqual(1890, process.Left);
+            Assert.AreEqual(1950, flow.TargetX);
+        }
+
+        /// <summary>
+        /// Verifies that a surface drawn wider than the tool's canvas is anchored at the minimum. No
+        /// translation satisfies both bounds, and rescaling would move elements relative to the trust
+        /// boundaries that contain them, changing the analysis rather than the drawing.
+        /// </summary>
+        [TestMethod]
+        public void PrepareAnchorsASurfaceWiderThanTheToolCanvas()
+        {
+            StencilRectangle near = new StencilRectangle { Guid = Guid.NewGuid(), Left = 0, Top = 100, Width = 120, Height = 60 };
+            StencilEllipse far = new StencilEllipse { Guid = Guid.NewGuid(), Left = 2500, Top = 100, Width = 100, Height = 60 };
+            DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = Guid.NewGuid() };
+            surface.Borders[near.Guid] = near;
+            surface.Borders[far.Guid] = far;
+            ThreatModel model = new ThreatModel();
+            model.DrawingSurfaceList.Add(surface);
+
+            Tm7ExportPreparer.Prepare(model);
+
+            Assert.AreEqual(10, near.Left);
+            Assert.AreEqual(2510, far.Left);
+        }
+
         private static ThreatModel ModelWithFlow(string key, string value)
         {
             Connector flow = new Connector { Guid = Guid.NewGuid(), GenericTypeId = "GE.DF" };

@@ -33,6 +33,22 @@ namespace ThreatModelForge.Analysis
         private const int MinimumCoordinate = 10;
 
         /// <summary>
+        /// The largest drawing coordinates the tool accepts, which it applies per element kind: borders
+        /// are clamped to 1890 x 2090 and connector endpoints and handles to 1990 x 2190. Exceeding
+        /// either is "corrected" on open exactly as an under-run is.
+        /// </summary>
+        private const int MaximumBorderX = 1890;
+
+        /// <summary>The largest border ordinate the tool accepts.</summary>
+        private const int MaximumBorderY = 2090;
+
+        /// <summary>The largest connector abscissa the tool accepts.</summary>
+        private const int MaximumLineX = 1990;
+
+        /// <summary>The largest connector ordinate the tool accepts.</summary>
+        private const int MaximumLineY = 2190;
+
+        /// <summary>
         /// Ensures the model carries the default knowledge base and has its schema-backed properties
         /// typed, unless it already carries a foreign knowledge base.
         /// </summary>
@@ -291,10 +307,10 @@ namespace ThreatModelForge.Analysis
         }
 
         /// <summary>
-        /// Translates each drawing surface as a whole so its lowest element and connector coordinates
-        /// sit at or beyond <see cref="MinimumCoordinate"/>. Shifting the surface rather than clamping
-        /// each element individually preserves the relative layout and keeps connectors attached to
-        /// their endpoints, which a per-element clamp (as the tool itself performs) would not.
+        /// Translates each drawing surface as a whole so its element and connector coordinates sit
+        /// inside the range the tool accepts. Shifting the surface rather than clamping each element
+        /// individually preserves the relative layout and keeps connectors attached to their endpoints,
+        /// which a per-element clamp (as the tool itself performs) would not.
         /// </summary>
         /// <param name="model">The model to normalize; it is mutated in place.</param>
         private static void NormalizeCoordinates(ThreatModel model)
@@ -303,17 +319,27 @@ namespace ThreatModelForge.Analysis
             {
                 int minX = int.MaxValue;
                 int minY = int.MaxValue;
+                int upperX = int.MaxValue;
+                int upperY = int.MaxValue;
 
                 foreach (DrawingElement element in surface.Borders.Values.OfType<DrawingElement>())
                 {
                     minX = Math.Min(minX, element.Left);
                     minY = Math.Min(minY, element.Top);
+                    upperX = Math.Min(upperX, MaximumBorderX - element.Left);
+                    upperY = Math.Min(upperY, MaximumBorderY - element.Top);
                 }
 
                 foreach (LineElement line in surface.Lines.Values.OfType<LineElement>())
                 {
-                    minX = Math.Min(minX, Math.Min(line.SourceX, Math.Min(line.TargetX, line.HandleX)));
-                    minY = Math.Min(minY, Math.Min(line.SourceY, Math.Min(line.TargetY, line.HandleY)));
+                    int lineMinX = Math.Min(line.SourceX, Math.Min(line.TargetX, line.HandleX));
+                    int lineMinY = Math.Min(line.SourceY, Math.Min(line.TargetY, line.HandleY));
+                    int lineMaxX = Math.Max(line.SourceX, Math.Max(line.TargetX, line.HandleX));
+                    int lineMaxY = Math.Max(line.SourceY, Math.Max(line.TargetY, line.HandleY));
+                    minX = Math.Min(minX, lineMinX);
+                    minY = Math.Min(minY, lineMinY);
+                    upperX = Math.Min(upperX, MaximumLineX - lineMaxX);
+                    upperY = Math.Min(upperY, MaximumLineY - lineMaxY);
                 }
 
                 if (minX == int.MaxValue)
@@ -321,8 +347,8 @@ namespace ThreatModelForge.Analysis
                     continue;
                 }
 
-                int deltaX = minX < MinimumCoordinate ? MinimumCoordinate - minX : 0;
-                int deltaY = minY < MinimumCoordinate ? MinimumCoordinate - minY : 0;
+                int deltaX = ShiftInto(minX, upperX);
+                int deltaY = ShiftInto(minY, upperY);
                 if (deltaX == 0 && deltaY == 0)
                 {
                     continue;
@@ -346,6 +372,30 @@ namespace ThreatModelForge.Analysis
                     line.TargetY += deltaY;
                 }
             }
+        }
+
+        /// <summary>
+        /// Chooses the translation that brings one axis of a surface inside the tool's range, given the
+        /// lowest coordinate on that axis and the largest shift its highest coordinates still allow.
+        /// </summary>
+        /// <remarks>
+        /// A surface drawn wider than the tool's canvas cannot satisfy both bounds by translation. It is
+        /// anchored at the low edge instead, because scaling it to fit would change the geometry that
+        /// trust-boundary containment is derived from, which would alter the analysis rather than the
+        /// drawing.
+        /// </remarks>
+        /// <param name="minimum">The lowest coordinate present on the axis.</param>
+        /// <param name="headroom">The largest shift the highest coordinates on the axis permit.</param>
+        /// <returns>The offset to add to every coordinate on the axis.</returns>
+        private static int ShiftInto(int minimum, int headroom)
+        {
+            int required = MinimumCoordinate - minimum;
+            if (required > headroom)
+            {
+                return Math.Max(required, 0);
+            }
+
+            return Math.Min(Math.Max(required, 0), headroom);
         }
     }
 }

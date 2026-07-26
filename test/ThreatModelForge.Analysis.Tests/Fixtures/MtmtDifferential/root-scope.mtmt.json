@@ -1,0 +1,70 @@
+{
+    "schema":  "tmforge-mtmt-differential",
+    "version":  1,
+    "mtmt":  {
+                 "version":  "7.3.51110.1",
+                 "manifestUri":  "https://tmtdist.azurewebsites.net/Application%20Files/TMT7_7_3_51110_1/TMT7.exe.manifest",
+                 "manifestSha256":  "0821d1af5083eb9c4c3aca9101e3e01f32a5f6ae327420de47e316f76e853530",
+                 "defaultKnowledgeBaseSha256":  "5c5c2fa8b0146f6bb192600d6bc93b828d13181d330e4e88b2cc9a788155c307"
+             },
+    "fixture":  {
+                    "source":  "root-scope.tmforge.json",
+                    "sourceSha256":  "4e090c4fa113009445af5e01efc4f6edba5220fb51c17b80ac20dacdf5c38de4",
+                    "generatedModelSha256":  "0de0f2bb36bbf240453d30719d2af23bf0acb55710c721eaa96abe934ce9033f",
+                    "diagrams":  2,
+                    "interactions":  3
+                },
+    "generatedThreatCount":  63,
+    "generatedThreatsByDiagram":  [
+                                      {
+                                          "diagram":  "Diagram A",
+                                          "lines":  1,
+                                          "generatedThreatCount":  21
+                                      },
+                                      {
+                                          "diagram":  "Diagram B",
+                                          "lines":  2,
+                                          "generatedThreatCount":  42
+                                      }
+                                  ],
+    "rootThreatTypesDeclared":  [
+                                    {
+                                        "typeId":  "DU",
+                                        "shortTitle":  "Denial Of Service (v3)",
+                                        "generationFilters":  "source is \u0027ROOT\u0027"
+                                    },
+                                    {
+                                        "typeId":  "EU",
+                                        "shortTitle":  "Elevation Of Privilege (v3)",
+                                        "generationFilters":  "source is \u0027ROOT\u0027"
+                                    },
+                                    {
+                                        "typeId":  "IU",
+                                        "shortTitle":  "Information Disclosure (v3)",
+                                        "generationFilters":  "source is \u0027ROOT\u0027"
+                                    },
+                                    {
+                                        "typeId":  "RU",
+                                        "shortTitle":  "Repudiation (v3)",
+                                        "generationFilters":  "source is \u0027ROOT\u0027"
+                                    },
+                                    {
+                                        "typeId":  "SU",
+                                        "shortTitle":  "Spoofing (v3)",
+                                        "generationFilters":  "source is \u0027ROOT\u0027"
+                                    },
+                                    {
+                                        "typeId":  "TU",
+                                        "shortTitle":  "Tampering (v3)",
+                                        "generationFilters":  "source is \u0027ROOT\u0027"
+                                    }
+                                ],
+    "rootThreatCount":  0,
+    "interpretation":  "not-generated",
+    "rootThreatsByDiagram":  [
+
+                             ],
+    "rootThreats":  [
+
+                    ]
+}

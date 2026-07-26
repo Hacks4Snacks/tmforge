@@ -322,42 +322,87 @@ try {
     $storageFileType = $abstractsAssembly.GetType('ThreatModeling.ExternalStorage.Abstracts.StorageFile', $true)
     $localFileType = $localAssembly.GetType('ThreatModeling.ExternalStorage.Local.LocalFile', $true)
     $objectModelType = $modelAssembly.GetType('ThreatModeling.Model.ObjectModel', $true)
-    $localFile = [Activator]::CreateInstance($localFileType, [object[]]@($modelPath))
+    $processingModeType = $modelAssembly.GetType('ThreatModeling.Model.ModelProcessingMode', $true)
+
+    # Bind the constructor explicitly. Activator::CreateInstance($type, [object[]]@($path)) re-wraps the
+    # array as a single argument under PowerShell's params binding, so the public LocalFile(string)
+    # constructor is reported as missing.
+    $localFileConstructor = $localFileType.GetConstructor([Type[]]@([string]))
+    if ($null -eq $localFileConstructor) {
+        throw 'MTMT no longer exposes LocalFile(string).'
+    }
+
+    $localFile = $localFileConstructor.Invoke([object[]]@([string]$modelPath))
     $constructor = $objectModelType.GetConstructor([Type[]]@($storageFileType, [bool]))
     if ($null -eq $constructor) {
         throw 'MTMT no longer exposes ObjectModel(StorageFile, bool).'
     }
 
     $model = $constructor.Invoke([object[]]@($localFile, $false))
-    $model.ConfigureThreatGeneration($true)
+
+    # The tool refuses to open a model whose load reported issues, so a capture taken from one would not
+    # describe anything a user could reproduce.
+    if ($model.ModelLoadHasIssues) {
+        throw "The tool reported load issues: $($model.ModelLoadIssues -join '; ')"
+    }
+
+    if (-not $model.IsThreatGenerationEnabled) {
+        throw 'Threat generation is disabled on the loaded model.'
+    }
+
+    # ConfigureThreatGeneration defers to ProcessModelDeferred, which needs the WPF dispatcher the tool
+    # supplies and throws a NullReferenceException in a headless host. Generation is already enabled on
+    # load, so drive the synchronous pass instead. Drawing surfaces are not enumerable until it runs.
+    if (-not $model.ProcessModelImmediately([Enum]::Parse($processingModeType, 'FullModel'))) {
+        throw 'MTMT could not process the model.'
+    }
+
     $generated = @($model.GenerateThreats())
+    $perDiagram = @()
+    foreach ($surface in @($model.GetDrawingSurfaceModels())) {
+        $perDiagram += [pscustomobject][ordered]@{
+            diagram = [string]$surface.Header
+            lines = @($surface.Lines.Values).Count
+            generatedThreatCount = @($model.GenerateThreats([Guid]$surface.Guid)).Count
+        }
+    }
 }
 finally {
     Set-Location -LiteralPath $previousDirectory
     [AppDomain]::CurrentDomain.remove_AssemblyResolve($assemblyResolver)
 }
 
-$rootTypeByTitle = @{
-    'Spoofing (v3)' = 'SU'
-    'Tampering (v3)' = 'TU'
-    'Repudiation (v3)' = 'RU'
-    'Information Disclosure (v3)' = 'IU'
-    'Denial Of Service (v3)' = 'DU'
-    'Elevation Of Privilege (v3)' = 'EU'
+# The knowledge base identifies these by threat type id. "Spoofing (v3)" and friends are the knowledge
+# base's own ShortTitle, not what the tool writes to Threat.Title, so matching on the rendered title
+# would report zero whether or not the types fired.
+$rootTypeIds = @('SU', 'TU', 'RU', 'IU', 'DU', 'EU')
+
+function Get-ThreatTypeId {
+    param([Parameter(Mandatory)]$Threat)
+
+    # Threat.Key is the threat type id followed by the interaction key with its separators removed.
+    $key = [string]$Threat.Key
+    $suffix = ([string]$Threat.InteractionKey) -replace ':', ''
+    if ($suffix.Length -gt 0 -and $key.Length -gt $suffix.Length -and
+        $key.EndsWith($suffix, [StringComparison]::Ordinal)) {
+        return $key.Substring(0, $key.Length - $suffix.Length)
+    }
+
+    return $null
 }
 
 $rootThreats = @()
 foreach ($threat in $generated) {
-    $title = [string]$threat.Title
-    if (-not $rootTypeByTitle.ContainsKey($title)) {
+    $typeId = Get-ThreatTypeId -Threat $threat
+    if ($rootTypeIds -notcontains $typeId) {
         continue
     }
 
     $interactionKey = [string]$threat.InteractionKey
     $parts = if ([string]::IsNullOrWhiteSpace($interactionKey)) { @() } else { @($interactionKey.Split(':')) }
     $rootThreats += [pscustomobject][ordered]@{
-        typeId = $rootTypeByTitle[$title]
-        title = $title
+        typeId = $typeId
+        title = [string]$threat.Title
         diagram = [string]$threat.Diagram
         sourceGuid = if ($parts.Count -gt 0) { $parts[0] } else { $null }
         flowGuid = if ($parts.Count -gt 1) { $parts[1] } else { $null }
@@ -420,6 +465,28 @@ else {
     'unexpected'
 }
 
+# Record what the pinned knowledge base actually declares for these types, so a zero result is
+# evidence that the types were available and did not match rather than that they were absent.
+$rootTypeDeclarations = @()
+$knowledgeBaseXml = New-Object Xml.XmlDocument
+$knowledgeBaseXml.Load($knowledgeBasePath)
+foreach ($node in $knowledgeBaseXml.SelectNodes("//*[local-name()='ThreatType']")) {
+    $idNode = $node.SelectSingleNode("*[local-name()='Id']")
+    if ($null -eq $idNode -or $rootTypeIds -notcontains $idNode.InnerText) {
+        continue
+    }
+
+    $shortTitleNode = $node.SelectSingleNode("*[local-name()='ShortTitle']")
+    $filtersNode = $node.SelectSingleNode("*[local-name()='GenerationFilters']")
+    $rootTypeDeclarations += [pscustomobject][ordered]@{
+        typeId = $idNode.InnerText
+        shortTitle = if ($null -ne $shortTitleNode) { $shortTitleNode.InnerText } else { $null }
+        generationFilters = if ($null -ne $filtersNode) { ($filtersNode.InnerText -replace '\s+', ' ').Trim() } else { $null }
+    }
+}
+
+$rootTypeDeclarations = @($rootTypeDeclarations | Sort-Object -Property typeId)
+
 $result = [pscustomobject][ordered]@{
     schema = 'tmforge-mtmt-differential'
     version = 1
@@ -437,6 +504,8 @@ $result = [pscustomobject][ordered]@{
         interactions = 3
     }
     generatedThreatCount = $generated.Count
+    generatedThreatsByDiagram = $perDiagram
+    rootThreatTypesDeclared = $rootTypeDeclarations
     rootThreatCount = $rootThreats.Count
     interpretation = $interpretation
     rootThreatsByDiagram = $diagramCounts

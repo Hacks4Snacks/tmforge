@@ -1,6 +1,7 @@
 namespace ThreatModelForge.Core.Tests
 {
     using System;
+    using System.Collections.Generic;
     using System.IO;
     using System.Linq;
     using System.Xml.Linq;
@@ -22,6 +23,9 @@ namespace ThreatModelForge.Core.Tests
     public class Tm7MtmtCompatibilityTests
     {
         private const string XsiNamespace = "http://www.w3.org/2001/XMLSchema-instance";
+
+        /// <summary>Gets or sets the MSTest context supplying the deployment directory.</summary>
+        public TestContext? TestContext { get; set; }
 
         /// <summary>
         /// MTMT refuses to open a document whose format version it does not recognize, so a generated
@@ -121,6 +125,42 @@ namespace ThreatModelForge.Core.Tests
             Assert.AreEqual(2, surface.Borders.Count);
             Assert.AreEqual(1, surface.Lines.Count);
             Assert.AreEqual("4.3", reloaded.Version);
+        }
+
+        /// <summary>
+        /// A model authored before MTMT's connector port became a non-nullable enum serializes its ports
+        /// as nil, and the tool refuses such a document outright rather than correcting it. Reading one
+        /// and writing it back must repair the ports, because that round trip is the only route those
+        /// models have to opening again.
+        /// </summary>
+        [TestMethod]
+        [DeploymentItem("SampleModel.tm7")]
+        public void LegacyNilConnectorPortsAreRepairedOnSave()
+        {
+            Assert.IsNotNull(this.TestContext!.DeploymentDirectory);
+            string path = Path.Join(this.TestContext!.DeploymentDirectory!, "SampleModel.tm7");
+
+            Assert.IsTrue(
+                Ports(XDocument.Load(path)).Any(port => NilAttribute(port) != null),
+                "The fixture must still carry the nil ports this repair is about.");
+
+            ThreatModel model;
+            using (FileStream stream = File.OpenRead(path))
+            {
+                model = ThreatModel.Load(stream);
+            }
+
+            List<XElement> ports = Ports(SerializeAndParse(model)).ToList();
+            Assert.IsTrue(ports.Count > 0, "The reloaded model must still carry its connectors.");
+            Assert.IsTrue(
+                ports.All(port => NilAttribute(port) == null && port.Value == "None"),
+                "Connector ports must serialize as \"None\", never nil.");
+        }
+
+        private static IEnumerable<XElement> Ports(XDocument document)
+        {
+            return document.Descendants()
+                .Where(e => e.Name.LocalName == "PortSource" || e.Name.LocalName == "PortTarget");
         }
 
         private static XAttribute? NilAttribute(XElement element)
