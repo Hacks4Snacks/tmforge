@@ -193,9 +193,21 @@ namespace ThreatModelForge.Analysis.Tests
             Assert.AreEqual(nativePriority.AttributeType, priority.AttributeType);
             Assert.AreEqual("High", priority.Values.Single());
             Assert.IsTrue(model.KnowledgeBase.ThreatCategories.Any(category => category.Id == injectedType.Category));
-            Assert.HasCount(2, model.KnowledgeBase.ThreatMetaData!.PropertiesMetaData);
-            Assert.AreSame(nativePriority, model.KnowledgeBase.ThreatMetaData.PropertiesMetaData.Single(
+            Assert.AreSame(nativePriority, model.KnowledgeBase.ThreatMetaData!.PropertiesMetaData.Single(
                 datum => datum.Name == "Priority"));
+
+            // Merging must not drop any property the tool resolves by name while loading a model.
+            string[] required =
+            {
+                "Title", "UserThreatCategory", "UserThreatShortDescription",
+                "UserThreatDescription", "StateInformation", "InteractionString",
+            };
+            foreach (string name in required)
+            {
+                Assert.IsTrue(
+                    model.KnowledgeBase.ThreatMetaData.PropertiesMetaData.Any(datum => datum.Name == name),
+                    $"The merged metadata must still declare '{name}'.");
+            }
         }
 
         /// <summary>

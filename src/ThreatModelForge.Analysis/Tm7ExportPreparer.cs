@@ -201,12 +201,14 @@ namespace ThreatModelForge.Analysis
                     continue;
                 }
 
-                // Two knowledge bases can declare different priority vocabularies without being in
-                // conflict: a vocabulary is a set of offered values, so the union is what lets every
-                // priority either side can express stay selectable. Rejecting the difference would fail
-                // the export outright, and taking one side's list would leave threats carrying a value
-                // the tool no longer offers - the silent downgrade this is here to prevent.
-                if (isGlobalVocabulary && matches.Count == 1 && IsPriorityMetadata(datum))
+                // Two knowledge bases can declare the tool's own threat metadata differently without
+                // being in conflict: these properties are identified by name, and their values are the
+                // pickers the tool offers, so the union is what lets every value either side can express
+                // stay selectable. Rejecting the difference would fail the export outright, and taking
+                // one side's list would leave threats carrying a value the tool no longer offers - the
+                // silent downgrade this is here to prevent. The foreign template's own label and
+                // identifier are authoritative, so only the values are folded in.
+                if (isGlobalVocabulary && matches.Count == 1 && ThreatMetaDataContract.IsToolOwned(datum.Name))
                 {
                     UnionValues(matches[0].Values, datum.Values);
                     continue;

@@ -219,41 +219,33 @@ namespace ThreatModelForge.Analysis
         }
 
         /// <summary>
-        /// Declares the threat priority vocabulary on the knowledge base.
+        /// Declares the threat metadata the Microsoft Threat Modeling Tool owns, including the threat
+        /// priority vocabulary.
         /// </summary>
         /// <remarks>
         /// <para>
-        /// This is declared unconditionally, because every generated threat carries a priority whether
-        /// or not any rule declared a default for it. The Microsoft Threat Modeling Tool drives its
-        /// priority field from <c>IsPriorityUsed</c> and this value list; omitting them leaves the
-        /// priorities Threat Model Forge wrote unmanaged in the tool, where editing a threat can
-        /// quietly replace a value the list does not offer.
+        /// The priority vocabulary is declared unconditionally, because every generated threat carries a
+        /// priority whether or not any rule declared a default for it. The tool drives its priority field
+        /// from <c>IsPriorityUsed</c> and this value list; omitting them leaves the priorities Threat
+        /// Model Forge wrote unmanaged in the tool, where editing a threat can quietly replace a value
+        /// the list does not offer.
         /// </para>
         /// <para>
         /// The declared values are the whole <see cref="ThreatPriority"/> vocabulary, so any priority
         /// Threat Model Forge can express survives a round trip through the tool. This mirrors the
         /// shape of the official Microsoft templates, which declare their vocabulary the same way.
         /// </para>
+        /// <para>
+        /// The rest of the block is the property set the tool resolves by name while loading a model. It
+        /// must be declared alongside the priority vocabulary: the tool tolerates a knowledge base that
+        /// declares no threat metadata at all, but refuses to open one that declares only part of the
+        /// required set. See <see cref="ThreatMetaDataContract"/>.
+        /// </para>
         /// </remarks>
         /// <param name="knowledgeBase">The knowledge base being built.</param>
         private static void AddThreatMetaData(KnowledgeBaseData knowledgeBase)
         {
-            ThreatMetaData metadata = new ThreatMetaData { IsPriorityUsed = true };
-            ThreatMetaDatum priority = new ThreatMetaDatum
-            {
-                Name = "Priority",
-                Label = "Priority",
-                Description = "Generated threat priority.",
-                Id = "tmforge:priority",
-                AttributeType = 1,
-            };
-            foreach (string value in ThreatPriorities.All)
-            {
-                priority.Values.Add(value);
-            }
-
-            metadata.PropertiesMetaData.Add(priority);
-            knowledgeBase.ThreatMetaData = metadata;
+            knowledgeBase.ThreatMetaData = ThreatMetaDataContract.Create(ThreatPriorities.All);
         }
 
         private static ThreatCategory ThreatCategoryFor(string id, string name, string description)

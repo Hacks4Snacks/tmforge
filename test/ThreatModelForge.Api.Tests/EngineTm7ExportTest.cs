@@ -192,6 +192,20 @@ namespace ThreatModelForge.Api.Tests
             Assert.AreEqual("Accepted risk.", kept.Justification);
         }
 
+        /// <summary>
+        /// The tool resolves six threat properties by name while loading a model and throws
+        /// <c>"KnowledgeBase is missing a required Threat Property in ThreatMetaData"</c> when any of
+        /// them is absent, refusing to open the file. Declaring no threat metadata at all is tolerated,
+        /// but declaring a partial block is not, so an embedded knowledge base must carry the complete
+        /// required set.
+        /// </summary>
+        [TestMethod]
+        public void ExportDeclaresEveryThreatPropertyTheToolRequires()
+        {
+            AssertDeclaresRequiredThreatMetadata(Parse(EngineService.ExportTm7(ConnectedModel())));
+            AssertDeclaresRequiredThreatMetadata(Parse(EngineService.Convert(ConnectedModel(), "tm7")));
+        }
+
         private static void AssertOpenableScaffolding(XDocument doc)
         {
             XElement? version = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "Version");
@@ -230,6 +244,38 @@ namespace ThreatModelForge.Api.Tests
                 kb!.Attribute(XName.Get("nil", XsiNamespace)),
                 "The knowledge base must be embedded, not nil.");
             Assert.IsTrue(kb.HasElements, "The embedded knowledge base must carry content.");
+            AssertDeclaresRequiredThreatMetadata(doc);
+        }
+
+        private static void AssertDeclaresRequiredThreatMetadata(XDocument doc)
+        {
+            string[] required =
+            {
+                "Title",
+                "UserThreatCategory",
+                "UserThreatShortDescription",
+                "UserThreatDescription",
+                "StateInformation",
+                "InteractionString",
+            };
+
+            XElement? metadata = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "ThreatMetaData");
+            Assert.IsNotNull(metadata, "Expected a <ThreatMetaData> block.");
+            Assert.IsNull(
+                metadata!.Attribute(XName.Get("nil", XsiNamespace)),
+                "A knowledge base that embeds threat types must declare its threat metadata.");
+
+            var declared = metadata.Descendants()
+                .Where(e => e.Name.LocalName == "Name")
+                .Select(e => e.Value)
+                .ToList();
+
+            foreach (string name in required)
+            {
+                string message = $"The tool requires the '{name}' threat property; without it the model " +
+                    "cannot be opened.";
+                Assert.IsTrue(declared.Contains(name), message);
+            }
         }
 
         private static IEnumerable<int> CoordinateValues(XDocument doc)
