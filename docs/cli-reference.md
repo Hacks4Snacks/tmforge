@@ -630,7 +630,7 @@ tmforge threats --remove <id> <model>
 | --- | --- |
 | `--add` | Author a **manual threat** the rules do not detect. `--category` is a STRIDE category (`Spoofing` / `Tampering` / `Repudiation` / `InformationDisclosure` / `DenialOfService` / `ElevationOfPrivilege`); `--scope` is an element or flow id (omit for a model-wide threat). Manual threats are keyed in the reserved `manual:` namespace and do not implicitly persist generated threats. |
 | `--id <id>` | Key the threat yourself instead of taking a generated id, so it can be referenced from a ticket or control catalogue and the same authoring command can be re-run. Letters, digits, `-`, `_`, and `.`, up to 128 characters; the `manual:` prefix is added if you omit it. Re-using an existing id is an error — use `--edit` to change that threat. |
-| `--edit <id>` | Change a threat's `--state` (`Open` / `NeedsInvestigation` / `Mitigated` / `Accepted`), `--priority`, `--mitigation`, `--description`, or `--note`. Works on rule-derived and manual threats. |
+| `--edit <id>` | Change a threat's `--state` (`Open` / `NeedsInvestigation` / `Mitigated` / `Accepted`), `--priority` (`Critical` / `High` / `Medium` / `Low`), `--mitigation`, `--description`, or `--note`. Works on rule-derived and manual threats. |
 | `--remove <id>` | Delete a **manual** threat (rule threats regenerate from the rules — accept or edit them instead). |
 
 ```bash
@@ -643,6 +643,13 @@ tmforge list threats app.tm7                 # see the register, including manua
 Authored threats and edits round-trip into the `.tm7` register (and open in the Microsoft Threat
 Modeling Tool). A manual threat's id comes from `--id`, from the `list threats` output, or from
 `--add --json`. An id you chose survives both `tmforge-json` and `.tm7` round trips unchanged.
+
+Priority is author-owned and accepts `Critical`, `High`, `Medium`, or `Low`. Severity still drives
+analysis gating; priority never affects detection. The knowledge base embedded in an exported `.tm7`
+declares this whole vocabulary, so a priority you set is one the Microsoft Threat Modeling Tool also
+offers and cannot be replaced on a round trip. When you embed a different knowledge base with
+`convert --knowledge-base`, its priority list is **extended** rather than replaced, so both its values
+and tmforge's remain selectable.
 
 ### `accept`
 

@@ -96,7 +96,12 @@ namespace ThreatModelForge.Cli
 
                 model.KnowledgeBase = KnowledgeBaseData.Load(knowledgeBasePath!);
             }
-            else if (target is Tm7Format)
+
+            // Prepare runs for every tm7 export, including one embedding a supplied knowledge base.
+            // Skipping it there would leave the file without the coordinate normalization and typed
+            // properties the tool needs, and would leave a threat carrying a priority the supplied
+            // knowledge base never declared.
+            if (target is Tm7Format)
             {
                 Tm7ExportPreparer.Prepare(model);
             }

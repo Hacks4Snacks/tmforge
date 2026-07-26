@@ -152,7 +152,7 @@ namespace ThreatModelForge.Cli
 
             if (!TryCanonicalPriority(parsed.Get("priority"), out string? priority))
             {
-                Console.Error.WriteLine("--priority must be High, Medium, or Low.");
+                Console.Error.WriteLine("--priority must be one of: " + ThreatPriorities.Describe() + ".");
                 return 1;
             }
 
@@ -221,7 +221,7 @@ namespace ThreatModelForge.Cli
             ThreatState? state = stateArg == null ? null : ThreatStateWire.Parse(stateArg);
             if (!TryCanonicalPriority(parsed.Get("priority"), out string? priority))
             {
-                Console.Error.WriteLine("--priority must be High, Medium, or Low.");
+                Console.Error.WriteLine("--priority must be one of: " + ThreatPriorities.Describe() + ".");
                 return 1;
             }
 
@@ -253,18 +253,7 @@ namespace ThreatModelForge.Cli
         }
 
         private static bool TryCanonicalPriority(string? value, out string? priority)
-        {
-            priority = null;
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return true;
-            }
-
-            string[] priorities = { "High", "Medium", "Low" };
-            priority = priorities.FirstOrDefault(candidate =>
-                string.Equals(candidate, value, StringComparison.OrdinalIgnoreCase));
-            return priority != null;
-        }
+            => ThreatPriorities.TryCanonicalize(value, out priority);
 
         private static int RunRemove(
             CliArgs parsed,

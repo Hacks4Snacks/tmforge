@@ -313,7 +313,7 @@ namespace ThreatModelForge.Analysis.Tests
             Assert.AreEqual("High", exportedType.PropertiesMetaData.Single().Values.Single());
             Assert.IsTrue(knowledgeBase.ThreatMetaData!.IsPriorityUsed);
             CollectionAssert.AreEqual(
-                new[] { "High", "Medium", "Low" },
+                new[] { "Critical", "High", "Medium", "Low" },
                 knowledgeBase.ThreatMetaData.PropertiesMetaData.Single().Values);
         }
 

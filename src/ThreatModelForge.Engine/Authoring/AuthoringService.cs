@@ -3,6 +3,7 @@ namespace ThreatModelForge.Engine
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using ThreatModelForge.Analysis;
     using ThreatModelForge.Formats;
     using ThreatModelForge.KnowledgeBase;
     using ThreatModelForge.Model;
@@ -191,7 +192,7 @@ namespace ThreatModelForge.Engine
 
             if (!TryCanonicalPriority(request.Priority, out string? priority))
             {
-                return new AuthoringResultDto { Success = false, Error = "Priority must be High, Medium, or Low." };
+                return new AuthoringResultDto { Success = false, Error = "Priority must be one of: " + ThreatPriorities.Describe() + "." };
             }
 
             TmForgeModelDto source = model ?? new TmForgeModelDto();
@@ -253,7 +254,7 @@ namespace ThreatModelForge.Engine
 
             if (!TryCanonicalPriority(request.Priority, out string? priority))
             {
-                return new AuthoringResultDto { Success = false, Error = "Priority must be High, Medium, or Low." };
+                return new AuthoringResultDto { Success = false, Error = "Priority must be one of: " + ThreatPriorities.Describe() + "." };
             }
 
             TmForgeModelDto source = model ?? new TmForgeModelDto();
@@ -313,18 +314,7 @@ namespace ThreatModelForge.Engine
         }
 
         private static bool TryCanonicalPriority(string? value, out string? priority)
-        {
-            priority = null;
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return true;
-            }
-
-            string[] priorities = { "High", "Medium", "Low" };
-            priority = priorities.FirstOrDefault(candidate =>
-                string.Equals(candidate, value, StringComparison.OrdinalIgnoreCase));
-            return priority != null;
-        }
+            => ThreatPriorities.TryCanonicalize(value, out priority);
 
         private static TmForgeModelDto WithThreats(TmForgeModelDto source, List<ThreatStateDto> overlay)
         {

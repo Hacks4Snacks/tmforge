@@ -74,7 +74,7 @@ namespace ThreatModelForge.Analysis
 
             AddGenericElements(knowledgeBase.GenericElements);
             AddStandardElements(knowledgeBase.StandardElements);
-            AddThreatMetaData(knowledgeBase, ruleSet);
+            AddThreatMetaData(knowledgeBase);
             AddThreatCategories(knowledgeBase.ThreatCategories, ruleSet);
             AddThreatTypes(knowledgeBase.ThreatTypes, ruleSet);
 
@@ -218,13 +218,26 @@ namespace ThreatModelForge.Analysis
             }
         }
 
-        private static void AddThreatMetaData(KnowledgeBaseData knowledgeBase, RuleSet ruleSet)
+        /// <summary>
+        /// Declares the threat priority vocabulary on the knowledge base.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This is declared unconditionally, because every generated threat carries a priority whether
+        /// or not any rule declared a default for it. The Microsoft Threat Modeling Tool drives its
+        /// priority field from <c>IsPriorityUsed</c> and this value list; omitting them leaves the
+        /// priorities Threat Model Forge wrote unmanaged in the tool, where editing a threat can
+        /// quietly replace a value the list does not offer.
+        /// </para>
+        /// <para>
+        /// The declared values are the whole <see cref="ThreatPriority"/> vocabulary, so any priority
+        /// Threat Model Forge can express survives a round trip through the tool. This mirrors the
+        /// shape of the official Microsoft templates, which declare their vocabulary the same way.
+        /// </para>
+        /// </remarks>
+        /// <param name="knowledgeBase">The knowledge base being built.</param>
+        private static void AddThreatMetaData(KnowledgeBaseData knowledgeBase)
         {
-            if (!ruleSet.Rules.Any(rule => rule.DefaultThreatPriority.HasValue))
-            {
-                return;
-            }
-
             ThreatMetaData metadata = new ThreatMetaData { IsPriorityUsed = true };
             ThreatMetaDatum priority = new ThreatMetaDatum
             {
@@ -234,9 +247,11 @@ namespace ThreatModelForge.Analysis
                 Id = "tmforge:priority",
                 AttributeType = 1,
             };
-            priority.Values.Add("High");
-            priority.Values.Add("Medium");
-            priority.Values.Add("Low");
+            foreach (string value in ThreatPriorities.All)
+            {
+                priority.Values.Add(value);
+            }
+
             metadata.PropertiesMetaData.Add(priority);
             knowledgeBase.ThreatMetaData = metadata;
         }

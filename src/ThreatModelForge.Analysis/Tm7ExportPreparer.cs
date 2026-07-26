@@ -170,7 +170,8 @@ namespace ThreatModelForge.Analysis
                 source.ThreatMetaData.PropertiesMetaData,
                 rejectConflicts,
                 "global threat metadata",
-                nativePriority);
+                nativePriority,
+                isGlobalVocabulary: true);
         }
 
         private static void MergeThreatMetadata(
@@ -178,7 +179,8 @@ namespace ThreatModelForge.Analysis
             IEnumerable<ThreatMetaDatum> source,
             bool rejectConflicts,
             string owner,
-            ThreatMetaDatum? nativePriority)
+            ThreatMetaDatum? nativePriority,
+            bool isGlobalVocabulary = false)
         {
             foreach (ThreatMetaDatum sourceDatum in source)
             {
@@ -199,10 +201,38 @@ namespace ThreatModelForge.Analysis
                     continue;
                 }
 
+                // Two knowledge bases can declare different priority vocabularies without being in
+                // conflict: a vocabulary is a set of offered values, so the union is what lets every
+                // priority either side can express stay selectable. Rejecting the difference would fail
+                // the export outright, and taking one side's list would leave threats carrying a value
+                // the tool no longer offers - the silent downgrade this is here to prevent.
+                if (isGlobalVocabulary && matches.Count == 1 && IsPriorityMetadata(datum))
+                {
+                    UnionValues(matches[0].Values, datum.Values);
+                    continue;
+                }
+
                 if (rejectConflicts && (matches.Count != 1 || !ThreatMetadataMatches(matches[0], datum)))
                 {
                     throw new InvalidOperationException(
                         $"Foreign knowledge base {owner} conflicts with metadata '{datum.Id ?? datum.Name}'.");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Adds any values the target does not already offer, keeping the target's own ordering so a
+        /// foreign template's presentation is preserved and only genuinely new values are appended.
+        /// </summary>
+        /// <param name="target">The vocabulary to extend, in place.</param>
+        /// <param name="source">The vocabulary to fold in.</param>
+        private static void UnionValues(List<string> target, IEnumerable<string> source)
+        {
+            foreach (string value in source)
+            {
+                if (!target.Any(existing => string.Equals(existing, value, StringComparison.OrdinalIgnoreCase)))
+                {
+                    target.Add(value);
                 }
             }
         }

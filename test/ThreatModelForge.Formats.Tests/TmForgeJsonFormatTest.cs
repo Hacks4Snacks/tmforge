@@ -49,6 +49,50 @@ namespace ThreatModelForge.Formats.Tests
         }
 
         /// <summary>
+        /// A <c>Critical</c> priority survives a tmforge-json round trip unchanged. Priority is
+        /// author-owned, so no write path may quietly narrow it to the tool's historical
+        /// High/Medium/Low vocabulary.
+        /// </summary>
+        [TestMethod]
+        public void CriticalPrioritySurvivesRoundTrip()
+        {
+            const string Id = "manual:crown-jewel-exposure";
+            ThreatModel source = new ThreatModel();
+            source.AllThreatsDictionary[Id] = new Threat
+            {
+                Id = 1,
+                State = ThreatState.NeedsInvestigation,
+                InteractionKey = Id,
+                SourceGuid = System.Guid.NewGuid(),
+                Title = "Signing key is readable by the web tier",
+                UserThreatCategory = "InformationDisclosure",
+                Priority = "Critical",
+            };
+
+            byte[] bytes;
+            using (MemoryStream output = new MemoryStream())
+            {
+                new TmForgeJsonFormat().Write(source, output);
+                bytes = output.ToArray();
+            }
+
+            using (JsonDocument parsed = JsonDocument.Parse(bytes))
+            {
+                Assert.AreEqual(
+                    "Critical",
+                    parsed.RootElement.GetProperty("threats")[0].GetProperty("priority").GetString());
+            }
+
+            ThreatModel reread;
+            using (MemoryStream input = new MemoryStream(bytes))
+            {
+                reread = new TmForgeJsonFormat().Read(input);
+            }
+
+            Assert.AreEqual("Critical", reread.AllThreatsDictionary[Id].Priority);
+        }
+
+        /// <summary>
         /// Verifies that a GUID element id in the source document is preserved as the element's
         /// identity, so the structural diff and three-way merge can match elements across files.
         /// </summary>

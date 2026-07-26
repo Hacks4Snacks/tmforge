@@ -185,7 +185,7 @@ namespace ThreatModelForge.Api.Tests
                 new EditThreatRequest { Id = added.Id!, Priority = "Urgent" });
 
             Assert.IsFalse(edited.Success);
-            StringAssert.Contains(edited.Error, "High, Medium, or Low");
+            StringAssert.Contains(edited.Error, "Critical, High, Medium, Low");
         }
 
         /// <summary>An author-supplied id is used verbatim, with the reserved prefix supplied for them.</summary>

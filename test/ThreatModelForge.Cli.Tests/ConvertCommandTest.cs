@@ -2,8 +2,12 @@ namespace ThreatModelForge.Cli.Tests
 {
     using System;
     using System.IO;
+    using System.Linq;
     using System.Text.Json;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
+    using ThreatModelForge.Analysis;
+    using ThreatModelForge.KnowledgeBase;
+    using ThreatModelForge.Model;
 
     /// <summary>
     /// Unit tests for the <see cref="ConvertCommand"/> class.
@@ -129,6 +133,50 @@ namespace ThreatModelForge.Cli.Tests
             using JsonDocument document = JsonDocument.Parse(writer.ToString());
             Assert.AreEqual("convert", document.RootElement.GetProperty("command").GetString());
             Assert.AreEqual("drawio", document.RootElement.GetProperty("data").GetProperty("format").GetString());
+        }
+
+        /// <summary>
+        /// A <c>.tm7</c> export that embeds a supplied knowledge base is still prepared for the tool.
+        /// Supplying a knowledge base used to skip preparation entirely, which left the file without
+        /// the declared priority vocabulary, the normalized coordinates, and the typed properties the
+        /// Microsoft Threat Modeling Tool relies on.
+        /// </summary>
+        [TestMethod]
+        public void SuppliedKnowledgeBaseIsStillPreparedForTheTool()
+        {
+            string input = this.WriteInput();
+            string knowledgeBase = Path.Join(this.WorkingDirectory, "supplied.tb7");
+            KnowledgeBaseData supplied = new KnowledgeBaseData
+            {
+                Manifest = new Manifest { Id = Guid.NewGuid(), Name = "Supplied" },
+                ThreatMetaData = new ThreatMetaData { IsPriorityUsed = true },
+            };
+            ThreatMetaDatum priority = new ThreatMetaDatum
+            {
+                Id = "supplied:priority",
+                Name = "Priority",
+                Label = "Severity",
+                AttributeType = 1,
+            };
+            priority.Values.Add("High");
+            supplied.ThreatMetaData.PropertiesMetaData.Add(priority);
+            supplied.Save(knowledgeBase);
+
+            string output = Path.Join(this.WorkingDirectory, "model.tm7");
+            int exit = ConvertCommand.Run(new[] { "--to", "tm7", "--knowledge-base", knowledgeBase, "--out", output, input });
+
+            Assert.AreEqual(0, exit);
+            ThreatModel written = ThreatModel.Load(output);
+            ThreatMetaDatum merged = written.KnowledgeBase!.ThreatMetaData!.PropertiesMetaData.Single(
+                datum => datum.Name == "Priority");
+
+            // The supplied vocabulary keeps its own value and ordering, and every priority Threat Model
+            // Forge can express is added so no threat carries a value the tool was never told about.
+            Assert.AreEqual("High", merged.Values[0]);
+            foreach (string expected in ThreatPriorities.All)
+            {
+                Assert.Contains(expected, merged.Values, expected + " must be declared.");
+            }
         }
 
         private string WriteInput()
