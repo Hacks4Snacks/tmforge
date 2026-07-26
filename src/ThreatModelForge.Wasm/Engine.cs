@@ -129,6 +129,16 @@ namespace ThreatModelForge.Wasm
         public static string Threats(string tmforgeJson)
             => Serialize(EngineService.GenerateThreats(Deserialize(tmforgeJson), ruleOptions));
 
+        /// <summary>
+        /// Splits the model's threat register by origin and by standing against the current rules, so a
+        /// stored entry the rules no longer produce is distinguishable from a live one.
+        /// </summary>
+        /// <param name="tmforgeJson">The canonical tmforge-json model.</param>
+        /// <returns>The split register as JSON (the /v1 ThreatRegisterDto shape).</returns>
+        [JSExport]
+        public static string ThreatRegister(string tmforgeJson)
+            => Serialize(EngineService.DescribeThreatRegister(Deserialize(tmforgeJson), ruleOptions));
+
         /// <summary>Merges two edited tmforge-json models, keyed by element identity.</summary>
         /// <param name="baseJson">The common ancestor model, or an empty string for a two-way merge.</param>
         /// <param name="oursJson">The local model.</param>

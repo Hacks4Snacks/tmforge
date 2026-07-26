@@ -87,6 +87,11 @@ namespace ThreatModelForge.Api
                 .WithName("GenerateThreats")
                 .WithTags("Model");
             app.MapPost(
+                "/v1/model/threat-register",
+                (TmForgeModelDto model) => TypedResults.Ok(EngineService.DescribeThreatRegister(model, rules)))
+                .WithName("DescribeThreatRegister")
+                .WithTags("Model");
+            app.MapPost(
                 "/v1/model/merge",
                 (MergeRequestDto request) => TypedResults.Ok(
                     EngineService.Merge(

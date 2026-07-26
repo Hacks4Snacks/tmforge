@@ -25,5 +25,11 @@ namespace ThreatModelForge.Engine
         /// disposition and, when threat-bearing, the register id it projects to.
         /// </summary>
         Evidence = 4,
+
+        /// <summary>
+        /// Materialize the threat register split by origin and by standing against this run, so a
+        /// stored entry the rules no longer produce is distinguishable from a live one.
+        /// </summary>
+        Register = 8,
     }
 }

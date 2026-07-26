@@ -317,6 +317,72 @@ namespace ThreatModelForge.Engine
         }
 
         /// <summary>
+        /// Describes the model's threat register split by origin and by standing against the current
+        /// rules, using the built-in rules.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <returns>The split register.</returns>
+        public static ThreatRegisterDto DescribeThreatRegister(TmForgeModelDto dto)
+            => DescribeThreatRegister(dto, null);
+
+        /// <summary>
+        /// Describes the model's threat register split by origin and by standing against the current
+        /// rules.
+        /// </summary>
+        /// <remarks>
+        /// The register alone cannot tell a live entry from one left behind by a rule that stopped
+        /// firing, because applying a generation result never deletes. This classifies it against one
+        /// evaluation so both are distinguishable, and reports an entry whose rule was not part of the
+        /// run separately rather than calling it stale.
+        /// </remarks>
+        /// <param name="dto">The canonical model.</param>
+        /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
+        /// <returns>The split register.</returns>
+        public static ThreatRegisterDto DescribeThreatRegister(TmForgeModelDto dto, EngineRuleOptions? rules)
+        {
+            _ = dto ?? throw new ArgumentNullException(nameof(dto));
+
+            ThreatRegisterSummary? summary = null;
+            AnalysisResultDto result = RunAnalysis(
+                dto,
+                rules,
+                AnalysisProjection.Register,
+                onRegister: register => summary = register);
+
+            if (summary == null)
+            {
+                // The evaluation failed; report the diagnostics rather than an empty register that
+                // would read as "nothing stored".
+                return new ThreatRegisterDto
+                {
+                    Diagnostics = result.Diagnostics,
+                    RulePacks = result.RulePacks,
+                };
+            }
+
+            return new ThreatRegisterDto
+            {
+                Manual = summary.Manual,
+                PersistedGenerated = summary.PersistedGenerated,
+                CurrentGenerated = summary.CurrentGenerated,
+                StaleGenerated = summary.StaleGenerated,
+                IndeterminateGenerated = summary.IndeterminateGenerated,
+                UnavailableRuleIds = summary.UnavailableRuleIds,
+                Entries = summary.Entries.Select(entry => new ThreatRegisterEntryDto
+                {
+                    Id = entry.Id,
+                    State = entry.State,
+                    RuleId = entry.RuleId,
+                    Title = entry.Title,
+                    Triage = ThreatStateWire.ToWire(entry.Triage),
+                    HasTriage = entry.HasTriage,
+                }).ToList(),
+                Diagnostics = result.Diagnostics,
+                RulePacks = result.RulePacks,
+            };
+        }
+
+        /// <summary>
         /// Serializes the supplied model to lossless <c>.tm7</c> bytes via the real engine.
         /// </summary>
         /// <param name="dto">The canonical model.</param>
@@ -636,11 +702,13 @@ namespace ThreatModelForge.Engine
             EngineRuleOptions? rules,
             AnalysisProjection projections,
             List<AnalysisFindingDto>? evidence = null,
-            Action<RuleSet>? onRuleSet = null)
+            Action<RuleSet>? onRuleSet = null,
+            Action<ThreatRegisterSummary>? onRegister = null)
         {
             bool wantFindings = (projections & AnalysisProjection.Findings) != 0;
             bool wantThreats = (projections & AnalysisProjection.Threats) != 0;
             bool wantEvidence = (projections & AnalysisProjection.Evidence) != 0 && evidence != null;
+            bool wantRegister = (projections & AnalysisProjection.Register) != 0 && onRegister != null;
             List<FindingDto> findings = new List<FindingDto>();
             List<ThreatDto> threats = new List<ThreatDto>();
             List<string> diagnostics = new List<string>();
@@ -706,6 +774,16 @@ namespace ThreatModelForge.Engine
                     if (wantEvidence)
                     {
                         ProjectEvidence(writer.Messages, dto, originalIds, nameToIds, evidence!);
+                    }
+
+                    if (wantRegister)
+                    {
+                        // Projected from the same messages, so the register is classified against the
+                        // very run it is being compared to rather than a second evaluation.
+                        onRegister!(ThreatRegisterClassifier.Classify(
+                            model,
+                            ThreatGenerator.Project(writer.Messages),
+                            ruleSet));
                     }
                 }
             }

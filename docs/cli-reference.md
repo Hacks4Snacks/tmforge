@@ -874,12 +874,17 @@ Configure your MCP client to launch the tool:
 ```
 
 **Tools.** Grounding: `formats`, `stencils`, `property_schema`, `rules`, `rule_packs`,
-`manifest_schema`, `detect`. Model I/O and analysis: `read`, `save`, `analyze`, `threats`, `report`,
-`merge`. Authoring: `apply`, `export_manifest`, `add`, `connect`, `set`, `rename`, `remove`. Threat
-authoring: `add_threat`, `edit_threat`, `remove_threat`.
+`manifest_schema`, `detect`. Model I/O and analysis: `read`, `save`, `analyze`, `threats`,
+`threat_register`, `report`, `merge`. Authoring: `apply`, `export_manifest`, `add`, `connect`, `set`,
+`rename`, `remove`. Threat authoring: `add_threat`, `edit_threat`, `remove_threat`.
 
-**Custom rules.** `analyze`, `threats`, `report`, `rules`, and `rule_packs` accept an optional
-`rulesPath` naming a `*.tmrules.json` pack. It is resolved through the same workspace sandbox as
+`threat_register` splits the register by origin and standing (manual, current-generated,
+stale-generated, and entries whose rule was not part of the run), so an agent can tell a live finding
+from one left behind by a rule that stopped firing.
+
+**Custom rules.** `analyze`, `threats`, `threat_register`, `report`, `rules`, and `rule_packs` accept
+an optional `rulesPath` naming a `*.tmrules.json` pack. It is resolved through the same workspace
+sandbox as
 every other file access, so an agent cannot load rules from outside `--root`.
 
 A typical agent loop is **apply -> analyze -> set -> analyze -> save**: build a model from a manifest

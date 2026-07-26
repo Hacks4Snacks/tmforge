@@ -64,16 +64,26 @@ namespace ThreatModelForge.Cli
             }
 
             ThreatModel model = ThreatModelFormatRegistry.CreateDefault().Load(input!);
+            IReadOnlyCollection<string>? staleIds = null;
             if (formatId == "html")
             {
                 using RuleSet ruleSet = AnalysisRuleSources.Create(RuleSourceCli.FromPath(parsed.Get(RuleSourceCli.OptionName)));
                 ApplyModelRuleSelection(ruleSet, input!);
-                ThreatGenerator.Apply(model, ThreatGenerator.Generate(model, ruleSet));
+
+                // Classify before applying, while the register is still what the file stored. Applying
+                // adds the current threats, after which a leftover is no longer distinguishable.
+                GenerationResult generation = ThreatGenerator.Generate(model, ruleSet);
+                staleIds = ThreatRegisterClassifier.Classify(model, generation, ruleSet)
+                    .Entries
+                    .Where(entry => entry.State == ThreatRegisterStates.StaleGenerated)
+                    .Select(entry => entry.Id)
+                    .ToList();
+                ThreatGenerator.Apply(model, generation);
             }
 
             string content = formatId == "svg"
                 ? new DiagramSvgRenderer().RenderModel(model).ToString()
-                : new HtmlReportWriter().Write(model);
+                : new HtmlReportWriter().Write(model, staleIds);
 
             if (parsed.Json)
             {
