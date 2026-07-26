@@ -63,13 +63,39 @@ tmforge <command> [options] <file>
 Summarize a model: counts of elements, flows, and threats.
 
 ```text
-tmforge open [--json] <input>
+tmforge open [--json] [--rules <path>] <input>
 ```
 
 ```bash
 tmforge open payments.tm7
 tmforge open payments.tm7 --json
+tmforge open payments.tm7 --rules corporate.rules.json   # recognize a custom pack's threats
 ```
+
+#### Threat counts are split by origin and standing
+
+The register is append-only: applying a generation result never deletes, so triage is never lost when
+a rule stops firing. The cost is that a left-over entry looks exactly like a live one. `open`
+therefore classifies the register against one analysis run and reports four counts:
+
+| Count | Meaning |
+| --- | --- |
+| `manual` | Entries an author wrote by hand. Rules never produce or retire them. |
+| `persistedGenerated` | Rule-derived entries stored in the model's register. |
+| `currentGenerated` | Threats the current rules produce, stored or not. Exceeds `persistedGenerated` when the register has not been written since the model changed. |
+| `staleGenerated` | Stored entries the current rules no longer produce. |
+
+These are **not a partition and must not be summed** — each answers a different question, and one
+threat can appear in more than one.
+
+A stored entry whose rule is absent from the effective bundle or disabled for the run is counted in
+`indeterminateGenerated` and its rule named in `unavailableRuleIds`. It is never called stale: a rule
+that was not given the chance to fire says nothing about the model, so treating its entries as stale
+would invite deleting real findings after a mistyped `--rules` path or a disabled pack. Pass
+`--rules` so a custom pack's threats are recognized rather than reported as unavailable.
+
+The full register lives in `.tm7`. `tmforge-json` deliberately persists only author-owned state
+(triage and manual threats), so `persistedGenerated` is zero for a model held in that format.
 
 ### `list`
 
@@ -84,7 +110,7 @@ tmforge list <components|flows|boundaries|threats|diagrams> [--json] <input>
 | `components` | Processes, data stores, and external entities (with GUIDs). |
 | `flows` | Data flows and their endpoints. |
 | `boundaries` | Trust boundaries. |
-| `threats` | Threats stored in the model (e.g. authored in MTMT). |
+| `threats` | Threats stored in the model (e.g. authored in MTMT), with each entry's **standing**. |
 | `diagrams` | Diagrams in the model. |
 
 ```bash
@@ -618,28 +644,56 @@ After `--write`, triage the register with [`list threats`](#list) and [`accept`]
 
 Beyond acceptance, `threats` can **create, edit, and remove** threats. `--add` writes only the manual
 entry; it does not persist the current generated findings. `--edit` materializes rule threats for
-lookup when needed. `--remove` deletes only a manual entry. Each operation then saves the model:
+lookup when needed. `--remove` deletes a manual or stale entry. Each operation then saves the model:
 
 ```text
-tmforge threats --add --title <t> --category <STRIDE> [--scope <id>] [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] <model>
+tmforge threats --add --title <t> --category <STRIDE> [--id <id>] [--scope <id>] [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] <model>
 tmforge threats --edit <id> [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] [--note <n>] <model>
 tmforge threats --remove <id> <model>
+tmforge threats --remove-stale [--force] [--rules <path>] <model>
 ```
 
 | Option | Meaning |
 | --- | --- |
-| `--add` | Author a **manual threat** the rules do not detect. `--category` is a STRIDE category (`Spoofing` / `Tampering` / `Repudiation` / `InformationDisclosure` / `DenialOfService` / `ElevationOfPrivilege`); `--scope` is an element or flow id (omit for a model-wide threat). Manual threats are keyed `manual:<guid>` and do not implicitly persist generated threats. |
-| `--edit <id>` | Change a threat's `--state` (`Open` / `NeedsInvestigation` / `Mitigated` / `Accepted`), `--priority`, `--mitigation`, `--description`, or `--note`. Works on rule-derived and manual threats. |
-| `--remove <id>` | Delete a **manual** threat (rule threats regenerate from the rules — accept or edit them instead). |
+| `--add` | Author a **manual threat** the rules do not detect. `--category` is a STRIDE category (`Spoofing` / `Tampering` / `Repudiation` / `InformationDisclosure` / `DenialOfService` / `ElevationOfPrivilege`); `--scope` is an element or flow id (omit for a model-wide threat). Manual threats are keyed in the reserved `manual:` namespace and do not implicitly persist generated threats. |
+| `--id <id>` | Key the threat yourself instead of taking a generated id, so it can be referenced from a ticket or control catalogue and the same authoring command can be re-run. Letters, digits, `-`, `_`, and `.`, up to 128 characters; the `manual:` prefix is added if you omit it. Re-using an existing id is an error — use `--edit` to change that threat. |
+| `--edit <id>` | Change a threat's `--state` (`Open` / `NeedsInvestigation` / `Mitigated` / `Accepted`), `--priority` (`Critical` / `High` / `Medium` / `Low`), `--mitigation`, `--description`, or `--note`. Works on rule-derived and manual threats. |
+| `--remove <id>` | Delete a **manual** threat, or a **stale** one. A threat the rules still produce is refused: removing it would only bring it back on the next run — accept or edit it instead. |
+| `--remove-stale` | Delete every stale entry at once. Entries carrying triage are **kept and listed**; `--force` discards them too. Refuses outright if any entry's rule was not part of the run, naming the rules so you can re-run with `--rules` rather than lose a real finding. |
 
 ```bash
 tmforge threats app.tm7 --add --title "Admin actions are unlogged" --category Repudiation --scope <process-id> --priority High
+tmforge threats app.tm7 --add --id unlogged-admin-actions --title "Admin actions are unlogged" --category Repudiation
 tmforge threats app.tm7 --edit <id> --state Mitigated --description "Handled by the mesh"
-tmforge list threats app.tm7                 # see the register, including manual threats
+tmforge list threats app.tm7                 # see the register and each entry's standing
+tmforge threats app.tm7 --remove-stale       # clear leftovers; triaged ones are kept and listed
 ```
 
+#### Clearing stale entries
+
+Applying a generation result never deletes, so triage survives every re-run. The cost is that an
+entry left behind by a rule that stopped firing stays in the register. `list threats` shows each
+entry's standing, and `--remove-stale` is the explicit way to clear the leftovers.
+
+Two things are deliberately never done for you:
+
+- A stale entry that carries triage — investigated, mitigated, or accepted — is **kept and named**.
+  The rule going quiet retires the finding, not the decision someone recorded against it. `--force`
+  discards those too, but you have to ask.
+- If any stored entry's rule was not part of the run, `--remove-stale` **refuses entirely** and names
+  the rules. A rule that never ran says nothing about the model, so pruning on that basis would
+  delete real findings after a mistyped `--rules` path or a disabled pack.
+
 Authored threats and edits round-trip into the `.tm7` register (and open in the Microsoft Threat
-Modeling Tool). A manual threat's id comes from the `list threats` output or from `--add --json`.
+Modeling Tool). A manual threat's id comes from `--id`, from the `list threats` output, or from
+`--add --json`. An id you chose survives both `tmforge-json` and `.tm7` round trips unchanged.
+
+Priority is author-owned and accepts `Critical`, `High`, `Medium`, or `Low`. Severity still drives
+analysis gating; priority never affects detection. The knowledge base embedded in an exported `.tm7`
+declares this whole vocabulary, so a priority you set is one the Microsoft Threat Modeling Tool also
+offers and cannot be replaced on a round trip. When you embed a different knowledge base with
+`convert --knowledge-base`, its priority list is **extended** rather than replaced, so both its values
+and tmforge's remain selectable.
 
 ### `accept`
 
@@ -820,12 +874,17 @@ Configure your MCP client to launch the tool:
 ```
 
 **Tools.** Grounding: `formats`, `stencils`, `property_schema`, `rules`, `rule_packs`,
-`manifest_schema`, `detect`. Model I/O and analysis: `read`, `save`, `analyze`, `threats`, `report`,
-`merge`. Authoring: `apply`, `export_manifest`, `add`, `connect`, `set`, `rename`, `remove`. Threat
-authoring: `add_threat`, `edit_threat`, `remove_threat`.
+`manifest_schema`, `detect`. Model I/O and analysis: `read`, `save`, `analyze`, `threats`,
+`threat_register`, `report`, `merge`. Authoring: `apply`, `export_manifest`, `add`, `connect`, `set`,
+`rename`, `remove`. Threat authoring: `add_threat`, `edit_threat`, `remove_threat`.
 
-**Custom rules.** `analyze`, `threats`, `report`, `rules`, and `rule_packs` accept an optional
-`rulesPath` naming a `*.tmrules.json` pack. It is resolved through the same workspace sandbox as
+`threat_register` splits the register by origin and standing (manual, current-generated,
+stale-generated, and entries whose rule was not part of the run), so an agent can tell a live finding
+from one left behind by a rule that stopped firing.
+
+**Custom rules.** `analyze`, `threats`, `threat_register`, `report`, `rules`, and `rule_packs` accept
+an optional `rulesPath` naming a `*.tmrules.json` pack. It is resolved through the same workspace
+sandbox as
 every other file access, so an agent cannot load rules from outside `--root`.
 
 A typical agent loop is **apply -> analyze -> set -> analyze -> save**: build a model from a manifest

@@ -103,6 +103,28 @@ namespace ThreatModelForge.Analysis.Tests
             StringAssert.Contains(exception.Message, "threat type 'TM1023'");
         }
 
+        /// <summary>
+        /// The embedded knowledge base declares the priority vocabulary even when no rule declares a
+        /// default priority. Every generated threat carries a priority regardless, and the Microsoft
+        /// Threat Modeling Tool drives its priority field from this declaration; without it the tool
+        /// can replace a value it was never told about.
+        /// </summary>
+        [TestMethod]
+        public void PrepareDeclaresThePriorityVocabularyWithoutAnyPriorityRule()
+        {
+            ThreatModel model = ModelWithFlow("Protocol", "HTTPS");
+            using RuleSet rules = new RuleSet();
+
+            Tm7ExportPreparer.Prepare(model, rules);
+
+            ThreatMetaData? metadata = model.KnowledgeBase!.ThreatMetaData;
+            Assert.IsNotNull(metadata, "The knowledge base must declare threat metadata.");
+            Assert.IsTrue(metadata!.IsPriorityUsed);
+            ThreatMetaDatum priority = metadata.PropertiesMetaData.Single(
+                datum => datum.Name == "Priority");
+            CollectionAssert.AreEqual(ThreatPriorities.All.ToArray(), priority.Values);
+        }
+
         /// <summary>Foreign category spelling is retained and generated priority metadata is merged.</summary>
         [TestMethod]
         public void PrepareCanonicalizesForeignCategoryReferenceAndMergesPriority()
@@ -176,9 +198,14 @@ namespace ThreatModelForge.Analysis.Tests
                 datum => datum.Name == "Priority"));
         }
 
-        /// <summary>Foreign global priority metadata cannot silently redefine the generated catalog.</summary>
+        /// <summary>
+        /// A foreign knowledge base that declares a different priority vocabulary has its list extended
+        /// rather than replaced or rejected. Two vocabularies are not a conflict: taking either side
+        /// alone would leave threats carrying a value the tool no longer offers, which is precisely the
+        /// silent downgrade the export exists to prevent.
+        /// </summary>
         [TestMethod]
-        public void PrepareRejectsConflictingForeignPriorityMetadata()
+        public void PrepareUnionsForeignPriorityVocabulary()
         {
             ThreatModel model = ModelWithFlow("Protocol", "HTTPS");
             ThreatMetaData metadata = new ThreatMetaData { IsPriorityUsed = true };
@@ -200,10 +227,18 @@ namespace ThreatModelForge.Analysis.Tests
             using RuleSet rules = new RuleSet();
             rules.Rules.Add(new PriorityRule());
 
-            InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
-                () => Tm7ExportPreparer.Prepare(model, rules));
+            Tm7ExportPreparer.Prepare(model, rules);
 
-            StringAssert.Contains(exception.Message, "global threat metadata");
+            ThreatMetaDatum merged = model.KnowledgeBase.ThreatMetaData!.PropertiesMetaData.Single(
+                datum => datum.Name == "Priority");
+
+            // The foreign template's own value and ordering survive, and every priority Threat Model
+            // Forge can express is appended so it stays selectable in the tool.
+            Assert.AreEqual("Urgent", merged.Values[0]);
+            foreach (string expected in ThreatPriorities.All)
+            {
+                Assert.Contains(expected, merged.Values, expected + " must remain selectable.");
+            }
         }
 
         /// <summary>

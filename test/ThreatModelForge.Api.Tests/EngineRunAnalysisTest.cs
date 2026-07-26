@@ -129,6 +129,57 @@ namespace ThreatModelForge.Api.Tests
         }
 
         /// <summary>
+        /// Two overlay entries claiming the same id cannot both be threats. The second is dropped, but
+        /// the caller is told — a threat that silently fails to appear reads as no threat at all.
+        /// </summary>
+        [TestMethod]
+        public void DuplicateManualIdIsReportedRatherThanSilentlyDropped()
+        {
+            TmForgeModelDto model = SampleModel();
+            TmForgeModelDto withDuplicates = new TmForgeModelDto
+            {
+                Elements = model.Elements,
+                Flows = model.Flows,
+                Threats = new[]
+                {
+                    new ThreatStateDto { Id = "manual:dup", Manual = true, Category = "Tampering", Title = "First" },
+                    new ThreatStateDto { Id = "manual:dup", Manual = true, Category = "Tampering", Title = "Second" },
+                },
+            };
+
+            AnalysisResultDto combined = EngineService.RunAnalysis(withDuplicates, null);
+
+            Assert.AreEqual(1, combined.Threats.Count(threat => threat.Id == "manual:dup"));
+            Assert.AreEqual("First", combined.Threats.Single(threat => threat.Manual).Title);
+            Assert.IsTrue(
+                combined.Diagnostics.Any(diagnostic => diagnostic.Contains("manual:dup", StringComparison.Ordinal)),
+                string.Join(" | ", combined.Diagnostics));
+        }
+
+        /// <summary>
+        /// A manual entry whose id is not a usable identity is reported, not silently ignored.
+        /// </summary>
+        [TestMethod]
+        public void MalformedManualIdIsReported()
+        {
+            TmForgeModelDto model = SampleModel();
+            TmForgeModelDto withBadId = new TmForgeModelDto
+            {
+                Elements = model.Elements,
+                Flows = model.Flows,
+                Threats = new[]
+                {
+                    new ThreatStateDto { Id = "  ", Manual = true, Category = "Tampering", Title = "Nameless" },
+                },
+            };
+
+            AnalysisResultDto combined = EngineService.RunAnalysis(withBadId, null);
+
+            Assert.IsFalse(combined.Threats.Any(threat => threat.Manual));
+            Assert.IsTrue(combined.Diagnostics.Count > 0, "The rejected manual threat must be reported.");
+        }
+
+        /// <summary>
         /// A failure during one action is reported once in each projection the caller reads, rather
         /// than as two unrelated errors from two evaluations.
         /// </summary>

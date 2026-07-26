@@ -189,6 +189,33 @@ namespace ThreatModelForge.Cli
             return threats;
         }
 
+        /// <summary>Validates a threat register before returning it to an MCP caller.</summary>
+        /// <param name="register">The split register.</param>
+        /// <returns>The unchanged register.</returns>
+        public static ThreatRegisterDto ValidateResponse(ThreatRegisterDto register)
+        {
+            if (register.Entries.Count > MaxGeneratedItems)
+            {
+                throw new InvalidDataException($"MCP response exceeds the limit of {MaxGeneratedItems} threats.");
+            }
+
+            Budget budget = new Budget();
+            foreach (ThreatRegisterEntryDto entry in register.Entries)
+            {
+                budget.AddText(entry.Id);
+                budget.AddText(entry.State);
+                budget.AddText(entry.RuleId);
+                budget.AddText(entry.Title);
+                budget.AddText(entry.Triage);
+            }
+
+            budget.AddTexts(register.UnavailableRuleIds);
+            budget.AddTexts(register.Diagnostics);
+
+            ValidateStructuredResponse(register);
+            return register;
+        }
+
         /// <summary>Validates generated text before returning it to an MCP caller.</summary>
         /// <param name="text">The response text.</param>
         /// <returns>The unchanged text.</returns>

@@ -7,7 +7,7 @@ namespace ThreatModelForge.Formats
     /// threat, so edits and manually-authored threats round-trip with the structural model even though
     /// the rest of the (regenerable) threat register is not stored. A rule-derived threat is keyed by
     /// its register id (<c>{targetGuid:N}:{ruleId}</c>) and only needs an entry once it is edited; a
-    /// manually-authored threat sets <see cref="Manual"/> and is keyed <c>manual:{guid}</c>.
+    /// manually-authored threat sets <see cref="Manual"/> and is keyed in the reserved <c>manual:</c> namespace.
     /// </summary>
     public sealed class TmForgeJsonThreatState
     {

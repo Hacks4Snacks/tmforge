@@ -149,6 +149,8 @@ namespace ThreatModelForge.Reporting
             + " .badge-investigation { border-color: var(--cp-warning); color: var(--cp-warning); }"
             + " .badge-mitigated { border-color: var(--cp-success); color: var(--cp-success); }"
             + " .badge-accepted { border-color: var(--cp-accent); color: var(--cp-accent); }"
+            + " .badge-stale { border-style: dashed; opacity: 0.85; }"
+            + " .threat-stale .threat-title { text-decoration: line-through; text-decoration-thickness: 1px; }"
             + " .threat-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; padding: 0 1.25rem;"
             + " border-top: 1px solid var(--cp-border); border-bottom: 1px solid var(--cp-border); background: var(--cp-surface-soft); }"
             + " .threat-fact { min-width: 0; padding: 0.8rem 1rem 0.8rem 0; }"
@@ -194,13 +196,30 @@ namespace ThreatModelForge.Reporting
         /// </summary>
         /// <param name="model">The threat model.</param>
         /// <returns>The HTML document text.</returns>
-        public string Write(ThreatModel model)
+        public string Write(ThreatModel model) => this.Write(model, null);
+
+        /// <summary>
+        /// Writes an HTML report, marking the entries the caller has determined are stale.
+        /// </summary>
+        /// <remarks>
+        /// The register keeps an entry after its rule stops firing so triage is never lost, which means
+        /// a report rendered from the register alone shows a retired finding as though it were live.
+        /// Deciding which entries are stale needs the rules, which this writer deliberately does not
+        /// depend on, so the caller determines it and passes the keys in.
+        /// </remarks>
+        /// <param name="model">The threat model.</param>
+        /// <param name="staleThreatIds">The register keys of stale entries, or <see langword="null"/> if unknown.</param>
+        /// <returns>The HTML document text.</returns>
+        public string Write(ThreatModel model, IReadOnlyCollection<string>? staleThreatIds)
         {
             if (model == null)
             {
                 throw new ArgumentNullException(nameof(model));
             }
 
+            HashSet<string> stale = staleThreatIds == null
+                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(staleThreatIds, StringComparer.OrdinalIgnoreCase);
             List<Threat> threats = model.AllThreatsDictionary.Values.ToList();
             string reportTitle = FirstNonEmpty(model.MetaInformation?.ThreatModelName, "Threat Modeling Report");
             XElement main = new XElement("main", BuildSummary(threats));
@@ -220,12 +239,12 @@ namespace ThreatModelForge.Reporting
             DiagramSvgRenderer renderer = new DiagramSvgRenderer();
             for (int i = 0; i < model.DrawingSurfaceList.Count; i++)
             {
-                main.Add(BuildDiagramSection(model.DrawingSurfaceList[i], i, model, renderer));
+                main.Add(BuildDiagramSection(model.DrawingSurfaceList[i], i, model, renderer, stale));
             }
 
             if (model.DrawingSurfaceList.Count == 0)
             {
-                main.Add(BuildUnscopedThreatSection(threats));
+                main.Add(BuildUnscopedThreatSection(threats, stale));
             }
 
             XElement body = new XElement(
@@ -402,7 +421,8 @@ namespace ThreatModelForge.Reporting
             DrawingSurfaceModel diagram,
             int diagramIndex,
             ThreatModel model,
-            DiagramSvgRenderer renderer)
+            DiagramSvgRenderer renderer,
+            HashSet<string> stale)
         {
             List<Threat> threats = model.AllThreatsDictionary.Values
                 .Where(threat => BelongsToDiagram(threat, diagram, diagramIndex, model.DrawingSurfaceList))
@@ -436,11 +456,11 @@ namespace ThreatModelForge.Reporting
                     new XElement("div", new XAttribute("class", "diagram-canvas"), renderer.Render(diagram)),
                     new XElement("figcaption", caption)));
 
-            section.Add(BuildThreatList(threats, BuildEntityNames(diagram)));
+            section.Add(BuildThreatList(threats, BuildEntityNames(diagram), stale));
             return section;
         }
 
-        private static XElement BuildUnscopedThreatSection(IReadOnlyList<Threat> threats)
+        private static XElement BuildUnscopedThreatSection(IReadOnlyList<Threat> threats, HashSet<string> stale)
         {
             return new XElement(
                 "section",
@@ -453,10 +473,13 @@ namespace ThreatModelForge.Reporting
                         new XElement("p", new XAttribute("class", "eyebrow"), "Register"),
                         new XElement("h2", "Threat register")),
                     new XElement("span", new XAttribute("class", "count-pill"), CountText(threats.Count, "threat"))),
-                BuildThreatList(threats, new Dictionary<Guid, string>()));
+                BuildThreatList(threats, new Dictionary<Guid, string>(), stale));
         }
 
-        private static XElement BuildThreatList(IReadOnlyList<Threat> threats, IReadOnlyDictionary<Guid, string> entityNames)
+        private static XElement BuildThreatList(
+            IReadOnlyList<Threat> threats,
+            IReadOnlyDictionary<Guid, string> entityNames,
+            HashSet<string> stale)
         {
             if (threats.Count == 0)
             {
@@ -470,13 +493,17 @@ namespace ThreatModelForge.Reporting
             XElement list = new XElement("div", new XAttribute("class", "threat-list"));
             for (int i = 0; i < threats.Count; i++)
             {
-                list.Add(BuildThreatCard(i + 1, threats[i], entityNames));
+                list.Add(BuildThreatCard(i + 1, threats[i], entityNames, stale));
             }
 
             return list;
         }
 
-        private static XElement BuildThreatCard(int number, Threat threat, IReadOnlyDictionary<Guid, string> entityNames)
+        private static XElement BuildThreatCard(
+            int number,
+            Threat threat,
+            IReadOnlyDictionary<Guid, string> entityNames,
+            HashSet<string> stale)
         {
             string title = FirstNonEmpty(threat.Title, threat.TypeId, "Threat");
             string category = FirstNonEmpty(threat.UserThreatCategory, "Uncategorized");
@@ -486,6 +513,7 @@ namespace ThreatModelForge.Reporting
             string note = FirstNonEmpty(threat.StateInformation);
             string stateClass = StateClass(threat.State);
             bool manual = IsManual(threat);
+            bool isStale = !manual && stale.Contains(RegisterKey(threat));
             XElement details = new XElement("div", new XAttribute("class", "threat-details"));
             AddThreatDetail(details, "Description", description, "threat-detail");
             AddThreatDetail(details, "Suggested mitigation", mitigation, "threat-detail");
@@ -493,7 +521,7 @@ namespace ThreatModelForge.Reporting
 
             return new XElement(
                 "article",
-                new XAttribute("class", "threat-card threat-" + stateClass),
+                new XAttribute("class", "threat-card threat-" + stateClass + (isStale ? " threat-stale" : string.Empty)),
                 new XElement(
                     "header",
                     new XAttribute("class", "threat-card-header"),
@@ -510,11 +538,12 @@ namespace ThreatModelForge.Reporting
                         new XAttribute("class", "badges"),
                         Badge(StateText(threat.State), "badge badge-" + stateClass),
                         Badge(category, "badge"),
-                        Badge(FirstNonEmpty(threat.Priority, "Unprioritized"), "badge"))),
+                        Badge(FirstNonEmpty(threat.Priority, "Unprioritized"), "badge"),
+                        isStale ? Badge("Stale", "badge badge-stale") : null)),
                 new XElement(
                     "dl",
                     new XAttribute("class", "threat-facts"),
-                    ThreatFact("Origin", manual ? "Manual entry" : "Rule " + FirstNonEmpty(threat.TypeId, "Unknown")),
+                    ThreatFact("Origin", OriginText(threat, manual, isStale)),
                     ThreatFact("Scope", ScopeText(threat, entityNames)),
                     ThreatFact("References", FirstNonEmpty(references, "None"))),
                 details);
@@ -666,8 +695,21 @@ namespace ThreatModelForge.Reporting
         private static bool IsManual(Threat threat)
         {
             return string.IsNullOrWhiteSpace(threat.TypeId) ||
-                (!string.IsNullOrEmpty(threat.InteractionKey) &&
-                    threat.InteractionKey!.StartsWith("manual:", StringComparison.OrdinalIgnoreCase));
+                ManualThreatId.IsManual(threat.InteractionKey);
+        }
+
+        private static string RegisterKey(Threat threat) =>
+            string.IsNullOrEmpty(threat.InteractionKey) ? string.Empty : threat.InteractionKey!;
+
+        private static string OriginText(Threat threat, bool manual, bool isStale)
+        {
+            if (manual)
+            {
+                return "Manual entry";
+            }
+
+            string rule = "Rule " + FirstNonEmpty(threat.TypeId, "Unknown");
+            return isStale ? rule + " \u2014 no longer reported by this rule set" : rule;
         }
 
         private static int StateRank(Threat threat)

@@ -33,8 +33,10 @@ namespace ThreatModelForge.Cli
             bool json = false;
             string? noun = null;
             string? input = null;
-            foreach (string arg in args)
+            string? rulePath = null;
+            for (int index = 0; index < args.Length; index++)
             {
+                string arg = args[index];
                 if (string.Equals(arg, "-?", StringComparison.Ordinal) || string.Equals(arg, "--help", StringComparison.Ordinal))
                 {
                     PrintUsage();
@@ -44,6 +46,16 @@ namespace ThreatModelForge.Cli
                 if (string.Equals(arg, "--json", StringComparison.Ordinal))
                 {
                     json = true;
+                }
+                else if (string.Equals(arg, "--" + RuleSourceCli.OptionName, StringComparison.Ordinal))
+                {
+                    if (index + 1 >= args.Length)
+                    {
+                        Console.Error.WriteLine("--" + RuleSourceCli.OptionName + " requires a path.");
+                        return 1;
+                    }
+
+                    rulePath = args[++index];
                 }
                 else if (!arg.StartsWith("-", StringComparison.Ordinal))
                 {
@@ -98,7 +110,7 @@ namespace ThreatModelForge.Cli
                     BuildDiagrams(model, out headers, out rows, out items);
                     break;
                 default:
-                    BuildThreats(model, out headers, out rows, out items);
+                    BuildThreats(model, rulePath, out headers, out rows, out items);
                     break;
             }
 
@@ -264,10 +276,23 @@ namespace ThreatModelForge.Cli
             }).ToList();
         }
 
-        private static void BuildThreats(ThreatModel model, out string[] headers, out List<string[]> rows, out object items)
+        private static void BuildThreats(ThreatModel model, string? rulePath, out string[] headers, out List<string[]> rows, out object items)
         {
+            // Classify against one generation run so a left-over entry is distinguishable from a live
+            // one; the register itself cannot tell them apart.
+            using RuleSet ruleSet = AnalysisRuleSources.Create(RuleSourceCli.FromPath(rulePath));
+            ThreatRegisterSummary register = ThreatRegisterClassifier.Classify(
+                model,
+                ThreatGenerator.Generate(model, ruleSet),
+                ruleSet);
+            Dictionary<string, ThreatRegisterEntry> states = new Dictionary<string, ThreatRegisterEntry>(StringComparer.OrdinalIgnoreCase);
+            foreach (ThreatRegisterEntry entry in register.Entries)
+            {
+                states[entry.Id] = entry;
+            }
+
             List<Threat> threats = model.AllThreatsDictionary.Values.ToList();
-            headers = new[] { "TITLE", "PRIORITY", "STATE", "CATEGORY", "ID" };
+            headers = new[] { "TITLE", "PRIORITY", "STATE", "STANDING", "CATEGORY", "ID" };
             rows = new List<string[]>();
             foreach (Threat threat in threats)
             {
@@ -276,6 +301,7 @@ namespace ThreatModelForge.Cli
                     threat.Title ?? string.Empty,
                     threat.Priority ?? string.Empty,
                     ThreatStateWire.ToWire(threat.State),
+                    StandingOf(states, threat),
                     threat.UserThreatCategory ?? string.Empty,
                     threat.Id.ToString(),
                 });
@@ -284,20 +310,33 @@ namespace ThreatModelForge.Cli
             items = threats.Select(t => new
             {
                 id = t.Id,
+                key = KeyOf(t),
                 title = t.Title,
                 priority = t.Priority,
                 state = ThreatStateWire.ToWire(t.State),
+                standing = StandingOf(states, t),
+                ruleId = t.TypeId,
                 category = t.UserThreatCategory,
                 flowGuid = t.FlowGuid,
                 diagramGuid = t.DrawingSurfaceGuid,
             }).ToList();
         }
 
+        private static string KeyOf(Threat threat) =>
+            string.IsNullOrEmpty(threat.InteractionKey) ? string.Empty : threat.InteractionKey!;
+
+        private static string StandingOf(IReadOnlyDictionary<string, ThreatRegisterEntry> states, Threat threat) =>
+            states.TryGetValue(KeyOf(threat), out ThreatRegisterEntry? entry) ? entry.State : string.Empty;
+
         private static void PrintUsage()
         {
             Console.Error.WriteLine("List parts of a threat model.");
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  tmforge list <components|flows|boundaries|threats|diagrams> [--json] <input>");
+            Console.Error.WriteLine("  tmforge list <components|flows|boundaries|threats|diagrams> [--json] [--rules <path>] <input>");
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("'threats' shows each entry's STANDING: manual, current-generated, stale-generated");
+            Console.Error.WriteLine("(stored but the rule no longer fires), or indeterminate-generated (its rule was not");
+            Console.Error.WriteLine("part of this run). Pass --rules so a custom pack's threats are recognized.");
         }
     }
 }

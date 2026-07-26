@@ -3,7 +3,9 @@ namespace ThreatModelForge.Engine
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using ThreatModelForge.Analysis;
     using ThreatModelForge.Formats;
+    using ThreatModelForge.KnowledgeBase;
     using ThreatModelForge.Model;
 
     /// <summary>
@@ -168,9 +170,10 @@ namespace ThreatModelForge.Engine
 
         /// <summary>
         /// Adds a manually-authored STRIDE threat to the model's author overlay — a threat the rules do
-        /// not detect. It is keyed <c>manual:{guid}</c> and carries the author's category, title, state,
-        /// priority, description, mitigation, and scope. The overlay round-trips into the exported
-        /// <c>.tm7</c> register.
+        /// not detect. It is keyed in the reserved <c>manual:</c> namespace, using
+        /// <see cref="AddThreatRequest.Id"/> when the author supplies one, and carries the author's
+        /// category, title, state, priority, description, mitigation, and scope. The overlay round-trips
+        /// into the exported <c>.tm7</c> register.
         /// </summary>
         /// <param name="model">The canonical model to edit, or <see langword="null"/> to start from an empty model.</param>
         /// <param name="request">The threat inputs.</param>
@@ -189,11 +192,35 @@ namespace ThreatModelForge.Engine
 
             if (!TryCanonicalPriority(request.Priority, out string? priority))
             {
-                return new AuthoringResultDto { Success = false, Error = "Priority must be High, Medium, or Low." };
+                return new AuthoringResultDto { Success = false, Error = "Priority must be one of: " + ThreatPriorities.Describe() + "." };
             }
 
             TmForgeModelDto source = model ?? new TmForgeModelDto();
-            string id = "manual:" + Guid.NewGuid().ToString("N");
+            string id;
+            if (request.Id == null)
+            {
+                id = ManualThreatId.Create();
+            }
+            else
+            {
+                if (!ManualThreatId.TryCanonicalize(request.Id, out id, out string? idError))
+                {
+                    return new AuthoringResultDto { Success = false, Error = idError };
+                }
+
+                // The id is the author's handle on this threat. If it is already taken, replacing the
+                // existing entry would discard its triage without saying so.
+                if (source.Threats != null &&
+                    source.Threats.Any(existing => string.Equals(existing.Id, id, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return new AuthoringResultDto
+                    {
+                        Success = false,
+                        Error = $"The threat id '{id}' is already in this model. Edit that threat instead.",
+                    };
+                }
+            }
+
             ThreatStateDto entry = new ThreatStateDto
             {
                 Id = id,
@@ -227,7 +254,7 @@ namespace ThreatModelForge.Engine
 
             if (!TryCanonicalPriority(request.Priority, out string? priority))
             {
-                return new AuthoringResultDto { Success = false, Error = "Priority must be High, Medium, or Low." };
+                return new AuthoringResultDto { Success = false, Error = "Priority must be one of: " + ThreatPriorities.Describe() + "." };
             }
 
             TmForgeModelDto source = model ?? new TmForgeModelDto();
@@ -287,18 +314,7 @@ namespace ThreatModelForge.Engine
         }
 
         private static bool TryCanonicalPriority(string? value, out string? priority)
-        {
-            priority = null;
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return true;
-            }
-
-            string[] priorities = { "High", "Medium", "Low" };
-            priority = priorities.FirstOrDefault(candidate =>
-                string.Equals(candidate, value, StringComparison.OrdinalIgnoreCase));
-            return priority != null;
-        }
+            => ThreatPriorities.TryCanonicalize(value, out priority);
 
         private static TmForgeModelDto WithThreats(TmForgeModelDto source, List<ThreatStateDto> overlay)
         {

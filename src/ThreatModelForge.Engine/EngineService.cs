@@ -317,6 +317,72 @@ namespace ThreatModelForge.Engine
         }
 
         /// <summary>
+        /// Describes the model's threat register split by origin and by standing against the current
+        /// rules, using the built-in rules.
+        /// </summary>
+        /// <param name="dto">The canonical model.</param>
+        /// <returns>The split register.</returns>
+        public static ThreatRegisterDto DescribeThreatRegister(TmForgeModelDto dto)
+            => DescribeThreatRegister(dto, null);
+
+        /// <summary>
+        /// Describes the model's threat register split by origin and by standing against the current
+        /// rules.
+        /// </summary>
+        /// <remarks>
+        /// The register alone cannot tell a live entry from one left behind by a rule that stopped
+        /// firing, because applying a generation result never deletes. This classifies it against one
+        /// evaluation so both are distinguishable, and reports an entry whose rule was not part of the
+        /// run separately rather than calling it stale.
+        /// </remarks>
+        /// <param name="dto">The canonical model.</param>
+        /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
+        /// <returns>The split register.</returns>
+        public static ThreatRegisterDto DescribeThreatRegister(TmForgeModelDto dto, EngineRuleOptions? rules)
+        {
+            _ = dto ?? throw new ArgumentNullException(nameof(dto));
+
+            ThreatRegisterSummary? summary = null;
+            AnalysisResultDto result = RunAnalysis(
+                dto,
+                rules,
+                AnalysisProjection.Register,
+                onRegister: register => summary = register);
+
+            if (summary == null)
+            {
+                // The evaluation failed; report the diagnostics rather than an empty register that
+                // would read as "nothing stored".
+                return new ThreatRegisterDto
+                {
+                    Diagnostics = result.Diagnostics,
+                    RulePacks = result.RulePacks,
+                };
+            }
+
+            return new ThreatRegisterDto
+            {
+                Manual = summary.Manual,
+                PersistedGenerated = summary.PersistedGenerated,
+                CurrentGenerated = summary.CurrentGenerated,
+                StaleGenerated = summary.StaleGenerated,
+                IndeterminateGenerated = summary.IndeterminateGenerated,
+                UnavailableRuleIds = summary.UnavailableRuleIds,
+                Entries = summary.Entries.Select(entry => new ThreatRegisterEntryDto
+                {
+                    Id = entry.Id,
+                    State = entry.State,
+                    RuleId = entry.RuleId,
+                    Title = entry.Title,
+                    Triage = ThreatStateWire.ToWire(entry.Triage),
+                    HasTriage = entry.HasTriage,
+                }).ToList(),
+                Diagnostics = result.Diagnostics,
+                RulePacks = result.RulePacks,
+            };
+        }
+
+        /// <summary>
         /// Serializes the supplied model to lossless <c>.tm7</c> bytes via the real engine.
         /// </summary>
         /// <param name="dto">The canonical model.</param>
@@ -636,11 +702,13 @@ namespace ThreatModelForge.Engine
             EngineRuleOptions? rules,
             AnalysisProjection projections,
             List<AnalysisFindingDto>? evidence = null,
-            Action<RuleSet>? onRuleSet = null)
+            Action<RuleSet>? onRuleSet = null,
+            Action<ThreatRegisterSummary>? onRegister = null)
         {
             bool wantFindings = (projections & AnalysisProjection.Findings) != 0;
             bool wantThreats = (projections & AnalysisProjection.Threats) != 0;
             bool wantEvidence = (projections & AnalysisProjection.Evidence) != 0 && evidence != null;
+            bool wantRegister = (projections & AnalysisProjection.Register) != 0 && onRegister != null;
             List<FindingDto> findings = new List<FindingDto>();
             List<ThreatDto> threats = new List<ThreatDto>();
             List<string> diagnostics = new List<string>();
@@ -700,12 +768,22 @@ namespace ThreatModelForge.Engine
 
                     if (wantThreats)
                     {
-                        ProjectThreats(writer.Messages, dto, nameToIds, threats);
+                        ProjectThreats(writer.Messages, dto, nameToIds, threats, diagnostics);
                     }
 
                     if (wantEvidence)
                     {
                         ProjectEvidence(writer.Messages, dto, originalIds, nameToIds, evidence!);
+                    }
+
+                    if (wantRegister)
+                    {
+                        // Projected from the same messages, so the register is classified against the
+                        // very run it is being compared to rather than a second evaluation.
+                        onRegister!(ThreatRegisterClassifier.Classify(
+                            model,
+                            ThreatGenerator.Project(writer.Messages),
+                            ruleSet));
                     }
                 }
             }
@@ -954,7 +1032,8 @@ namespace ThreatModelForge.Engine
             IReadOnlyList<Message> messages,
             TmForgeModelDto dto,
             Dictionary<string, List<string>> nameToIds,
-            List<ThreatDto> threats)
+            List<ThreatDto> threats,
+            ICollection<string>? diagnostics)
         {
             GenerationResult generation = ThreatGenerator.Project(messages);
             Dictionary<string, ThreatStateDto> overlay = BuildTriage(dto.Threats);
@@ -985,7 +1064,7 @@ namespace ThreatModelForge.Engine
                 });
             }
 
-            AppendManualThreats(threats, dto.Threats, seen, nameToIds);
+            AppendManualThreats(threats, dto.Threats, seen, nameToIds, diagnostics);
         }
 
         private static IReadOnlyList<string> BuildElementIds(GeneratedThreat threat)
@@ -1020,7 +1099,8 @@ namespace ThreatModelForge.Engine
             List<ThreatDto> result,
             IReadOnlyList<ThreatStateDto>? overlay,
             HashSet<string> seen,
-            Dictionary<string, List<string>> nameToIds)
+            Dictionary<string, List<string>> nameToIds,
+            ICollection<string>? diagnostics)
         {
             if (overlay == null)
             {
@@ -1030,15 +1110,31 @@ namespace ThreatModelForge.Engine
             Dictionary<string, string> idToName = InvertNames(nameToIds);
             foreach (ThreatStateDto entry in overlay)
             {
-                if (entry.Manual != true || string.IsNullOrEmpty(entry.Id) || !seen.Add(entry.Id))
+                if (entry.Manual != true)
                 {
+                    continue;
+                }
+
+                // An author-owned id is only useful if it is exactly what the author wrote and refers
+                // to exactly one threat. A malformed or already-taken id is reported rather than
+                // dropped, because a threat that silently fails to appear reads as no threat at all.
+                if (!ManualThreatId.TryCanonicalize(entry.Id, out string id, out string? error))
+                {
+                    diagnostics?.Add($"Skipped a manual threat: {error}");
+                    continue;
+                }
+
+                if (!seen.Add(id))
+                {
+                    diagnostics?.Add(
+                        $"Skipped the manual threat '{id}': that id is already used by another threat in this model.");
                     continue;
                 }
 
                 IReadOnlyList<string> ids = entry.ElementIds ?? Array.Empty<string>();
                 result.Add(new ThreatDto
                 {
-                    Id = entry.Id,
+                    Id = id,
                     RuleId = string.Empty,
                     Category = entry.Category ?? string.Empty,
                     Title = entry.Title ?? string.Empty,
@@ -1109,11 +1205,13 @@ namespace ThreatModelForge.Engine
             // patches so the rules regenerate those threats with their full title and category, but keep
             // the manual threats (which no rule produces), then re-apply the author's edits on top so a
             // lossless export carries a complete, titled register with the author's state and edits.
+            Dictionary<string, Threat> seeded = new Dictionary<string, Threat>(StringComparer.OrdinalIgnoreCase);
             List<string> ruleSeeded = model.AllThreatsDictionary.Keys
                 .Where(key => !ThreatStateWire.IsManualKey(key))
                 .ToList();
             foreach (string key in ruleSeeded)
             {
+                seeded[key] = model.AllThreatsDictionary[key];
                 model.AllThreatsDictionary.Remove(key);
             }
 
@@ -1128,8 +1226,39 @@ namespace ThreatModelForge.Engine
                 ThreatGenerator.Apply(model, generation);
             }
 
+            RestoreUnregeneratedEntries(model, seeded);
             ApplyOverlayEdits(model, dto.Threats);
             return model;
+        }
+
+        /// <summary>
+        /// Puts back any seeded entry the rules did not regenerate.
+        /// </summary>
+        /// <remarks>
+        /// A rule-derived entry only reaches the overlay because someone triaged, described, or
+        /// re-prioritized it, so every one carries author intent. Dropping the sparse patch is safe when
+        /// the rule regenerates the threat, and only then: if the rule has fallen silent there is
+        /// nothing to regenerate, and leaving it out would delete the decision along with the finding.
+        /// The entry keeps its rule id, so it is reported as stale rather than reappearing as manual.
+        /// </remarks>
+        /// <param name="model">The regenerated model.</param>
+        /// <param name="seeded">The entries removed before regeneration, keyed by register key.</param>
+        private static void RestoreUnregeneratedEntries(ThreatModel model, Dictionary<string, Threat> seeded)
+        {
+            int nextId = model.AllThreatsDictionary.Values.Count == 0
+                ? 1
+                : model.AllThreatsDictionary.Values.Max(threat => threat.Id) + 1;
+            foreach (KeyValuePair<string, Threat> pair in seeded)
+            {
+                if (model.AllThreatsDictionary.ContainsKey(pair.Key))
+                {
+                    continue;
+                }
+
+                // Renumber so the restored entry cannot collide with one the regeneration just assigned.
+                pair.Value.Id = nextId++;
+                model.AllThreatsDictionary[pair.Key] = pair.Value;
+            }
         }
 
         /// <summary>

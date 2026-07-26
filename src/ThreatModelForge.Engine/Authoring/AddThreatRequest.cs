@@ -8,6 +8,13 @@ namespace ThreatModelForge.Engine
     /// </summary>
     public sealed class AddThreatRequest
     {
+        /// <summary>
+        /// Gets the author's id for this threat, with or without the <c>manual:</c> prefix, or
+        /// <see langword="null"/> to have one generated. Supplying an id lets the threat be referenced
+        /// from outside the model and keeps repeated authoring of the same threat idempotent.
+        /// </summary>
+        public string? Id { get; init; }
+
         /// <summary>Gets the threat title (statement).</summary>
         public string Title { get; init; } = string.Empty;
 

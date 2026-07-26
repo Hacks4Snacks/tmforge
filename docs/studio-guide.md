@@ -125,7 +125,7 @@ configuration, so the loader reports that rather than pretending a local pack to
 threats, grouped by category. Each threat is **editable inline**: click **Edit** to set its
 
 - **state** — Open, Needs investigation, Mitigated, or Accepted (accepting reveals a justification field);
-- **priority** — High / Medium / Low;
+- **priority** — Critical / High / Medium / Low;
 - **description** and **mitigation** notes.
 
 Click **+ Add threat** to author a **manual threat** the rules do not detect: give it a title, a STRIDE

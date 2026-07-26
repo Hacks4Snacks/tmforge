@@ -147,7 +147,7 @@ export interface ThreatTriage {
   description?: string;
   /** The author-set mitigation. */
   mitigation?: string;
-  /** The author-set priority (`High` / `Medium` / `Low`). */
+  /** The author-set priority (`Critical` / `High` / `Medium` / `Low`). */
   priority?: string;
   /** Element ids a manual threat is scoped to (source[, target, flow]); empty means model-wide. */
   elementIds?: string[];

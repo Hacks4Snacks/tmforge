@@ -125,6 +125,25 @@ namespace ThreatModelForge.Cli
         }
 
         /// <summary>
+        /// Splits the model's threat register by origin and by standing against the current rules.
+        /// </summary>
+        /// <param name="model">The tmforge-json model.</param>
+        /// <param name="services">The MCP request services.</param>
+        /// <param name="rulesPath">An optional custom rule pack inside the workspace root.</param>
+        /// <returns>The split register.</returns>
+        [McpServerTool(Name = "threat_register")]
+        [Description("Splits the model's threat register by origin and standing: manual, current-generated, stale-generated (stored but the rule no longer fires), and indeterminate-generated (the rule was not part of this run, so it cannot be judged stale). Counts are not a partition and must not be summed.")]
+        public static ThreatRegisterDto ThreatRegister(
+            [Description("The tmforge-json model.")] TmForgeModelDto model,
+            IServiceProvider services,
+            [Description("Optional path to a custom .tmrules.json pack inside the configured MCP workspace root; omit to run the built-in rules only.")] string? rulesPath = null)
+        {
+            McpToolSupport.ValidateModel(model);
+            EngineRuleOptions? rules = McpToolSupport.LoadRules(services, rulesPath);
+            return McpToolSupport.ValidateResponse(EngineService.DescribeThreatRegister(model, rules));
+        }
+
+        /// <summary>
         /// Renders a self-contained report for the model as text (HTML or SVG).
         /// </summary>
         /// <param name="model">The tmforge-json model.</param>

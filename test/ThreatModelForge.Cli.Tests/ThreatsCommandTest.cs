@@ -231,6 +231,66 @@ namespace ThreatModelForge.Cli.Tests
             Assert.AreEqual(1, model.AllThreatsDictionary.Count);
         }
 
+        /// <summary>
+        /// <c>--id</c> lets the author key the threat themselves, so the same authoring command can be
+        /// re-run and the id can be referenced from outside the model.
+        /// </summary>
+        [TestMethod]
+        public void ThreatsAddAcceptsAuthorSuppliedId()
+        {
+            string path = this.NewModelWithFlow();
+
+            (int exit, string stdout) = Capture(() => ThreatsCommand.Run(new[]
+            {
+                path, "--add", "--id", "unlogged-admin-actions", "--title", "Admin actions are not logged",
+                "--category", "Repudiation", "--json",
+            }));
+
+            Assert.AreEqual(0, exit);
+            JsonElement data = JsonDocument.Parse(stdout).RootElement.GetProperty("data");
+            Assert.AreEqual("manual:unlogged-admin-actions", data.GetProperty("id").GetString());
+
+            (ThreatModel model, _) = CliModelLoader.Load(path);
+            Assert.IsTrue(model.AllThreatsDictionary.ContainsKey("manual:unlogged-admin-actions"));
+        }
+
+        /// <summary>A malformed <c>--id</c> is refused before anything is written.</summary>
+        [TestMethod]
+        public void ThreatsAddRejectsMalformedId()
+        {
+            string path = this.NewModelWithFlow();
+
+            (int exit, _) = Capture(() => ThreatsCommand.Run(new[]
+            {
+                path, "--add", "--id", "not a valid id", "--title", "Anything", "--category", "Repudiation",
+            }));
+
+            Assert.AreEqual(1, exit);
+            (ThreatModel model, _) = CliModelLoader.Load(path);
+            Assert.AreEqual(0, model.AllThreatsDictionary.Count, "Nothing may be written when the id is refused.");
+        }
+
+        /// <summary>Re-using an existing id is refused, leaving the original threat untouched.</summary>
+        [TestMethod]
+        public void ThreatsAddRejectsDuplicateId()
+        {
+            string path = this.NewModelWithFlow();
+            Capture(() => ThreatsCommand.Run(new[]
+            {
+                path, "--add", "--id", "dup", "--title", "First", "--category", "Repudiation",
+            }));
+
+            (int exit, _) = Capture(() => ThreatsCommand.Run(new[]
+            {
+                path, "--add", "--id", "dup", "--title", "Second", "--category", "Repudiation",
+            }));
+
+            Assert.AreEqual(1, exit);
+            (ThreatModel model, _) = CliModelLoader.Load(path);
+            Assert.AreEqual(1, model.AllThreatsDictionary.Count);
+            Assert.AreEqual("First", model.AllThreatsDictionary["manual:dup"].Title);
+        }
+
         /// <summary>Editing a rule threat changes its state, priority, and description in the register.</summary>
         [TestMethod]
         public void ThreatsEditChangesRuleThreatState()
@@ -310,6 +370,51 @@ namespace ThreatModelForge.Cli.Tests
             (int exit, _) = Capture(() => ThreatsCommand.Run(new[] { path, "--remove", id }));
 
             Assert.AreEqual(1, exit);
+        }
+
+        /// <summary>
+        /// Pruning keeps a stale entry that carries triage and names it, so a recorded decision is
+        /// never lost just because its rule went quiet. <c>--force</c> is the explicit way to drop it.
+        /// </summary>
+        [TestMethod]
+        public void RemoveStaleKeepsTriagedEntriesUntilForced()
+        {
+            Capture(() => NewCommand.Run(new[] { this.ModelPath, "--name", "Stale Test" }));
+            string external = this.AddElement("external", "Client");
+            string process = this.AddElement("process", "Gateway");
+            this.Connect(external, process);
+            string path = this.ModelPath;
+            Assert.AreEqual(0, ThreatsCommand.Run(new[] { path, "--write" }));
+
+            (ThreatModel written, _) = CliModelLoader.Load(path);
+            Threat target = written.AllThreatsDictionary.Values.First(threat => !string.IsNullOrEmpty(threat.TypeId));
+            string key = target.InteractionKey!;
+            Assert.AreEqual(0, ThreatsCommand.Run(new[] { path, "--edit", key, "--state", "Mitigated" }));
+
+            // Delete the elements the findings were about. The rules stay loaded and enabled, they
+            // simply produce nothing now, which is what makes the stored entries stale rather than
+            // unevaluated.
+            Capture(() => RemoveCommand.Run(new[] { path, "--id", process }));
+            Capture(() => RemoveCommand.Run(new[] { path, "--id", external }));
+
+            (int kept, string keptOut) = Capture(() => ThreatsCommand.Run(new[] { path, "--remove-stale", "--json" }));
+            Assert.AreEqual(0, kept);
+            JsonElement data = JsonDocument.Parse(keptOut).RootElement.GetProperty("data");
+            Assert.AreEqual("remove-stale", data.GetProperty("action").GetString());
+            Assert.IsTrue(
+                data.GetProperty("retainedWithTriage").EnumerateArray().Any(id => id.GetString() == key),
+                "The triaged entry must be reported, not removed.");
+
+            (ThreatModel afterKeep, _) = CliModelLoader.Load(path);
+            Assert.IsTrue(afterKeep.AllThreatsDictionary.Values.Any(threat => threat.InteractionKey == key));
+
+            (int forced, string forcedOut) = Capture(() => ThreatsCommand.Run(new[] { path, "--remove-stale", "--force", "--json" }));
+            Assert.AreEqual(0, forced);
+            JsonElement forcedData = JsonDocument.Parse(forcedOut).RootElement.GetProperty("data");
+            Assert.IsTrue(forcedData.GetProperty("removed").EnumerateArray().Any(id => id.GetString() == key));
+
+            (ThreatModel afterForce, _) = CliModelLoader.Load(path);
+            Assert.IsFalse(afterForce.AllThreatsDictionary.Values.Any(threat => threat.InteractionKey == key));
         }
 
         private static (int Exit, string Stdout) Capture(Func<int> run)

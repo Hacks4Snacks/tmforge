@@ -38,6 +38,7 @@ and `/openapi` are matched first.
 | `POST /v1/model/analysis` | Model | One analysis action: findings **and** threats from a single rule evaluation, plus the effective rule packs and diagnostics. |
 | `POST /v1/model/analysis-document` | Model | Record the analysis as a versioned, reconcilable `tmforge-analysis` document. |
 | `POST /v1/model/threats` | Model | Generate the STRIDE threat register (rule threats plus the model's author overlay). |
+| `POST /v1/model/threat-register` | Model | Split the register by origin and standing: manual, current-generated, stale-generated, and entries whose rule was not part of the run. |
 | `POST /v1/model/read` | Model | Parse uploaded bytes (base64) into the canonical model. |
 | `POST /v1/model/convert?to=<format>` | Model | Convert a model to another format. |
 | `POST /v1/model/export/tm7` | Model | Export a model as a `.tm7` file. |
@@ -180,10 +181,35 @@ the property the artifact exists for.
 `POST /v1/model/threats` returns the model's **STRIDE threat register** the same rule findings as
 `analyze`, framed as threats and overlaid with the model's author-owned state. The request model's
 `threats` overlay carries risk acceptance, per-threat edits (state, priority, mitigation, description),
-and **manually-authored threats** (`manual: true`, keyed `manual:<guid>`, scoped to element ids or
-model-wide). Those edits and manual threats round-trip into the exported `.tm7` register, so a threat
-accepted or authored in Studio opens in the Microsoft Threat Modeling Tool. This powers Studio's threat
-panel and the `tmforge threats` verb.
+and **manually-authored threats** (`manual: true`, keyed in the reserved `manual:` namespace, scoped to
+element ids or model-wide). Those edits and manual threats round-trip into the exported `.tm7` register,
+so a threat accepted or authored in Studio opens in the Microsoft Threat Modeling Tool. This powers
+Studio's threat panel and the `tmforge threats` verb.
+
+A manual entry whose `id` is not a usable identity — malformed, or already claimed by another threat —
+is reported in `diagnostics` rather than silently dropped, and the first entry to claim an id keeps it.
+
+### Split the threat register
+
+`POST /v1/model/threat-register` classifies every register entry against one analysis run and returns
+the counts plus a per-entry `state`:
+
+| State | Meaning |
+| --- | --- |
+| `manual` | An author wrote it. Rules never produce or retire it. |
+| `current-generated` | The current rules still produce it. |
+| `stale-generated` | Stored, but the rule ran and no longer produces it. |
+| `indeterminate-generated` | Its rule was not part of this run, so its standing cannot be judged. |
+
+Applying a generation result never deletes, so triage survives every re-run — which is exactly why a
+left-over entry needs to be distinguishable from a live one. Staleness is only ever claimed when the
+rule actually ran; an entry whose rule is missing or disabled is counted in `indeterminateGenerated`
+and its rule named in `unavailableRuleIds`, never assumed stale.
+
+The counts are **not a partition and must not be summed**. What "stored" means also depends on the
+format: a `.tm7` carries the full generated register, while canonical tmforge-json persists only
+author-owned state — so on this endpoint `staleGenerated` is most useful as *triage that no longer
+matches any threat the rules produce*.
 
 ### Convert / export
 

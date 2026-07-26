@@ -38,7 +38,7 @@ export interface Threat {
   /** The suggested mitigation (the rule's help text). */
   mitigation?: string;
   severity: Severity;
-  /** The coarse priority hint (`High` / `Medium` / `Low`). */
+  /** The coarse priority hint (`Critical` / `High` / `Medium` / `Low`). */
   priority?: string;
   /** External catalog references (`CWE-###`, `CAPEC-###`, ATT&CK technique ids). */
   references: string[];

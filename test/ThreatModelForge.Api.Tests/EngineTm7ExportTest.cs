@@ -6,6 +6,8 @@ namespace ThreatModelForge.Api.Tests
     using System.Xml.Linq;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
     using ThreatModelForge.Engine;
+    using ThreatModelForge.KnowledgeBase;
+    using ThreatModelForge.Model;
 
     /// <summary>
     /// Regression tests for the user-facing <c>.tm7</c> generation paths (<see cref="EngineService.ExportTm7(TmForgeModelDto)"/>
@@ -118,6 +120,78 @@ namespace ThreatModelForge.Api.Tests
                 "The whole-surface shift should land the lowest coordinate exactly on the minimum.");
         }
 
+        /// <summary>
+        /// Triage recorded against a rule the current bundle no longer produces survives the export.
+        /// </summary>
+        /// <remarks>
+        /// The export rebuilds the register from the current rules so every threat carries its full
+        /// rule-owned text. An entry the rules no longer produce has nothing to rebuild from, and
+        /// dropping it would delete a decision a reviewer recorded — the one thing the register is not
+        /// allowed to lose when a rule falls silent.
+        /// </remarks>
+        [TestMethod]
+        public void ExportPreservesTriageForARuleThatNoLongerFires()
+        {
+            const string OrphanKey = "aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa:CORP-1";
+            TmForgeModelDto source = ConnectedModel();
+            TmForgeModelDto model = new TmForgeModelDto
+            {
+                Schema = source.Schema,
+                Version = source.Version,
+                Elements = source.Elements,
+                Flows = source.Flows,
+                Threats = new[]
+                {
+                    new ThreatStateDto
+                    {
+                        Id = OrphanKey,
+                        State = "Mitigated",
+                        Justification = "Handled by the platform team in Q2.",
+                    },
+                },
+            };
+
+            ThreatModel exported = ReadBack(EngineService.ExportTm7(model));
+
+            string keys = string.Join(", ", exported.AllThreatsDictionary.Keys);
+            Assert.IsTrue(
+                exported.AllThreatsDictionary.ContainsKey(OrphanKey),
+                "The decision must survive the rule going quiet: " + keys);
+            Threat orphan = exported.AllThreatsDictionary[OrphanKey];
+            Assert.AreEqual(ThreatState.Mitigated, orphan.State);
+            Assert.AreEqual("Handled by the platform team in Q2.", orphan.StateInformation);
+            Assert.AreEqual("CORP-1", orphan.TypeId, "It must stay identifiable as rule-derived, not manual.");
+        }
+
+        /// <summary>
+        /// The same triage survives a full tmforge-json round trip through the engine, so reopening an
+        /// exported model does not quietly shed the decision either.
+        /// </summary>
+        [TestMethod]
+        public void RoundTripPreservesTriageForARuleThatNoLongerFires()
+        {
+            const string OrphanKey = "bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb:CORP-2";
+            TmForgeModelDto source = ConnectedModel();
+            TmForgeModelDto model = new TmForgeModelDto
+            {
+                Schema = source.Schema,
+                Version = source.Version,
+                Elements = source.Elements,
+                Flows = source.Flows,
+                Threats = new[]
+                {
+                    new ThreatStateDto { Id = OrphanKey, State = "Accepted", Justification = "Accepted risk." },
+                },
+            };
+
+            TmForgeModelDto reread = EngineService.ReadModel(EngineService.Convert(model, "tmforge-json"), "tmforge-json");
+
+            ThreatStateDto? kept = reread.Threats?.FirstOrDefault(entry => entry.Id == OrphanKey);
+            Assert.IsNotNull(kept, "The overlay entry must round-trip.");
+            Assert.AreEqual("Accepted", kept!.State);
+            Assert.AreEqual("Accepted risk.", kept.Justification);
+        }
+
         private static void AssertOpenableScaffolding(XDocument doc)
         {
             XElement? version = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "Version");
@@ -178,6 +252,12 @@ namespace ThreatModelForge.Api.Tests
         {
             using MemoryStream stream = new MemoryStream(bytes);
             return XDocument.Load(stream);
+        }
+
+        private static ThreatModel ReadBack(byte[] tm7)
+        {
+            using MemoryStream stream = new MemoryStream(tm7);
+            return ThreatModel.Load(stream);
         }
 
         private static TmForgeModelDto ConnectedModel()

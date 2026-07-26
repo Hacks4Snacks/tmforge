@@ -84,8 +84,8 @@ const STATE_OPTIONS: readonly { value: ThreatLifecycleState; label: string }[] =
   { value: 'Accepted', label: 'Accepted' },
 ];
 
-/** Priorities offered in the editor. */
-const PRIORITY_OPTIONS: readonly string[] = ['High', 'Medium', 'Low'];
+/** Priorities offered in the editor, most urgent first. Mirrors the engine's `ThreatPriority`. */
+const PRIORITY_OPTIONS: readonly string[] = ['Critical', 'High', 'Medium', 'Low'];
 
 /** The short badge shown for a non-open state (open threats show no badge). */
 const STATE_BADGE: Record<string, string> = {
@@ -96,10 +96,12 @@ const STATE_BADGE: Record<string, string> = {
 
 /**
  * A manual threat has no rule severity, so its leading badge reflects the author's priority instead.
- * This maps that priority onto the shared severity colour scale (High -> error, Low -> info, else warning).
+ * This maps that priority onto the shared severity colour scale (Critical/High -> error, Low -> info,
+ * else warning).
  */
 function severityClassForPriority(priority: string | undefined): string {
   switch (priority) {
+    case 'Critical':
     case 'High':
       return 'error';
     case 'Low':

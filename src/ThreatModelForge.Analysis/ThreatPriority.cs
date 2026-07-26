@@ -4,8 +4,15 @@ namespace ThreatModelForge.Analysis
     /// The default priority of a generated threat. This is independent of finding severity: imported
     /// rule packs can preserve source priority while analysis continues to gate on severity.
     /// </summary>
+    /// <remarks>
+    /// Declared most urgent first. The knowledge base embedded in an exported <c>.tm7</c> declares this
+    /// whole vocabulary, so every value here is one the Microsoft Threat Modeling Tool also offers.
+    /// </remarks>
     public enum ThreatPriority
     {
+        /// <summary>The threat should be addressed ahead of other high-priority work.</summary>
+        Critical,
+
         /// <summary>The threat should be addressed with high priority.</summary>
         High,
 

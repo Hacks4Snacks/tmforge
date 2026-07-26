@@ -309,6 +309,36 @@
         }
       }
     },
+    "/v1/model/threat-register": {
+      "post": {
+        "tags": [
+          "Model"
+        ],
+        "operationId": "DescribeThreatRegister",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TmForgeModelDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreatRegisterDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/model/merge": {
       "post": {
         "tags": [
@@ -1131,6 +1161,101 @@
             ]
           },
           "manual": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ThreatRegisterDto": {
+        "type": "object",
+        "properties": {
+          "manual": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "persistedGenerated": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "currentGenerated": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "staleGenerated": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "indeterminateGenerated": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "unavailableRuleIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThreatRegisterEntryDto"
+            }
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rulePacks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RulePackInfoDto"
+            }
+          }
+        }
+      },
+      "ThreatRegisterEntryDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "ruleId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "triage": {
+            "type": "string"
+          },
+          "hasTriage": {
             "type": "boolean"
           }
         }

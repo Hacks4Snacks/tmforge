@@ -164,6 +164,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/model/analysis-document": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["DescribeAnalysis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/model/threats": {
         parameters: {
             query?: never;
@@ -174,6 +190,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["GenerateThreats"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/model/threat-register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["DescribeThreatRegister"];
         delete?: never;
         options?: never;
         head?: never;
@@ -296,6 +328,32 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AnalysisDocumentDto: {
+            schema?: string;
+            /** Format: int32 */
+            version?: number | string;
+            model?: components["schemas"]["AnalysisIdentityDto"];
+            analyzer?: components["schemas"]["AnalysisIdentityDto"];
+            rulePacks?: components["schemas"]["RulePackInfoDto"][];
+            findings?: components["schemas"]["AnalysisFindingDto"][];
+            diagnostics?: string[];
+        };
+        AnalysisFindingDto: {
+            id?: string;
+            ruleId?: string;
+            severity?: string;
+            message?: string;
+            diagram?: null | string;
+            elementIds?: string[];
+            disposition?: string;
+            threatId?: null | string;
+            canonicalIds?: string[];
+        };
+        AnalysisIdentityDto: {
+            name?: string;
+            version?: null | string;
+            fingerprint?: string;
+        };
         AnalysisResultDto: {
             findings?: components["schemas"]["FindingDto"][];
             threats?: components["schemas"]["ThreatDto"][];
@@ -451,6 +509,30 @@ export interface components {
             justification?: null | string;
             description?: null | string;
             manual?: boolean;
+        };
+        ThreatRegisterDto: {
+            /** Format: int32 */
+            manual?: number | string;
+            /** Format: int32 */
+            persistedGenerated?: number | string;
+            /** Format: int32 */
+            currentGenerated?: number | string;
+            /** Format: int32 */
+            staleGenerated?: number | string;
+            /** Format: int32 */
+            indeterminateGenerated?: number | string;
+            unavailableRuleIds?: string[];
+            entries?: components["schemas"]["ThreatRegisterEntryDto"][];
+            diagnostics?: string[];
+            rulePacks?: components["schemas"]["RulePackInfoDto"][];
+        };
+        ThreatRegisterEntryDto: {
+            id?: string;
+            state?: string;
+            ruleId?: null | string;
+            title?: string;
+            triage?: string;
+            hasTriage?: boolean;
         };
         ThreatStateDto: {
             id?: string;
@@ -726,6 +808,30 @@ export interface operations {
             };
         };
     };
+    DescribeAnalysis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TmForgeModelDto"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisDocumentDto"];
+                };
+            };
+        };
+    };
     GenerateThreats: {
         parameters: {
             query?: never;
@@ -746,6 +852,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ThreatDto"][];
+                };
+            };
+        };
+    };
+    DescribeThreatRegister: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TmForgeModelDto"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreatRegisterDto"];
                 };
             };
         };
