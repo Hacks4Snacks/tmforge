@@ -82,6 +82,59 @@ namespace ThreatModelForge.Cli.Tests
         }
 
         /// <summary>
+        /// The threat total is split by origin and standing, so a reader can tell an authored entry
+        /// from a rule-derived one and a live finding from a leftover.
+        /// </summary>
+        [TestMethod]
+        public void JsonSplitsThreatCountsByOriginAndStanding()
+        {
+            string input = this.WriteInput();
+
+            (int exit, string output) = Capture(new[] { "--json", input });
+
+            Assert.AreEqual(0, exit);
+            using JsonDocument document = JsonDocument.Parse(output);
+            JsonElement threats = document.RootElement.GetProperty("data").GetProperty("threats");
+
+            Assert.AreEqual(0, threats.GetProperty("total").GetInt32());
+            Assert.AreEqual(0, threats.GetProperty("manual").GetInt32());
+            Assert.AreEqual(0, threats.GetProperty("persistedGenerated").GetInt32());
+            Assert.AreEqual(0, threats.GetProperty("staleGenerated").GetInt32());
+            Assert.AreEqual(0, threats.GetProperty("indeterminateGenerated").GetInt32());
+            Assert.AreEqual(0, threats.GetProperty("unavailableRuleIds").GetArrayLength());
+
+            // The sample model trips real rules, so the current-generated count must reflect what the
+            // rules produce rather than what the register happens to store.
+            Assert.IsTrue(
+                threats.GetProperty("currentGenerated").GetInt32() > 0,
+                "The current rules produce threats for this model.");
+        }
+
+        /// <summary>
+        /// A stored entry the current rules still produce counts as persisted and current, and is not
+        /// reported as stale. This uses a <c>.tm7</c> because that is the format carrying a full threat
+        /// register; tmforge-json deliberately persists only author-owned state.
+        /// </summary>
+        [TestMethod]
+        public void PersistedRegisterIsReportedAsCurrentNotStale()
+        {
+            string input = this.WriteTm7Input();
+            Assert.AreEqual(0, ThreatsCommand.Run(new[] { input, "--write" }));
+
+            (int exit, string output) = Capture(new[] { "--json", input });
+
+            Assert.AreEqual(0, exit);
+            using JsonDocument document = JsonDocument.Parse(output);
+            JsonElement threats = document.RootElement.GetProperty("data").GetProperty("threats");
+
+            int persisted = threats.GetProperty("persistedGenerated").GetInt32();
+            Assert.IsTrue(persisted > 0, "--write must persist the generated register.");
+            Assert.AreEqual(persisted, threats.GetProperty("currentGenerated").GetInt32());
+            Assert.AreEqual(0, threats.GetProperty("staleGenerated").GetInt32());
+            Assert.AreEqual(0, threats.GetProperty("manual").GetInt32());
+        }
+
+        /// <summary>
         /// Verifies that a missing input file is reported as an error.
         /// </summary>
         [TestMethod]
@@ -113,6 +166,14 @@ namespace ThreatModelForge.Cli.Tests
             string input = Path.Join(this.WorkingDirectory, "model.tmforge.json");
             File.WriteAllText(input, SampleJson);
             return input;
+        }
+
+        private string WriteTm7Input()
+        {
+            string source = this.WriteInput();
+            string output = Path.Join(this.WorkingDirectory, "model.tm7");
+            Assert.AreEqual(0, ConvertCommand.Run(new[] { "--to", "tm7", "--out", output, source }));
+            return output;
         }
     }
 }

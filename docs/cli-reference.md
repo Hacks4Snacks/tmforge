@@ -63,13 +63,39 @@ tmforge <command> [options] <file>
 Summarize a model: counts of elements, flows, and threats.
 
 ```text
-tmforge open [--json] <input>
+tmforge open [--json] [--rules <path>] <input>
 ```
 
 ```bash
 tmforge open payments.tm7
 tmforge open payments.tm7 --json
+tmforge open payments.tm7 --rules corporate.rules.json   # recognize a custom pack's threats
 ```
+
+#### Threat counts are split by origin and standing
+
+The register is append-only: applying a generation result never deletes, so triage is never lost when
+a rule stops firing. The cost is that a left-over entry looks exactly like a live one. `open`
+therefore classifies the register against one analysis run and reports four counts:
+
+| Count | Meaning |
+| --- | --- |
+| `manual` | Entries an author wrote by hand. Rules never produce or retire them. |
+| `persistedGenerated` | Rule-derived entries stored in the model's register. |
+| `currentGenerated` | Threats the current rules produce, stored or not. Exceeds `persistedGenerated` when the register has not been written since the model changed. |
+| `staleGenerated` | Stored entries the current rules no longer produce. |
+
+These are **not a partition and must not be summed** — each answers a different question, and one
+threat can appear in more than one.
+
+A stored entry whose rule is absent from the effective bundle or disabled for the run is counted in
+`indeterminateGenerated` and its rule named in `unavailableRuleIds`. It is never called stale: a rule
+that was not given the chance to fire says nothing about the model, so treating its entries as stale
+would invite deleting real findings after a mistyped `--rules` path or a disabled pack. Pass
+`--rules` so a custom pack's threats are recognized rather than reported as unavailable.
+
+The full register lives in `.tm7`. `tmforge-json` deliberately persists only author-owned state
+(triage and manual threats), so `persistedGenerated` is zero for a model held in that format.
 
 ### `list`
 
