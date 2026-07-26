@@ -184,8 +184,8 @@ namespace ThreatModelForge.Analysis
 
         /// <summary>
         /// Adds a manually-authored threat to the model's register — a threat the rules do not detect.
-        /// It is keyed with a stable <c>manual:{guid}</c> id (so rule generation never collides with or
-        /// overwrites it), scoped to the given element/flow ids, and carries the author's category,
+        /// It is keyed in the reserved <c>manual:</c> namespace (so rule generation never collides with
+        /// or overwrites it), scoped to the given element/flow ids, and carries the author's category,
         /// title, state, priority, description, and mitigation.
         /// </summary>
         /// <param name="model">The model to add the threat to.</param>
@@ -196,6 +196,11 @@ namespace ThreatModelForge.Analysis
         /// <param name="priority">The priority, or <see langword="null"/> for the default.</param>
         /// <param name="description">The description, or <see langword="null"/>.</param>
         /// <param name="mitigation">The mitigation, or <see langword="null"/>.</param>
+        /// <param name="id">
+        /// The author's id for this threat, with or without the <c>manual:</c> prefix, or
+        /// <see langword="null"/> to mint one. A supplied id that is already in the register is
+        /// refused rather than overwriting the existing entry.
+        /// </param>
         /// <returns>The created threat.</returns>
         public static Threat AddManual(
             ThreatModel model,
@@ -205,7 +210,8 @@ namespace ThreatModelForge.Analysis
             ThreatState state,
             string? priority,
             string? description,
-            string? mitigation)
+            string? mitigation,
+            string? id = null)
         {
             if (model == null)
             {
@@ -217,8 +223,8 @@ namespace ThreatModelForge.Analysis
                 throw new ArgumentException("A threat title is required.", nameof(title));
             }
 
+            string key = ResolveManualKey(model, id);
             (Guid source, Guid target, Guid flow) = ResolveScope(elementIds);
-            string key = "manual:" + Guid.NewGuid().ToString("N");
             Threat threat = new Threat
             {
                 Id = NextThreatId(model),
@@ -348,7 +354,7 @@ namespace ThreatModelForge.Analysis
             foreach (KeyValuePair<string, Threat> pair in model.AllThreatsDictionary)
             {
                 string interaction = string.IsNullOrEmpty(pair.Value.InteractionKey) ? pair.Key : pair.Value.InteractionKey!;
-                bool manual = interaction.StartsWith("manual:", StringComparison.OrdinalIgnoreCase);
+                bool manual = interaction.StartsWith(ManualThreatId.Prefix, StringComparison.OrdinalIgnoreCase);
                 bool matches =
                     string.Equals(pair.Key, threatId, StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(interaction, threatId, StringComparison.OrdinalIgnoreCase) ||
@@ -366,6 +372,40 @@ namespace ThreatModelForge.Analysis
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Resolves the register key for a new manual threat: the author's id when they supplied one,
+        /// otherwise a fresh one.
+        /// </summary>
+        /// <remarks>
+        /// A supplied id that is already taken is refused rather than overwriting what is there. The
+        /// author is asserting an identity, and silently replacing an existing threat — losing its
+        /// triage, its justification, and its history — is the opposite of what they asked for.
+        /// </remarks>
+        /// <param name="model">The model whose register the threat joins.</param>
+        /// <param name="supplied">The author's id, or <see langword="null"/> to mint one.</param>
+        /// <returns>The register key to use.</returns>
+        private static string ResolveManualKey(ThreatModel model, string? supplied)
+        {
+            if (supplied == null)
+            {
+                return ManualThreatId.Create();
+            }
+
+            if (!ManualThreatId.TryCanonicalize(supplied, out string key, out string? error))
+            {
+                throw new ArgumentException(error, nameof(supplied));
+            }
+
+            if (model.AllThreatsDictionary.ContainsKey(key))
+            {
+                throw new ArgumentException(
+                    $"The threat id '{key}' is already in this model's register.",
+                    nameof(supplied));
+            }
+
+            return key;
         }
 
         private static (Guid Source, Guid Target, Guid Flow) ResolveScope(IReadOnlyList<string>? elementIds)

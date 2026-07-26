@@ -700,7 +700,7 @@ namespace ThreatModelForge.Engine
 
                     if (wantThreats)
                     {
-                        ProjectThreats(writer.Messages, dto, nameToIds, threats);
+                        ProjectThreats(writer.Messages, dto, nameToIds, threats, diagnostics);
                     }
 
                     if (wantEvidence)
@@ -954,7 +954,8 @@ namespace ThreatModelForge.Engine
             IReadOnlyList<Message> messages,
             TmForgeModelDto dto,
             Dictionary<string, List<string>> nameToIds,
-            List<ThreatDto> threats)
+            List<ThreatDto> threats,
+            ICollection<string>? diagnostics)
         {
             GenerationResult generation = ThreatGenerator.Project(messages);
             Dictionary<string, ThreatStateDto> overlay = BuildTriage(dto.Threats);
@@ -985,7 +986,7 @@ namespace ThreatModelForge.Engine
                 });
             }
 
-            AppendManualThreats(threats, dto.Threats, seen, nameToIds);
+            AppendManualThreats(threats, dto.Threats, seen, nameToIds, diagnostics);
         }
 
         private static IReadOnlyList<string> BuildElementIds(GeneratedThreat threat)
@@ -1020,7 +1021,8 @@ namespace ThreatModelForge.Engine
             List<ThreatDto> result,
             IReadOnlyList<ThreatStateDto>? overlay,
             HashSet<string> seen,
-            Dictionary<string, List<string>> nameToIds)
+            Dictionary<string, List<string>> nameToIds,
+            ICollection<string>? diagnostics)
         {
             if (overlay == null)
             {
@@ -1030,15 +1032,31 @@ namespace ThreatModelForge.Engine
             Dictionary<string, string> idToName = InvertNames(nameToIds);
             foreach (ThreatStateDto entry in overlay)
             {
-                if (entry.Manual != true || string.IsNullOrEmpty(entry.Id) || !seen.Add(entry.Id))
+                if (entry.Manual != true)
                 {
+                    continue;
+                }
+
+                // An author-owned id is only useful if it is exactly what the author wrote and refers
+                // to exactly one threat. A malformed or already-taken id is reported rather than
+                // dropped, because a threat that silently fails to appear reads as no threat at all.
+                if (!ManualThreatId.TryCanonicalize(entry.Id, out string id, out string? error))
+                {
+                    diagnostics?.Add($"Skipped a manual threat: {error}");
+                    continue;
+                }
+
+                if (!seen.Add(id))
+                {
+                    diagnostics?.Add(
+                        $"Skipped the manual threat '{id}': that id is already used by another threat in this model.");
                     continue;
                 }
 
                 IReadOnlyList<string> ids = entry.ElementIds ?? Array.Empty<string>();
                 result.Add(new ThreatDto
                 {
-                    Id = entry.Id,
+                    Id = id,
                     RuleId = string.Empty,
                     Category = entry.Category ?? string.Empty,
                     Title = entry.Title ?? string.Empty,

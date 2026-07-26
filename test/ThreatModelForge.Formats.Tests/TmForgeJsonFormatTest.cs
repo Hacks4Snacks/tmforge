@@ -486,6 +486,90 @@ namespace ThreatModelForge.Formats.Tests
             Assert.AreEqual("Bind tokens to the client.", threat.Properties!["Mitigation"]);
         }
 
+        /// <summary>
+        /// An author-chosen manual id survives a tmforge-json round trip byte for byte. This is the
+        /// point of letting authors name their threats: the id they wrote down and referenced from a
+        /// ticket must still address the same threat after the model is saved and reopened.
+        /// </summary>
+        [TestMethod]
+        public void AuthorSuppliedManualIdSurvivesTmForgeJsonRoundTrip()
+        {
+            const string Id = "manual:replay-of-captured-token";
+            ThreatModel source = new ThreatModel();
+            source.AllThreatsDictionary[Id] = new Threat
+            {
+                Id = 1,
+                State = ThreatState.NeedsInvestigation,
+                InteractionKey = Id,
+                SourceGuid = System.Guid.NewGuid(),
+                Title = "Stolen session token",
+                UserThreatCategory = "Spoofing",
+                Priority = "High",
+            };
+
+            byte[] bytes;
+            using (MemoryStream output = new MemoryStream())
+            {
+                new TmForgeJsonFormat().Write(source, output);
+                bytes = output.ToArray();
+            }
+
+            using (JsonDocument parsed = JsonDocument.Parse(bytes))
+            {
+                Assert.AreEqual(Id, parsed.RootElement.GetProperty("threats")[0].GetProperty("id").GetString());
+            }
+
+            ThreatModel reread;
+            using (MemoryStream input = new MemoryStream(bytes))
+            {
+                reread = new TmForgeJsonFormat().Read(input);
+            }
+
+            Assert.IsTrue(reread.AllThreatsDictionary.ContainsKey(Id));
+            Assert.AreEqual(Id, reread.AllThreatsDictionary[Id].InteractionKey);
+            Assert.IsTrue(ManualThreatId.IsManual(Id));
+        }
+
+        /// <summary>
+        /// The same author-chosen id survives a <c>.tm7</c> round trip, so exporting to MTMT and back
+        /// does not silently re-key the author's threat.
+        /// </summary>
+        [TestMethod]
+        public void AuthorSuppliedManualIdSurvivesTm7RoundTrip()
+        {
+            const string Id = "manual:replay-of-captured-token";
+            ThreatModel source = new ThreatModel();
+            source.AllThreatsDictionary[Id] = new Threat
+            {
+                Id = 1,
+                State = ThreatState.NeedsInvestigation,
+                InteractionKey = Id,
+                SourceGuid = System.Guid.NewGuid(),
+                Title = "Stolen session token",
+                UserThreatCategory = "Spoofing",
+                Priority = "High",
+            };
+
+            byte[] bytes;
+            using (MemoryStream output = new MemoryStream())
+            {
+                new Tm7Format().Write(source, output);
+                bytes = output.ToArray();
+            }
+
+            ThreatModel reread;
+            using (MemoryStream input = new MemoryStream(bytes))
+            {
+                reread = new Tm7Format().Read(input);
+            }
+
+            string keys = string.Join(", ", reread.AllThreatsDictionary.Keys);
+            Assert.IsTrue(
+                reread.AllThreatsDictionary.ContainsKey(Id),
+                "The author's manual id must survive the .tm7 round trip: " + keys);
+            Assert.AreEqual("Stolen session token", reread.AllThreatsDictionary[Id].Title);
+        }
+
         /// <summary>A priority-only edit on a generated threat survives the sparse author overlay.</summary>
         [TestMethod]
         public void RuleThreatPriorityOnlyEditRoundTrips()

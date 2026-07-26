@@ -207,6 +207,7 @@ namespace ThreatModelForge.Cli
         /// <param name="model">The tmforge-json model to edit; omit or pass an empty model to start fresh.</param>
         /// <param name="title">The threat title (statement).</param>
         /// <param name="category">The STRIDE category.</param>
+        /// <param name="id">The id to give the threat, or omit to have one generated.</param>
         /// <param name="scope">The element or flow id to scope the threat to; omit for a model-wide threat.</param>
         /// <param name="state">The lifecycle state (Open, NeedsInvestigation, Mitigated, or Accepted).</param>
         /// <param name="priority">The priority (High, Medium, or Low).</param>
@@ -219,6 +220,7 @@ namespace ThreatModelForge.Cli
             [Description("The tmforge-json model to edit; omit or pass an empty model to start fresh.")] TmForgeModelDto? model = null,
             [Description("The threat title (statement).")] string title = "",
             [Description("The STRIDE category: Spoofing, Tampering, Repudiation, InformationDisclosure, DenialOfService, or ElevationOfPrivilege.")] string category = "",
+            [Description("The id to give the threat so it can be referenced later and re-authored idempotently: letters, digits, '-', '_', '.' (a 'manual:' prefix is added if omitted). Omit to generate one. Reusing an existing id is an error.")] string? id = null,
             [Description("The element or flow id to scope the threat to; omit for a model-wide threat.")] string? scope = null,
             [Description("The lifecycle state: Open, NeedsInvestigation, Mitigated, or Accepted (default Open).")] string? state = null,
             [Description("The priority: High, Medium, or Low.")] string? priority = null,
@@ -226,9 +228,10 @@ namespace ThreatModelForge.Cli
             [Description("The suggested mitigation.")] string? mitigation = null)
         {
             McpToolSupport.ValidateModel(model);
-            McpToolSupport.ValidateArguments(new[] { title, category, scope, state, priority, description, mitigation });
+            McpToolSupport.ValidateArguments(new[] { title, category, id, scope, state, priority, description, mitigation });
             return McpToolSupport.ValidateResult(AuthoringService.AddThreat(model, new AddThreatRequest
             {
+                Id = id,
                 Title = title,
                 Category = category,
                 ElementIds = string.IsNullOrWhiteSpace(scope) ? null : new[] { scope! },

@@ -12,7 +12,7 @@ namespace ThreatModelForge.Formats
     public static class ThreatStateWire
     {
         /// <summary>The register-key prefix that marks a manually-authored threat.</summary>
-        public const string ManualKeyPrefix = "manual:";
+        public const string ManualKeyPrefix = ManualThreatId.Prefix;
 
         /// <summary>Parses a wire state string into a <see cref="ThreatState"/>.</summary>
         /// <param name="state">The wire state string.</param>
@@ -65,7 +65,6 @@ namespace ThreatModelForge.Formats
         /// <summary>Determines whether a register key denotes a manually-authored threat.</summary>
         /// <param name="key">The register key or interaction key.</param>
         /// <returns><see langword="true"/> when the key marks a manual threat.</returns>
-        public static bool IsManualKey(string? key)
-            => key != null && key.StartsWith(ManualKeyPrefix, StringComparison.OrdinalIgnoreCase);
+        public static bool IsManualKey(string? key) => ManualThreatId.IsManual(key);
     }
 }

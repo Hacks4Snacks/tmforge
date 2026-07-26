@@ -34,7 +34,7 @@ namespace ThreatModelForge.Cli
 
             CliArgs parsed = CliArgs.Parse(
                 args,
-                new[] { "rules", "edit", "remove", "title", "category", "scope", "state", "priority", "mitigation", "description", "note" },
+                new[] { "rules", "edit", "remove", "id", "title", "category", "scope", "state", "priority", "mitigation", "description", "note" },
                 new[] { "write", "add" });
             if (parsed.Help)
             {
@@ -156,6 +156,23 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
+            string? suppliedId = parsed.Get("id");
+            if (suppliedId != null)
+            {
+                if (!ManualThreatId.TryCanonicalize(suppliedId, out string canonical, out string? idError))
+                {
+                    Console.Error.WriteLine(idError);
+                    return 1;
+                }
+
+                if (model.AllThreatsDictionary.ContainsKey(canonical))
+                {
+                    Console.Error.WriteLine(
+                        $"The threat id '{canonical}' is already in this model. Use 'threats --edit' to change it.");
+                    return 1;
+                }
+            }
+
             string? scope = parsed.Get("scope");
             IReadOnlyList<string>? elementIds = string.IsNullOrWhiteSpace(scope) ? null : new[] { scope! };
             Threat threat = ThreatGenerator.AddManual(
@@ -166,7 +183,8 @@ namespace ThreatModelForge.Cli
                 ThreatStateWire.Parse(parsed.Get("state")),
                 priority,
                 parsed.Get("description"),
-                parsed.Get("mitigation"));
+                parsed.Get("mitigation"),
+                suppliedId);
 
             AuthoringSupport.Save(model, input, format, ruleSet);
 
@@ -379,12 +397,13 @@ namespace ThreatModelForge.Cli
             Console.Error.WriteLine("Report or author the model's threats — the persistable, triaged view of the validation findings.");
             Console.Error.WriteLine("Usage:");
             Console.Error.WriteLine("  tmforge threats [--write] [--json] [--rules <path>] <file>");
-            Console.Error.WriteLine("  tmforge threats --add --title <t> --category <STRIDE> [--scope <id>] [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] [--json] <file>");
+            Console.Error.WriteLine("  tmforge threats --add --title <t> --category <STRIDE> [--id <id>] [--scope <id>] [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] [--json] <file>");
             Console.Error.WriteLine("  tmforge threats --edit <id> [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] [--note <n>] [--json] <file>");
             Console.Error.WriteLine("  tmforge threats --remove <id> [--json] <file>");
             Console.Error.WriteLine();
             Console.Error.WriteLine("--write     persist the generated threats into the model's register (preserves prior triage).");
             Console.Error.WriteLine("--add       author a manual threat; --category is a STRIDE category (Spoofing / Tampering / Repudiation / InformationDisclosure / DenialOfService / ElevationOfPrivilege).");
+            Console.Error.WriteLine("--id        the threat's id, so you can reference it elsewhere and re-run the same authoring safely; letters, digits, '-', '_', '.' (a 'manual:' prefix is added if you omit it). Defaults to a generated id.");
             Console.Error.WriteLine("--edit      change a threat's state (Open / NeedsInvestigation / Mitigated / Accepted), priority, mitigation, description, or note.");
             Console.Error.WriteLine("--remove    delete a manual threat (rule threats regenerate; accept or edit them instead).");
             Console.Error.WriteLine();

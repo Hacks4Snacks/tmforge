@@ -188,6 +188,52 @@ namespace ThreatModelForge.Api.Tests
             StringAssert.Contains(edited.Error, "High, Medium, or Low");
         }
 
+        /// <summary>An author-supplied id is used verbatim, with the reserved prefix supplied for them.</summary>
+        [TestMethod]
+        public void ThreatAuthoring_UsesAuthorSuppliedId()
+        {
+            AuthoringResultDto added = AuthoringService.AddThreat(
+                null,
+                new AddThreatRequest { Id = "login-bypass", Title = "Privacy risk", Category = "Privacy" });
+
+            Assert.IsTrue(added.Success, added.Error);
+            Assert.AreEqual("manual:login-bypass", added.Id);
+            Assert.AreEqual("manual:login-bypass", added.Model!.Threats!.Single().Id);
+        }
+
+        /// <summary>A malformed author id is refused rather than quietly rewritten into something else.</summary>
+        [TestMethod]
+        public void ThreatAuthoring_RejectsMalformedId()
+        {
+            AuthoringResultDto added = AuthoringService.AddThreat(
+                null,
+                new AddThreatRequest { Id = "login bypass", Title = "Privacy risk", Category = "Privacy" });
+
+            Assert.IsFalse(added.Success);
+            Assert.IsNotNull(added.Error);
+        }
+
+        /// <summary>
+        /// Reusing an id is refused. Overwriting would discard the existing threat's triage, which is
+        /// the opposite of what an author asserting an identity is asking for.
+        /// </summary>
+        [TestMethod]
+        public void ThreatAuthoring_RejectsDuplicateId()
+        {
+            AuthoringResultDto first = AuthoringService.AddThreat(
+                null,
+                new AddThreatRequest { Id = "login-bypass", Title = "First", Category = "Spoofing" });
+            Assert.IsTrue(first.Success, first.Error);
+
+            AuthoringResultDto second = AuthoringService.AddThreat(
+                first.Model,
+                new AddThreatRequest { Id = "login-bypass", Title = "Second", Category = "Spoofing" });
+
+            Assert.IsFalse(second.Success);
+            StringAssert.Contains(second.Error, "manual:login-bypass");
+            Assert.AreEqual("First", first.Model!.Threats!.Single().Title);
+        }
+
         private static TmForgeModelDto Add(TmForgeModelDto? model, StencilKind kind, string name, string alias)
         {
             AuthoringResultDto result = AuthoringService.Add(model, new AddRequest { Kind = kind, Name = name, Alias = alias });

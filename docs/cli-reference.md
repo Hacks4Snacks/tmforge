@@ -621,25 +621,28 @@ entry; it does not persist the current generated findings. `--edit` materializes
 lookup when needed. `--remove` deletes only a manual entry. Each operation then saves the model:
 
 ```text
-tmforge threats --add --title <t> --category <STRIDE> [--scope <id>] [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] <model>
+tmforge threats --add --title <t> --category <STRIDE> [--id <id>] [--scope <id>] [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] <model>
 tmforge threats --edit <id> [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] [--note <n>] <model>
 tmforge threats --remove <id> <model>
 ```
 
 | Option | Meaning |
 | --- | --- |
-| `--add` | Author a **manual threat** the rules do not detect. `--category` is a STRIDE category (`Spoofing` / `Tampering` / `Repudiation` / `InformationDisclosure` / `DenialOfService` / `ElevationOfPrivilege`); `--scope` is an element or flow id (omit for a model-wide threat). Manual threats are keyed `manual:<guid>` and do not implicitly persist generated threats. |
+| `--add` | Author a **manual threat** the rules do not detect. `--category` is a STRIDE category (`Spoofing` / `Tampering` / `Repudiation` / `InformationDisclosure` / `DenialOfService` / `ElevationOfPrivilege`); `--scope` is an element or flow id (omit for a model-wide threat). Manual threats are keyed in the reserved `manual:` namespace and do not implicitly persist generated threats. |
+| `--id <id>` | Key the threat yourself instead of taking a generated id, so it can be referenced from a ticket or control catalogue and the same authoring command can be re-run. Letters, digits, `-`, `_`, and `.`, up to 128 characters; the `manual:` prefix is added if you omit it. Re-using an existing id is an error — use `--edit` to change that threat. |
 | `--edit <id>` | Change a threat's `--state` (`Open` / `NeedsInvestigation` / `Mitigated` / `Accepted`), `--priority`, `--mitigation`, `--description`, or `--note`. Works on rule-derived and manual threats. |
 | `--remove <id>` | Delete a **manual** threat (rule threats regenerate from the rules — accept or edit them instead). |
 
 ```bash
 tmforge threats app.tm7 --add --title "Admin actions are unlogged" --category Repudiation --scope <process-id> --priority High
+tmforge threats app.tm7 --add --id unlogged-admin-actions --title "Admin actions are unlogged" --category Repudiation
 tmforge threats app.tm7 --edit <id> --state Mitigated --description "Handled by the mesh"
 tmforge list threats app.tm7                 # see the register, including manual threats
 ```
 
 Authored threats and edits round-trip into the `.tm7` register (and open in the Microsoft Threat
-Modeling Tool). A manual threat's id comes from the `list threats` output or from `--add --json`.
+Modeling Tool). A manual threat's id comes from `--id`, from the `list threats` output, or from
+`--add --json`. An id you chose survives both `tmforge-json` and `.tm7` round trips unchanged.
 
 ### `accept`
 

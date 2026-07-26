@@ -666,8 +666,7 @@ namespace ThreatModelForge.Reporting
         private static bool IsManual(Threat threat)
         {
             return string.IsNullOrWhiteSpace(threat.TypeId) ||
-                (!string.IsNullOrEmpty(threat.InteractionKey) &&
-                    threat.InteractionKey!.StartsWith("manual:", StringComparison.OrdinalIgnoreCase));
+                ManualThreatId.IsManual(threat.InteractionKey);
         }
 
         private static int StateRank(Threat threat)

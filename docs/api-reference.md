@@ -180,10 +180,13 @@ the property the artifact exists for.
 `POST /v1/model/threats` returns the model's **STRIDE threat register** the same rule findings as
 `analyze`, framed as threats and overlaid with the model's author-owned state. The request model's
 `threats` overlay carries risk acceptance, per-threat edits (state, priority, mitigation, description),
-and **manually-authored threats** (`manual: true`, keyed `manual:<guid>`, scoped to element ids or
-model-wide). Those edits and manual threats round-trip into the exported `.tm7` register, so a threat
-accepted or authored in Studio opens in the Microsoft Threat Modeling Tool. This powers Studio's threat
-panel and the `tmforge threats` verb.
+and **manually-authored threats** (`manual: true`, keyed in the reserved `manual:` namespace, scoped to
+element ids or model-wide). Those edits and manual threats round-trip into the exported `.tm7` register,
+so a threat accepted or authored in Studio opens in the Microsoft Threat Modeling Tool. This powers
+Studio's threat panel and the `tmforge threats` verb.
+
+A manual entry whose `id` is not a usable identity — malformed, or already claimed by another threat —
+is reported in `diagnostics` rather than silently dropped, and the first entry to claim an id keeps it.
 
 ### Convert / export
 

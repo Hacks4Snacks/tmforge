@@ -231,6 +231,66 @@ namespace ThreatModelForge.Cli.Tests
             Assert.AreEqual(1, model.AllThreatsDictionary.Count);
         }
 
+        /// <summary>
+        /// <c>--id</c> lets the author key the threat themselves, so the same authoring command can be
+        /// re-run and the id can be referenced from outside the model.
+        /// </summary>
+        [TestMethod]
+        public void ThreatsAddAcceptsAuthorSuppliedId()
+        {
+            string path = this.NewModelWithFlow();
+
+            (int exit, string stdout) = Capture(() => ThreatsCommand.Run(new[]
+            {
+                path, "--add", "--id", "unlogged-admin-actions", "--title", "Admin actions are not logged",
+                "--category", "Repudiation", "--json",
+            }));
+
+            Assert.AreEqual(0, exit);
+            JsonElement data = JsonDocument.Parse(stdout).RootElement.GetProperty("data");
+            Assert.AreEqual("manual:unlogged-admin-actions", data.GetProperty("id").GetString());
+
+            (ThreatModel model, _) = CliModelLoader.Load(path);
+            Assert.IsTrue(model.AllThreatsDictionary.ContainsKey("manual:unlogged-admin-actions"));
+        }
+
+        /// <summary>A malformed <c>--id</c> is refused before anything is written.</summary>
+        [TestMethod]
+        public void ThreatsAddRejectsMalformedId()
+        {
+            string path = this.NewModelWithFlow();
+
+            (int exit, _) = Capture(() => ThreatsCommand.Run(new[]
+            {
+                path, "--add", "--id", "not a valid id", "--title", "Anything", "--category", "Repudiation",
+            }));
+
+            Assert.AreEqual(1, exit);
+            (ThreatModel model, _) = CliModelLoader.Load(path);
+            Assert.AreEqual(0, model.AllThreatsDictionary.Count, "Nothing may be written when the id is refused.");
+        }
+
+        /// <summary>Re-using an existing id is refused, leaving the original threat untouched.</summary>
+        [TestMethod]
+        public void ThreatsAddRejectsDuplicateId()
+        {
+            string path = this.NewModelWithFlow();
+            Capture(() => ThreatsCommand.Run(new[]
+            {
+                path, "--add", "--id", "dup", "--title", "First", "--category", "Repudiation",
+            }));
+
+            (int exit, _) = Capture(() => ThreatsCommand.Run(new[]
+            {
+                path, "--add", "--id", "dup", "--title", "Second", "--category", "Repudiation",
+            }));
+
+            Assert.AreEqual(1, exit);
+            (ThreatModel model, _) = CliModelLoader.Load(path);
+            Assert.AreEqual(1, model.AllThreatsDictionary.Count);
+            Assert.AreEqual("First", model.AllThreatsDictionary["manual:dup"].Title);
+        }
+
         /// <summary>Editing a rule threat changes its state, priority, and description in the register.</summary>
         [TestMethod]
         public void ThreatsEditChangesRuleThreatState()
