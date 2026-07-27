@@ -594,6 +594,9 @@ runs:
         REVIEW_PR: ${{ github.event.pull_request.number }}
         REVIEW_BASE: ${{ github.event.pull_request.base.sha }}
         REVIEW_DIR: ${{ inputs.sarif-directory }}
+        REVIEW_RULES: ${{ inputs.rules }}
+        REVIEW_RULESET: ${{ inputs.ruleset }}
+        REVIEW_SUPPRESSIONS: ${{ inputs.suppression-file }}
       run: |
         set -uo pipefail
 
@@ -667,6 +670,49 @@ runs:
         rm -rf "$base_root"
         mkdir -p "$base_root"
 
+        # The base analysis has to be produced by the same rules and suppressions as the head
+        # analysis, or the delta reports the policy's differences as the model's.
+        analyze_args=()
+        [ -n "${REVIEW_RULES:-}" ] && [ -e "${REVIEW_RULES:-}" ] && analyze_args+=( --rules "$REVIEW_RULES" )
+        [ -n "${REVIEW_RULESET:-}" ] && [ -f "${REVIEW_RULESET:-}" ] && analyze_args+=( --ruleset "$REVIEW_RULESET" )
+        [ -n "${REVIEW_SUPPRESSIONS:-}" ] && [ -f "${REVIEW_SUPPRESSIONS:-}" ] &&
+          analyze_args+=( --suppressionFile "$REVIEW_SUPPRESSIONS" )
+
+        # Analyzes the base revision of one model and compares it to the head analysis the analyze
+        # step already wrote. Prints the delta as JSON, or nothing when it cannot be produced.
+        #
+        # The base revision is analyzed AT THE MODEL'S OWN PATH, with the head content moved aside and
+        # restored afterwards. That looks roundabout, but a suppression is keyed by the file path it
+        # was declared for: analyzing the fetched copy under its own directory would match no
+        # suppression, and every suppressed finding would then read as one this pull request
+        # suppressed. Same path in, same policy applied.
+        findings_delta() {
+          local model="$1" base_copy="$2"
+          local stem head_doc base_doc base_reports code=0
+          stem=$(basename "$model"); stem="${stem%.*}"
+          head_doc="$REVIEW_DIR/$stem.analysis.json"
+          [ -f "$head_doc" ] || return 1
+
+          base_reports="$base_root/.analysis"
+          mkdir -p "$base_reports"
+
+          cp "$model" "$model.tmforge-head" || return 1
+          # Restore the head content even if the runner interrupts the step.
+          trap 'mv -f "$model.tmforge-head" "$model" 2>/dev/null' RETURN
+          cp "$base_copy" "$model" || return 1
+
+          # analyze exits 2 when a model has findings, which is the ordinary case here.
+          docker run --rm -v "$PWD":/work -w /work "$REVIEW_IMAGE" \
+            analyze "$model" "${analyze_args[@]}" --reportFolder "$base_reports" >/dev/null 2>&1 || code=$?
+          [ "$code" -le 2 ] || return 1
+
+          base_doc="$base_reports/$stem.analysis.json"
+          [ -f "$base_doc" ] || return 1
+
+          docker run --rm -v "$PWD":/work -w /work "$REVIEW_IMAGE" \
+            analysis diff "$base_doc" "$head_doc" --json 2>/dev/null | jq -c '.data' || return 1
+        }
+
         results="[]"
         changed=0
         while IFS=$'\t' read -r status path previous; do
@@ -703,6 +749,16 @@ runs:
 
           results=$(jq --arg p "$path" --argjson d "$diff_json" \
             '. + [{model: $p, change: "modified", summary: $d.data.summary, detail: $d.data}]' <<< "$results")
+
+          # `analysis diff` exits 2 when findings were introduced, so the delta is read from its
+          # output rather than its status. A model whose delta cannot be produced keeps its structural
+          # diff instead of losing the whole entry.
+          if delta_json=$(findings_delta "$path" "$dest") && [ -n "$delta_json" ]; then
+            results=$(jq --argjson d "$delta_json" \
+              '(.[-1]) |= (. + {findings: $d.summary, findingDetail: $d})' <<< "$results")
+          else
+            echo "::warning::Could not compare findings for $path against its base revision."
+          fi
         done <<< "$entries"
 
         rm -rf "$base_root"
@@ -726,7 +782,54 @@ runs:
           "| `" + .model + "` | " +
           (if .change == "modified"
             then "\(.summary.added) added, \(.summary.removed) removed, \(.summary.modified) modified"
+              + (if (.summary.crossingChanges // 0) > 0
+                 then ", \(.summary.crossingChanges) crossing change(s)"
+                 else "" end)
+              + (if (.findings.introduced // 0) > 0
+                 then ", **\(.findings.introduced) new finding(s)**"
+                 else "" end)
+              + (if (.findings.resolved // 0) > 0
+                 then ", \(.findings.resolved) resolved"
+                 else "" end)
             else .change end) + " |"' <<< "$results")
+
+        # Findings introduced by the change lead the summary: they are the one thing a reviewer must
+        # not miss. They are matched by stable identity, so a renamed element does not manufacture a
+        # "new" finding, and a suppressed one is reported as reclassified rather than resolved.
+        max_findings=10
+        findings=$(jq -r --argjson max "$max_findings" '
+          [ .[] | select(.change == "modified")
+            | .findingDetail.introduced[]?
+            | { rule: .ruleId, severity: .severity, diagram: (.diagram // "model"),
+                message: (if (.message | length) > 180
+                          then (.message[0:180] + "\u2026") else .message end) } ]
+          | .[:$max][]
+          | "- **New " + .severity + "** `" + .rule + "` (" + .diagram + ") - " + .message' <<< "$results")
+
+        total_findings=$(jq '[ .[] | .findings.introduced // 0 ] | add // 0' <<< "$results")
+        findings_overflow=$((total_findings - max_findings))
+        reclassified=$(jq '[ .[] | .findings.reclassified // 0 ] | add // 0' <<< "$results")
+
+        # Trust-boundary crossings get their own budget and are listed next. A crossing change can
+        # occur with no element changes at all - moving a store out of its boundary alters no stored
+        # property - so folding these into the element list would let a large rename sweep hide the
+        # one change that alters exposure. `// 0` and `[]?` keep this working against a CLI image
+        # that predates the crossing comparison rather than failing the review.
+        max_crossings=10
+        crossings=$(jq -r --argjson max "$max_crossings" '
+          [ .[] | select(.change == "modified")
+            | .detail.crossings[]?
+            | { flow: .flow, diagram: .diagram, kind: .kind,
+                added: [ .added[].name ], removed: [ .removed[].name ] } ]
+          | .[:$max][]
+          | "- **Crossing** `" + .flow + "` (" + .diagram + ")"
+            + (if .kind != "modified" then " _(" + .kind + " flow)_" else "" end)
+            + (if (.added | length) > 0 then " - now crosses: " + (.added | join(", ")) else "" end)
+            + (if (.removed | length) > 0 then " - no longer crosses: " + (.removed | join(", ")) else "" end)' <<< "$results")
+
+        total_crossings=$(jq '[ .[] | select(.change == "modified")
+          | (.detail.crossings // []) | length ] | add // 0' <<< "$results")
+        crossing_overflow=$((total_crossings - max_crossings))
 
         max_changes=20
         changes=$(jq -r --argjson max "$max_changes" '
@@ -749,6 +852,24 @@ runs:
           echo "| Model | Change |"
           echo "| --- | --- |"
           printf '%s\n' "$table"
+          if [ -n "$findings" ]; then
+            echo
+            printf '%s\n' "$findings"
+            if [ "$findings_overflow" -gt 0 ]; then
+              echo "_and $findings_overflow more new finding(s) - see \`review.json\` in the run's reports._"
+            fi
+          fi
+          if [ "$reclassified" -gt 0 ]; then
+            echo
+            echo "_$reclassified finding(s) changed disposition or severity without being introduced or resolved._"
+          fi
+          if [ -n "$crossings" ]; then
+            echo
+            printf '%s\n' "$crossings"
+            if [ "$crossing_overflow" -gt 0 ]; then
+              echo "_and $crossing_overflow more crossing change(s)._"
+            fi
+          fi
           if [ -n "$changes" ]; then
             echo
             printf '%s\n' "$changes"

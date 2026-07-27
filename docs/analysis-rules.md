@@ -765,7 +765,8 @@ have to read a diff of serialized XML:
 
 For every threat model the pull request touches, the action fetches the base revision and runs
 `tmforge diff` against it, then renders one summary: a table of models with added, removed, and
-modified counts, followed by the individual element and property changes.
+modified counts, the findings the change introduced, the trust boundary crossings that changed, and
+the individual element and property changes.
 
 | Input | Default | Purpose |
 | --- | --- | --- |
@@ -776,6 +777,16 @@ Outputs are `review` (`reviewed` or `skipped`) and `review-changed-models`.
 
 Points worth knowing:
 
+- **Findings introduced by the change lead the summary.** The base revision is analyzed with the
+  same rules and suppressions as the head, and the two analysis documents are compared by
+  [finding identity](cli-reference.md#comparing-two-analyses) rather than by count, so a renamed
+  element does not manufacture a new finding and a suppressed one is reported as reclassified rather
+  than resolved. Up to 10 appear in the summary.
+- **Trust boundary crossings are listed next and budgeted separately.** Which boundaries a flow
+  crosses is derived from geometry, so moving an element across one changes no stored property and
+  shows up in none of the element counts. A model can therefore report `0 added, 0 removed, 0
+  modified` and still have changed what is exposed. Crossings get their own cap of 10 lines so a
+  large rename sweep cannot crowd out the one change that alters exposure.
 - **The summary is bounded and the detail is not.** At most 20 element changes appear in the summary
   and the comment; the complete diff for every model is written to `review.json` in the report
   directory, which `upload-report: true` attaches to the run alongside the HTML findings reports. A
@@ -783,9 +794,12 @@ Points worth knowing:
 - **A renamed model is diffed against its previous path**, so moving a file reads as a move rather
   than a wholesale rewrite.
 - **Comparison is by element id, not file position.** Re-layout and re-serialization produce no diff,
-  which is what makes the summary worth reading.
+  which is what makes the summary worth reading. Boundaries are matched by id too, so renaming one is
+  not reported as a crossing change.
 - If a base revision or a diff cannot be produced for one model, that model is reported as
-  `unavailable` and the rest of the review still runs.
+  `unavailable` and the rest of the review still runs. A findings delta that cannot be produced
+  leaves the structural review in place rather than dropping the model, and a `tmforge` image that
+  predates either comparison simply reports neither instead of failing the review.
 - Like the drift comment, the review comment is opt-in, idempotent through its own
   `<!-- tmforge-review -->` marker, and best-effort: a fork's read-only token produces a warning
   rather than a failure.

@@ -31,6 +31,20 @@ namespace ThreatModelForge.Cli.Tests
             "{\"id\":\"p1\",\"kind\":\"process\",\"name\":\"Checkout\",\"x\":200,\"y\":0}]," +
             "\"flows\":[{\"id\":\"f2\",\"source\":\"p1\",\"target\":\"s1\",\"name\":\"write\"}]}";
 
+        // The sample model with the log store's tamper-evidence recorded. This retires a finding
+        // without changing the model's shape, so the comparison against SampleJson resolves and
+        // introduces nothing.
+        private const string SignedJson =
+            "{\"schema\":\"tmforge-json\",\"version\":\"0.1\"," +
+            "\"elements\":[" +
+            "{\"id\":\"s1\",\"kind\":\"datastore\",\"name\":\"Ledger\",\"x\":0,\"y\":0," +
+            "\"properties\":{\"StoresLogData\":\"Yes\",\"Signed\":\"Yes\"}}," +
+            "{\"id\":\"p1\",\"kind\":\"process\",\"name\":\"Checkout\",\"x\":200,\"y\":0}," +
+            "{\"id\":\"e1\",\"kind\":\"external\",\"name\":\"Customer\",\"x\":400,\"y\":0}]," +
+            "\"flows\":[" +
+            "{\"id\":\"f1\",\"source\":\"e1\",\"target\":\"p1\",\"name\":\"order\"}," +
+            "{\"id\":\"f2\",\"source\":\"p1\",\"target\":\"s1\",\"name\":\"write\"}]}";
+
         /// <summary>Gets or sets the working directory for one test.</summary>
         private string WorkingDirectory { get; set; } = string.Empty;
 
@@ -181,6 +195,87 @@ namespace ThreatModelForge.Cli.Tests
             Assert.AreEqual(1, exit);
         }
 
+        /// <summary>
+        /// Findings introduced between two analyses fail the command, so a gate can depend on "no new
+        /// findings" without having to compare counts itself.
+        /// </summary>
+        [TestMethod]
+        public void DiffReportsIntroducedFindingsAndFails()
+        {
+            string basePath = this.WriteAnalysisAs("base", EditedJson);
+            string headPath = this.WriteAnalysisAs("head", SampleJson);
+
+            (int exit, string stdout) = Run(new[] { "diff", basePath, headPath });
+
+            Assert.AreEqual(2, exit);
+            StringAssert.Contains(stdout, "Introduced:");
+        }
+
+        /// <summary>
+        /// Recording the control a finding asked for resolves it and introduces nothing, so the
+        /// comparison succeeds. Resolving findings is not something a gate should fail on.
+        /// </summary>
+        [TestMethod]
+        public void DiffReportsResolvedFindingsAndSucceeds()
+        {
+            string basePath = this.WriteAnalysisAs("base", SampleJson);
+            string headPath = this.WriteAnalysisAs("head", SignedJson);
+
+            (int exit, string stdout) = Run(new[] { "diff", basePath, headPath });
+
+            Assert.AreEqual(0, exit, stdout);
+            StringAssert.Contains(stdout, "Resolved:");
+        }
+
+        /// <summary>A document compared against itself reports no change.</summary>
+        [TestMethod]
+        public void DiffOfADocumentAgainstItselfIsEmpty()
+        {
+            string document = this.WriteAnalysisAs("base", SampleJson);
+
+            (int exit, string stdout) = Run(new[] { "diff", document, document });
+
+            Assert.AreEqual(0, exit);
+            StringAssert.Contains(stdout, "No change in findings");
+        }
+
+        /// <summary>
+        /// The JSON envelope carries the identities, not just the counts, so a caller can report which
+        /// findings arrived rather than re-deriving them.
+        /// </summary>
+        [TestMethod]
+        public void DiffJsonCarriesTheIntroducedIdentities()
+        {
+            string basePath = this.WriteAnalysisAs("base", EditedJson);
+            string headPath = this.WriteAnalysisAs("head", SampleJson);
+
+            (int exit, string stdout) = Run(new[] { "diff", basePath, headPath, "--json" });
+
+            Assert.AreEqual(2, exit);
+            JsonElement data = JsonDocument.Parse(stdout).RootElement.GetProperty("data");
+            Assert.AreEqual("diff", data.GetProperty("operation").GetString());
+
+            JsonElement introduced = data.GetProperty("introduced");
+            Assert.IsTrue(introduced.GetArrayLength() > 0);
+            Assert.AreEqual(
+                introduced.GetArrayLength(),
+                data.GetProperty("summary").GetProperty("introduced").GetInt32());
+            Assert.IsFalse(
+                string.IsNullOrEmpty(Identity(introduced.EnumerateArray().First())),
+                "every reported finding carries the identity a caller reconciles on");
+        }
+
+        /// <summary>A document that cannot be read is a tool error, not an empty comparison.</summary>
+        [TestMethod]
+        public void DiffAgainstAMissingDocumentIsAToolError()
+        {
+            string document = this.WriteAnalysisAs("base", SampleJson);
+
+            (int exit, _) = Run(new[] { "diff", document, Path.Join(this.WorkingDirectory, "absent.json") });
+
+            Assert.AreEqual(1, exit);
+        }
+
         private static string Identity(JsonElement finding) => finding.GetProperty("id").GetString() ?? string.Empty;
 
         private static JsonElement ReadDocument(string path)
@@ -223,6 +318,26 @@ namespace ThreatModelForge.Cli.Tests
         {
             string model = this.WriteModel("model.json", json);
             string reports = Path.Join(this.WorkingDirectory, "reports");
+            RunAnalyze(new[] { model, "--reportFolder", reports });
+            return Path.Join(reports, "model.analysis.json");
+        }
+
+        /// <summary>
+        /// Writes one analysis into its own subtree, so two of them can be compared. The model file
+        /// keeps the same name in both so the documents describe the same logical model and the
+        /// comparison is not warned about as a cross-model one.
+        /// </summary>
+        /// <param name="revision">A name for the revision, used as the subfolder.</param>
+        /// <param name="json">The canonical model to analyze.</param>
+        /// <returns>The path of the written analysis document.</returns>
+        private string WriteAnalysisAs(string revision, string json)
+        {
+            string folder = Path.Join(this.WorkingDirectory, revision);
+            Directory.CreateDirectory(folder);
+            string model = Path.Join(folder, "model.json");
+            File.WriteAllText(model, json);
+
+            string reports = Path.Join(folder, "reports");
             RunAnalyze(new[] { model, "--reportFolder", reports });
             return Path.Join(reports, "model.analysis.json");
         }
