@@ -51,7 +51,8 @@ connection, not the geometry.
 | Action | How |
 | --- | --- |
 | Rename a node or flow | Double-click it and type. |
-| Delete the selection | `Delete` key. |
+| Select several objects | Hold `Cmd` (`Ctrl` on Windows/Linux) and click, or drag a selection box with `Shift`. |
+| Delete the selection | `Delete` key. Deleting an element takes its flows with it, and the whole deletion is a single undo step. |
 | Resize a trust boundary | Drag its handles (it's a resizable region). |
 | Tidy the diagram | Click **Tidy** to fit labels, separate overlapping shapes and peer trust boundaries, route flows, and deconflict flow labels. Nested boundaries remain nested, and each boundary moves with its members. |
 | Pan / zoom | Drag the canvas / scroll; use the minimap and **fit** control to navigate. |
@@ -75,7 +76,7 @@ the CLI or API into `tmforge-json`) shows each source diagram on its own page.
 
 ### The inspector
 
-The right-hand panel edits the selected element or flow. It is **schema-driven**: it lists a typed
+The right-hand panel edits the selected elements or flows. It is **schema-driven**: it lists a typed
 control for every property the engine declares for that primitive, so every property an analysis
 rule can read is reachable, and you can clear any finding without leaving the canvas. A data flow,
 for example, exposes **Protocol**, **Port**, **Channel**, **DataType**, **Algorithm**, **Identity**,
@@ -89,6 +90,27 @@ nobody has established the answer yet — it is different from `No`/`None`, whic
 and the control is not there. `Unknown` does **not** clear a finding: the rule still reports, and says
 the property is not evidenced rather than that the control is absent. See
 [`Unknown` and the three states of a control](analysis-rules.md#unknown-and-the-three-states-of-a-control).
+
+#### Editing several objects at once
+
+Select any number of elements of the same kind, or any number of data flows, and the inspector edits
+all of them. Each control writes the whole selection in one step, so one change is one undo.
+
+A property the selection disagrees about shows as **(mixed)** rather than picking one object's value
+to display. `(mixed)` cannot be chosen, so simply opening the inspector on a mixed selection never
+flattens it — only a property you actually change is written, and the rest are left as they are.
+Clearing a property to **(none)** removes it from every selected object.
+
+Names are not offered across a selection: a name identifies one thing, so renaming several objects to
+the same string is not an edit worth making. Delete still applies to the whole selection.
+
+Two cases deliberately offer delete but no property editing:
+
+- **Mixed kinds** (say processes and data stores together). The same property name does not accept
+  the same values on every kind — `AuthenticationScheme` allows `Token` and `PublicKey` on an
+  external entity but not on a process — so one shared control would offer values the schema rejects
+  for part of the selection. Narrow the selection to one kind.
+- **Elements and flows together.** They have no properties in common at all.
 
 ## Validating against the engine
 
