@@ -12,6 +12,19 @@ namespace ThreatModelForge.Engine
         /// <summary>Gets the new lifecycle state, or <see langword="null"/> to leave it unchanged.</summary>
         public string? State { get; init; }
 
+        /// <summary>
+        /// Gets the new title, or <see langword="null"/> to leave it unchanged. An empty string clears an
+        /// override on a generated threat, returning it to the title its rule produces.
+        /// </summary>
+        public string? Title { get; init; }
+
+        /// <summary>
+        /// Gets the new category, or <see langword="null"/> to leave it unchanged. Only a manually
+        /// authored threat has an author-owned category; a generated threat's category belongs to the
+        /// rule that detected it, and editing it is refused rather than silently ignored.
+        /// </summary>
+        public string? Category { get; init; }
+
         /// <summary>Gets the new priority, or <see langword="null"/> to leave it unchanged.</summary>
         public string? Priority { get; init; }
 

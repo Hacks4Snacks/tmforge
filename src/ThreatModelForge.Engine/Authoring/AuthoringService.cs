@@ -262,6 +262,31 @@ namespace ThreatModelForge.Engine
             int index = overlay.FindIndex(entry => string.Equals(entry.Id, request.Id, StringComparison.OrdinalIgnoreCase));
             ThreatStateDto existing = index >= 0 ? overlay[index] : new ThreatStateDto { Id = request.Id };
             bool manual = existing.Manual == true || ThreatStateWire.IsManualKey(request.Id);
+
+            // A generated threat's category is the rule's conclusion about what kind of threat this is,
+            // not an opinion the author holds separately. Refusing the edit keeps the category meaning
+            // one thing; silently ignoring it would let an author believe they had changed it.
+            if (request.Category != null && !manual)
+            {
+                return new AuthoringResultDto
+                {
+                    Success = false,
+                    Error = "The category of a generated threat belongs to the rule that detected it and cannot be edited. " +
+                        "Only a manually authored threat has an author-owned category.",
+                };
+            }
+
+            // Clearing a title returns a generated threat to the one its rule produces. A manual threat
+            // has no rule to fall back to, so clearing its title would leave it with none at all.
+            if (manual && request.Title != null && request.Title.Trim().Length == 0)
+            {
+                return new AuthoringResultDto
+                {
+                    Success = false,
+                    Error = "A manually authored threat needs a title; there is no generated title to fall back to.",
+                };
+            }
+
             ThreatStateDto updated = new ThreatStateDto
             {
                 Id = request.Id,
@@ -271,8 +296,8 @@ namespace ThreatModelForge.Engine
                 Priority = priority ?? existing.Priority,
                 Description = request.Description ?? existing.Description,
                 Mitigation = request.Mitigation ?? existing.Mitigation,
-                Category = existing.Category,
-                Title = existing.Title,
+                Category = request.Category ?? existing.Category,
+                Title = Resolve(request.Title, existing.Title),
                 ElementIds = existing.ElementIds,
             };
             if (index >= 0)
@@ -315,6 +340,24 @@ namespace ThreatModelForge.Engine
 
         private static bool TryCanonicalPriority(string? value, out string? priority)
             => ThreatPriorities.TryCanonicalize(value, out priority);
+
+        /// <summary>
+        /// Resolves an optional text edit. <see langword="null"/> leaves the field alone; a blank value
+        /// clears it, which is how an author removes an override rather than replacing it with
+        /// whitespace; anything else is the new value.
+        /// </summary>
+        /// <param name="requested">The requested value.</param>
+        /// <param name="existing">The value already recorded.</param>
+        /// <returns>The value to record.</returns>
+        private static string? Resolve(string? requested, string? existing)
+        {
+            if (requested == null)
+            {
+                return existing;
+            }
+
+            return requested.Trim().Length == 0 ? null : requested;
+        }
 
         private static TmForgeModelDto WithThreats(TmForgeModelDto source, List<ThreatStateDto> overlay)
         {

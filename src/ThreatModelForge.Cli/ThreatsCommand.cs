@@ -225,9 +225,36 @@ namespace ThreatModelForge.Cli
         {
             string? stateArg = parsed.Get("state");
             ThreatState? state = stateArg == null ? null : ThreatStateWire.Parse(stateArg);
+
+            // An empty --edit value reaches the operation as a blank id, which it rejects by throwing.
+            // Caught here so a mistyped flag prints a message instead of a stack trace.
+            if (string.IsNullOrWhiteSpace(editId))
+            {
+                Console.Error.WriteLine("--edit needs a threat id. Use 'tmforge list threats " + input + "' to find one.");
+                return 1;
+            }
+
             if (!TryCanonicalPriority(parsed.Get("priority"), out string? priority))
             {
                 Console.Error.WriteLine("--priority must be one of: " + ThreatPriorities.Describe() + ".");
+                return 1;
+            }
+
+            // Checked here rather than left to the exception so the message reads for a person, which
+            // is the same reason --add validates its id before calling through.
+            string? title = parsed.Get("title");
+            string? category = parsed.Get("category");
+            bool manual = ManualThreatId.IsManual(editId);
+            if (category != null && !manual)
+            {
+                Console.Error.WriteLine(
+                    "--category applies only to a manual threat. A generated threat's category belongs to the rule that detected it.");
+                return 1;
+            }
+
+            if (manual && title != null && title.Trim().Length == 0)
+            {
+                Console.Error.WriteLine("--title cannot be empty for a manual threat; there is no generated title to fall back to.");
                 return 1;
             }
 
@@ -238,7 +265,9 @@ namespace ThreatModelForge.Cli
                 priority,
                 parsed.Get("description"),
                 parsed.Get("mitigation"),
-                parsed.Get("note")))
+                parsed.Get("note"),
+                title,
+                category))
             {
                 Console.Error.WriteLine("Threat not found: " + editId + ". Use 'tmforge list threats " + input + "' to find its id.");
                 return 1;
@@ -457,14 +486,16 @@ namespace ThreatModelForge.Cli
             Console.Error.WriteLine("Usage:");
             Console.Error.WriteLine("  tmforge threats [--write] [--json] [--rules <path>] <file>");
             Console.Error.WriteLine("  tmforge threats --add --title <t> --category <STRIDE> [--id <id>] [--scope <id>] [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] [--json] <file>");
-            Console.Error.WriteLine("  tmforge threats --edit <id> [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] [--note <n>] [--json] <file>");
+            Console.Error.WriteLine("  tmforge threats --edit <id> [--title <t>] [--category <c>] [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] [--note <n>] [--json] <file>");
             Console.Error.WriteLine("  tmforge threats --remove <id> [--json] <file>");
             Console.Error.WriteLine("  tmforge threats --remove-stale [--force] [--rules <path>] [--json] <file>");
             Console.Error.WriteLine();
             Console.Error.WriteLine("--write     persist the generated threats into the model's register (preserves prior triage).");
             Console.Error.WriteLine("--add       author a manual threat; --category is a STRIDE category (Spoofing / Tampering / Repudiation / InformationDisclosure / DenialOfService / ElevationOfPrivilege).");
             Console.Error.WriteLine("--id        the threat's id, so you can reference it elsewhere and re-run the same authoring safely; letters, digits, '-', '_', '.' (a 'manual:' prefix is added if you omit it). Defaults to a generated id.");
-            Console.Error.WriteLine("--edit      change a threat's state (Open / NeedsInvestigation / Mitigated / Accepted), priority, mitigation, description, or note.");
+            Console.Error.WriteLine("--edit      change a threat's title, state (Open / NeedsInvestigation / Mitigated / Accepted), priority, mitigation, description, or note.");
+            Console.Error.WriteLine("            --title on a generated threat is an override; pass an empty title to restore the rule's wording.");
+            Console.Error.WriteLine("            --category applies only to a manual threat: a generated threat's category is owned by its rule.");
             Console.Error.WriteLine("--remove    delete a manual threat, or one that has gone stale (a threat the rules still produce would regenerate; accept or edit it instead).");
             Console.Error.WriteLine("--remove-stale  delete every stale entry — stored threats whose rule no longer fires. Entries carrying triage are kept and listed; --force discards them too.");
             Console.Error.WriteLine();

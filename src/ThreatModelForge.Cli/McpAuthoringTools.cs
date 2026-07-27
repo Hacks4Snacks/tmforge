@@ -248,28 +248,34 @@ namespace ThreatModelForge.Cli
         /// <param name="model">The tmforge-json model to edit.</param>
         /// <param name="id">The threat id (from the threats tool).</param>
         /// <param name="state">The lifecycle state (Open, NeedsInvestigation, Mitigated, or Accepted).</param>
+        /// <param name="title">The threat title.</param>
+        /// <param name="category">The STRIDE category, for a manual threat only.</param>
         /// <param name="priority">The threat priority.</param>
         /// <param name="mitigation">The suggested mitigation.</param>
         /// <param name="description">The threat description.</param>
         /// <param name="justification">A justification or state note.</param>
         /// <returns>The edited model, or a blocking error.</returns>
         [McpServerTool(Name = "edit_threat")]
-        [Description("Edits a threat's lifecycle state, priority, mitigation, description, or justification. Use a threat id from the threats tool.")]
+        [Description("Edits a threat's title, lifecycle state, priority, mitigation, description, or justification. Use a threat id from the threats tool.")]
         public static AuthoringResultDto EditThreat(
             [Description("The tmforge-json model to edit.")] TmForgeModelDto model,
             [Description("The threat id (from the threats tool).")] string id,
             [Description("The lifecycle state: Open, NeedsInvestigation, Mitigated, or Accepted.")] string? state = null,
+            [Description("The title. On a generated threat this is an override; pass an empty title to restore the rule's wording.")] string? title = null,
+            [Description("The STRIDE category. Manual threats only: a generated threat's category belongs to the rule that detected it.")] string? category = null,
             [Description("The priority: Critical, High, Medium, or Low.")] string? priority = null,
             [Description("The suggested mitigation.")] string? mitigation = null,
             [Description("A description of the threat.")] string? description = null,
             [Description("A justification or state note (for example, why a risk is accepted).")] string? justification = null)
         {
             McpToolSupport.ValidateModel(model);
-            McpToolSupport.ValidateArguments(new[] { id, state, priority, mitigation, description, justification });
+            McpToolSupport.ValidateArguments(new[] { id, state, title, category, priority, mitigation, description, justification });
             return McpToolSupport.ValidateResult(AuthoringService.EditThreat(model, new EditThreatRequest
             {
                 Id = id,
                 State = state,
+                Title = title,
+                Category = category,
                 Priority = priority,
                 Mitigation = mitigation,
                 Description = description,

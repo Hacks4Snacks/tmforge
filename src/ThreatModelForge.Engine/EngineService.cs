@@ -1296,6 +1296,8 @@ namespace ThreatModelForge.Engine
                 if (!string.IsNullOrEmpty(entry.Title))
                 {
                     threat.Title = entry.Title;
+                    threat.Properties ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    threat.Properties["TitleOverride"] = "true";
                 }
 
                 if (!string.IsNullOrEmpty(entry.Description))

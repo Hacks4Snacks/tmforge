@@ -1174,6 +1174,13 @@ export function Editor() {
       if (edit.mitigation !== undefined) {
         next.mitigation = edit.mitigation;
       }
+      if (edit.title !== undefined) {
+        // An empty title clears the override, so the engine falls back to the rule's wording.
+        next.title = edit.title === '' ? undefined : edit.title;
+      }
+      if (edit.category !== undefined) {
+        next.category = edit.category;
+      }
       return [...prev.filter((t) => t.id !== threat.id), next];
     });
     setThreats((prev) =>
@@ -1186,6 +1193,8 @@ export function Editor() {
               priority: edit.priority ?? t.priority,
               description: edit.description ?? t.description,
               mitigation: edit.mitigation ?? t.mitigation,
+              title: edit.title === undefined || edit.title === '' ? t.title : edit.title,
+              category: edit.category ?? t.category,
             }
           : t,
       ),

@@ -313,6 +313,62 @@ namespace ThreatModelForge.Cli.Tests
             Assert.AreEqual("Handled by the mesh.", threat.UserThreatDescription);
         }
 
+        /// <summary>
+        /// Retitling a rule threat records the author's wording and survives the register being
+        /// rewritten, which is what every later `--write` does.
+        /// </summary>
+        [TestMethod]
+        public void ThreatsEditRetitlesARuleThreatAndTheTitleSurvivesRegeneration()
+        {
+            string path = this.NewModelWithFlow();
+            (_, string writeOut) = Capture(() => ThreatsCommand.Run(new[] { path, "--write", "--json" }));
+            string id = JsonDocument.Parse(writeOut).RootElement.GetProperty("data")
+                .GetProperty("threats").EnumerateArray().First().GetProperty("id").GetString() ?? string.Empty;
+
+            (int exit, _) = Capture(() => ThreatsCommand.Run(new[] { path, "--edit", id, "--title", "Unauthenticated ledger write" }));
+            Assert.AreEqual(0, exit);
+
+            Assert.AreEqual(0, ThreatsCommand.Run(new[] { path, "--write" }));
+
+            (ThreatModel model, _) = CliModelLoader.Load(path);
+            Assert.IsTrue(model.AllThreatsDictionary.TryGetValue(id, out Threat? threat));
+            Assert.AreEqual("Unauthenticated ledger write", threat!.Title);
+        }
+
+        /// <summary>Clearing the title hands the threat back to its rule, so the edit is reversible.</summary>
+        [TestMethod]
+        public void ThreatsEditClearingATitleRestoresTheRuleWording()
+        {
+            string path = this.NewModelWithFlow();
+            (_, string writeOut) = Capture(() => ThreatsCommand.Run(new[] { path, "--write", "--json" }));
+            string id = JsonDocument.Parse(writeOut).RootElement.GetProperty("data")
+                .GetProperty("threats").EnumerateArray().First().GetProperty("id").GetString() ?? string.Empty;
+
+            (ThreatModel before, _) = CliModelLoader.Load(path);
+            string generated = before.AllThreatsDictionary[id].Title ?? string.Empty;
+
+            Capture(() => ThreatsCommand.Run(new[] { path, "--edit", id, "--title", "Something else" }));
+            (int exit, _) = Capture(() => ThreatsCommand.Run(new[] { path, "--edit", id, "--title", string.Empty }));
+
+            Assert.AreEqual(0, exit);
+            (ThreatModel model, _) = CliModelLoader.Load(path);
+            Assert.AreEqual(generated, model.AllThreatsDictionary[id].Title);
+        }
+
+        /// <summary>A rule threat's category is the rule's, so the CLI refuses rather than ignores it.</summary>
+        [TestMethod]
+        public void ThreatsEditRefusesACategoryOnARuleThreat()
+        {
+            string path = this.NewModelWithFlow();
+            (_, string writeOut) = Capture(() => ThreatsCommand.Run(new[] { path, "--write", "--json" }));
+            string id = JsonDocument.Parse(writeOut).RootElement.GetProperty("data")
+                .GetProperty("threats").EnumerateArray().First().GetProperty("id").GetString() ?? string.Empty;
+
+            (int exit, _) = Capture(() => ThreatsCommand.Run(new[] { path, "--edit", id, "--category", "Tampering" }));
+
+            Assert.AreEqual(1, exit);
+        }
+
         /// <summary>CLI priority edits canonicalize casing and reject values outside the wire catalog.</summary>
         [TestMethod]
         public void ThreatsPriorityMustBeCanonicalValue()
