@@ -212,9 +212,9 @@ permissions:
 
 steps:
   - uses: actions/checkout@v4
-  - uses: hacks4snacks/tmforge@v0.3
+  - uses: hacks4snacks/tmforge@v0.7
     with:
-      version: "0.3"          # pin the engine image, not just the action ref
+      version: "0.7"          # pin the engine image, not just the action ref
       models: "**/*.tm7"
       max-severity: warning
 ```
