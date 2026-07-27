@@ -712,7 +712,7 @@ lookup when needed. `--remove` deletes a manual or stale entry. Each operation t
 
 ```text
 tmforge threats --add --title <t> --category <STRIDE> [--id <id>] [--scope <id>] [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] <model>
-tmforge threats --edit <id> [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] [--note <n>] <model>
+tmforge threats --edit <id> [--title <t>] [--category <c>] [--state <s>] [--priority <p>] [--mitigation <m>] [--description <d>] [--note <n>] <model>
 tmforge threats --remove <id> <model>
 tmforge threats --remove-stale [--force] [--rules <path>] <model>
 ```
@@ -721,7 +721,9 @@ tmforge threats --remove-stale [--force] [--rules <path>] <model>
 | --- | --- |
 | `--add` | Author a **manual threat** the rules do not detect. `--category` is a STRIDE category (`Spoofing` / `Tampering` / `Repudiation` / `InformationDisclosure` / `DenialOfService` / `ElevationOfPrivilege`); `--scope` is an element or flow id (omit for a model-wide threat). Manual threats are keyed in the reserved `manual:` namespace and do not implicitly persist generated threats. |
 | `--id <id>` | Key the threat yourself instead of taking a generated id, so it can be referenced from a ticket or control catalogue and the same authoring command can be re-run. Letters, digits, `-`, `_`, and `.`, up to 128 characters; the `manual:` prefix is added if you omit it. Re-using an existing id is an error — use `--edit` to change that threat. |
-| `--edit <id>` | Change a threat's `--state` (`Open` / `NeedsInvestigation` / `Mitigated` / `Accepted`), `--priority` (`Critical` / `High` / `Medium` / `Low`), `--mitigation`, `--description`, or `--note`. Works on rule-derived and manual threats. |
+| `--edit <id>` | Change a threat's `--title`, `--state` (`Open` / `NeedsInvestigation` / `Mitigated` / `Accepted`), `--priority` (`Critical` / `High` / `Medium` / `Low`), `--mitigation`, `--description`, or `--note`. Works on rule-derived and manual threats. `--category` applies to **manual threats only**. |
+| `--title <t>` | Retitle a threat. On a rule-derived threat this is an **override**: the rule keeps detecting the threat and keeps its identity, but the register shows your wording. Pass an empty title to drop the override and restore the rule's. |
+| `--category <c>` | Set a **manual** threat's STRIDE category. Refused for a rule-derived threat, whose category is the rule's conclusion rather than an author's opinion. |
 | `--remove <id>` | Delete a **manual** threat, or a **stale** one. A threat the rules still produce is refused: removing it would only bring it back on the next run — accept or edit it instead. |
 | `--remove-stale` | Delete every stale entry at once. Entries carrying triage are **kept and listed**; `--force` discards them too. Refuses outright if any entry's rule was not part of the run, naming the rules so you can re-run with `--rules` rather than lose a real finding. |
 
@@ -729,9 +731,30 @@ tmforge threats --remove-stale [--force] [--rules <path>] <model>
 tmforge threats app.tm7 --add --title "Admin actions are unlogged" --category Repudiation --scope <process-id> --priority High
 tmforge threats app.tm7 --add --id unlogged-admin-actions --title "Admin actions are unlogged" --category Repudiation
 tmforge threats app.tm7 --edit <id> --state Mitigated --description "Handled by the mesh"
+tmforge threats app.tm7 --edit <id> --title "Unauthenticated ledger write"   # override the rule's wording
+tmforge threats app.tm7 --edit <id> --title ""                               # and hand it back to the rule
 tmforge list threats app.tm7                 # see the register and each entry's standing
 tmforge threats app.tm7 --remove-stale       # clear leftovers; triaged ones are kept and listed
 ```
+
+#### Who owns which field
+
+A threat has two kinds of text on it and they answer to different people. **Detection** — the rule
+that fired, the category it concluded, and the threat's identity — belongs to the rule set, so a
+re-run can be trusted to say the same thing. **Judgement** — title, state, priority, description,
+mitigation, and note — belongs to the author.
+
+Title sits deliberately on the author's side of that line. Rule wording is written to be precise
+about a class of problem, not about your system, and a reviewer reading the register is better served
+by "Unauthenticated ledger write" than by a sentence naming a generic data flow. Overriding it
+changes nothing a later run depends on: the rule still fires, the threat keeps its id, and the
+analysis document, SARIF fingerprints, and register key are all unmoved. Clearing the override
+restores the rule's wording, so the edit is reversible.
+
+Category does not, and that asymmetry is the point. A generated threat's category is what the
+analysis concluded; letting an author change it would record a claim the rules do not support, and
+the register would no longer mean one thing. The edit is refused rather than ignored, so nobody is
+left believing it took effect. A manual threat has no rule behind it, so its author owns both.
 
 #### Clearing stale entries
 

@@ -256,9 +256,9 @@ namespace ThreatModelForge.Analysis
         }
 
         /// <summary>
-        /// Edits a threat's author-owned fields in place: its lifecycle state, priority, description,
-        /// mitigation, and state note. Only the non-null arguments are applied. Works on both
-        /// rule-derived and manually-authored threats found in the register.
+        /// Edits a threat's author-owned fields in place: its lifecycle state, priority, title,
+        /// description, mitigation, category, and state note. Only the non-null arguments are applied.
+        /// Works on both rule-derived and manually-authored threats found in the register.
         /// </summary>
         /// <param name="model">The model containing the threat.</param>
         /// <param name="threatId">The threat's register key, interaction key, or numeric id.</param>
@@ -267,7 +267,20 @@ namespace ThreatModelForge.Analysis
         /// <param name="description">The new description, or <see langword="null"/> to leave it unchanged (empty clears it).</param>
         /// <param name="mitigation">The new mitigation, or <see langword="null"/> to leave it unchanged (empty clears it).</param>
         /// <param name="note">The new state note / justification, or <see langword="null"/> to leave it unchanged.</param>
+        /// <param name="title">
+        /// The new title, or <see langword="null"/> to leave it unchanged. Empty clears an override on a
+        /// generated threat, restoring the title its rule produces.
+        /// </param>
+        /// <param name="category">
+        /// The new category for a manually authored threat, or <see langword="null"/> to leave it
+        /// unchanged.
+        /// </param>
         /// <returns><see langword="true"/> if a matching threat was found and edited; otherwise <see langword="false"/>.</returns>
+        /// <exception cref="ArgumentException">
+        /// <paramref name="category"/> was supplied for a rule-derived threat, whose category belongs to
+        /// the rule that detected it. Callers that surface errors to a person should check first rather
+        /// than rely on the exception text.
+        /// </exception>
         public static bool Edit(
             ThreatModel model,
             string threatId,
@@ -275,7 +288,9 @@ namespace ThreatModelForge.Analysis
             string? priority,
             string? description,
             string? mitigation,
-            string? note)
+            string? note,
+            string? title = null,
+            string? category = null)
         {
             if (model == null)
             {
@@ -293,9 +308,27 @@ namespace ThreatModelForge.Analysis
                 return false;
             }
 
+            bool manual = ManualThreatId.IsManual(threat.InteractionKey);
+            if (category != null && !manual)
+            {
+                throw new ArgumentException(
+                    "The category of a generated threat belongs to the rule that detected it.",
+                    nameof(category));
+            }
+
             if (state.HasValue)
             {
                 threat.State = state.Value;
+            }
+
+            if (title != null)
+            {
+                ApplyTitle(threat, title, manual);
+            }
+
+            if (category != null)
+            {
+                threat.UserThreatCategory = category;
             }
 
             if (!string.IsNullOrWhiteSpace(priority))
@@ -622,6 +655,8 @@ namespace ThreatModelForge.Analysis
         {
             bool priorityOverridden = HasPriorityOverride(existing, threat);
             string? overriddenPriority = priorityOverridden ? existing.Priority : null;
+            bool titleOverridden = HasTitleOverride(existing);
+            string? overriddenTitle = titleOverridden ? existing.Title : null;
             existing.TypeId = threat.RuleId;
             existing.SourceGuid = threat.SourceGuid;
             existing.TargetGuid = threat.TargetGuid;
@@ -629,7 +664,7 @@ namespace ThreatModelForge.Analysis
             existing.DrawingSurfaceGuid = threat.DiagramGuid;
             existing.InteractionKey = threat.Id;
             existing.InteractionString = threat.InteractionString;
-            existing.Title = threat.Title;
+            existing.Title = overriddenTitle ?? threat.Title;
             existing.Priority = overriddenPriority ?? threat.Priority;
             existing.UserThreatCategory = threat.ThreatCategory.Name;
             existing.Properties = BuildProperties(threat);
@@ -638,12 +673,18 @@ namespace ThreatModelForge.Analysis
                 existing.Properties["PriorityOverride"] = "true";
             }
 
+            if (titleOverridden)
+            {
+                existing.Properties["TitleOverride"] = "true";
+            }
+
             existing.ModifiedAt = DateTime.UtcNow;
         }
 
         private static void HydrateThreat(Threat existing, GeneratedThreat threat)
         {
             bool priorityOverridden = HasPriorityOverride(existing, threat);
+            bool titleOverridden = HasTitleOverride(existing);
             existing.TypeId = threat.RuleId;
             existing.SourceGuid = threat.SourceGuid;
             existing.TargetGuid = threat.TargetGuid;
@@ -651,7 +692,7 @@ namespace ThreatModelForge.Analysis
             existing.DrawingSurfaceGuid = threat.DiagramGuid;
             existing.InteractionKey = threat.Id;
             existing.InteractionString = threat.InteractionString;
-            existing.Title = FirstNonEmpty(existing.Title, threat.Title);
+            existing.Title = titleOverridden ? existing.Title : FirstNonEmpty(existing.Title, threat.Title);
             existing.Priority = priorityOverridden ? existing.Priority : threat.Priority;
             existing.UserThreatCategory = threat.ThreatCategory.Name;
 
@@ -669,6 +710,11 @@ namespace ThreatModelForge.Analysis
                 generatedProperties["PriorityOverride"] = "true";
             }
 
+            if (titleOverridden)
+            {
+                generatedProperties["TitleOverride"] = "true";
+            }
+
             existing.Properties = generatedProperties;
         }
 
@@ -682,6 +728,11 @@ namespace ThreatModelForge.Analysis
                 ["Rule"] = threat.RuleId,
                 ["CategoryId"] = threat.ThreatCategory.Id,
                 ["GeneratedDefaultPriority"] = threat.Priority,
+
+                // Stashed for the same reason as the default priority: it is the only way to tell an
+                // author's title from the rule's on a later run, including one where the title was
+                // changed in another tool that cannot write tmforge's override marker.
+                ["GeneratedDefaultTitle"] = threat.Title,
             };
             if (threat.Stride.HasValue)
             {
@@ -730,11 +781,85 @@ namespace ThreatModelForge.Analysis
                 StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Applies a title edit, recording that the title is now the author's.
+        /// </summary>
+        /// <remarks>
+        /// Clearing a generated threat's title restores the rule's own wording from the stashed
+        /// default, which is what makes the edit reversible: an author who changes their mind gets the
+        /// rule's title back rather than an empty one. A manual threat has no rule to fall back to, so
+        /// its caller refuses a blank title before reaching here.
+        /// </remarks>
+        /// <param name="threat">The threat being edited.</param>
+        /// <param name="title">The requested title; empty clears an override.</param>
+        /// <param name="manual">Whether the threat is manually authored.</param>
+        private static void ApplyTitle(Threat threat, string title, bool manual)
+        {
+            if (title.Trim().Length > 0)
+            {
+                threat.Title = title;
+                if (!manual)
+                {
+                    threat.Properties ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    threat.Properties["TitleOverride"] = "true";
+                }
+
+                return;
+            }
+
+            if (manual)
+            {
+                return;
+            }
+
+            threat.Properties?.Remove("TitleOverride");
+            if (threat.Properties?.TryGetValue("GeneratedDefaultTitle", out string? generated) == true &&
+                !string.IsNullOrEmpty(generated))
+            {
+                threat.Title = generated;
+            }
+        }
+
+        /// <summary>
+        /// Reports whether an existing threat's title is the author's rather than the rule's.
+        /// </summary>
+        /// <remarks>
+        /// Mirrors <see cref="HasPriorityOverride"/>. The marker is the fast path for a title tmforge
+        /// applied itself; comparing against the stashed generated default is what catches a title
+        /// changed in another tool, which cannot write the marker. Without this, regeneration would
+        /// quietly restore the rule's wording over the author's.
+        /// </remarks>
+        /// <param name="existing">The threat already in the register.</param>
+        /// <returns><see langword="true"/> when the title is author-owned.</returns>
+        private static bool HasTitleOverride(Threat existing)
+        {
+            if (existing.Properties?.TryGetValue("TitleOverride", out string? marker) == true &&
+                string.Equals(marker, "true", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (string.IsNullOrWhiteSpace(existing.Title))
+            {
+                return false;
+            }
+
+            if (existing.Properties?.TryGetValue("GeneratedDefaultTitle", out string? previousDefault) == true)
+            {
+                return !string.Equals(existing.Title, previousDefault, StringComparison.Ordinal);
+            }
+
+            // No stashed default means this entry predates the override contract. Claiming an override
+            // would freeze the rule's own wording as though an author had chosen it.
+            return false;
+        }
+
         private static bool IsRuleOwnedProperty(string name)
         {
             return string.Equals(name, "Rule", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(name, "CategoryId", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(name, "GeneratedDefaultPriority", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "GeneratedDefaultTitle", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(name, "STRIDE", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(name, "References", StringComparison.OrdinalIgnoreCase);
         }

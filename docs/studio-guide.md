@@ -124,9 +124,19 @@ configuration, so the loader reports that rather than pretending a local pack to
 **Analyze** also returns the model's **STRIDE threat register** — the threat-bearing findings framed as
 threats, grouped by category. Each threat is **editable inline**: click **Edit** to set its
 
+- **title** — your wording in place of the rule's; clear it to restore the rule's;
 - **state** — Open, Needs investigation, Mitigated, or Accepted (accepting reveals a justification field);
 - **priority** — Critical / High / Medium / Low;
 - **description** and **mitigation** notes.
+
+The **category** control is disabled for a rule-derived threat, and says so. Its category is what the
+analysis concluded, not an opinion held separately from the rules — editing it would record a claim
+the rule set does not support. A manual threat has no rule behind it, so its author owns its category
+as well as its title.
+
+Retitling a rule threat changes nothing a later run depends on: the rule keeps detecting it, and the
+threat keeps the identity that the analysis document, SARIF fingerprints, and the `.tm7` register key
+are all built on.
 
 Click **+ Add threat** to author a **manual threat** the rules do not detect: give it a title, a STRIDE
 category, and a scope — a specific element or flow, or model-wide. Manual threats are badged **Manual**

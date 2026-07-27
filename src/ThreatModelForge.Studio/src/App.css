@@ -1239,6 +1239,13 @@
   margin-bottom: 8px;
 }
 
+/* Explains why a control is disabled, or what clearing a field does, next to the control itself. */
+.threat-edit-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin: -4px 0 8px;
+}
+
 .threat-desc {
   font-size: 11px;
   color: var(--muted);

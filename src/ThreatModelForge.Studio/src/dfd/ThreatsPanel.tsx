@@ -59,6 +59,8 @@ export interface ThreatScopeOption {
 /** An author edit to a threat's owned fields. `state` is always carried; the rest are sparse. */
 export interface ThreatEdit {
   state: ThreatLifecycleState;
+  title?: string;
+  category?: string;
   priority?: string;
   description?: string;
   mitigation?: string;
@@ -114,13 +116,21 @@ function severityClassForPriority(priority: string | undefined): string {
 /** The inline editor for a single threat's author-owned fields. */
 function ThreatEditor({ threat, onSave, onCancel }: { threat: Threat; onSave: (edit: ThreatEdit) => void; onCancel: () => void }) {
   const [state, setState] = useState<ThreatLifecycleState>(threat.state);
+  const [title, setTitle] = useState(threat.title ?? '');
   const [priority, setPriority] = useState(threat.priority ?? 'Medium');
   const [description, setDescription] = useState(threat.description ?? '');
   const [mitigation, setMitigation] = useState(threat.mitigation ?? '');
   const [justification, setJustification] = useState(threat.justification ?? '');
+  const [category, setCategory] = useState(threat.category ?? 'Spoofing');
 
   function save() {
     const edit: ThreatEdit = { state };
+    if (title !== (threat.title ?? '')) {
+      edit.title = title;
+    }
+    if (threat.manual && category !== (threat.category ?? '')) {
+      edit.category = category;
+    }
     if (priority !== (threat.priority ?? 'Medium')) {
       edit.priority = priority;
     }
@@ -138,6 +148,38 @@ function ThreatEditor({ threat, onSave, onCancel }: { threat: Threat; onSave: (e
 
   return (
     <form className="threat-accept threat-edit" onSubmit={(event) => { event.preventDefault(); save(); }}>
+      <label className="inspector-field">
+        <span>Title</span>
+        <input value={title} onChange={(event) => setTitle(event.target.value)} />
+      </label>
+      {threat.manual ? null : (
+        <p className="threat-edit-hint">
+          Clear the title to restore the wording its rule produces.
+        </p>
+      )}
+      <label className="inspector-field">
+        <span>Category</span>
+        <select
+          value={threat.manual ? category : (threat.category ?? '')}
+          disabled={!threat.manual}
+          onChange={(event) => setCategory(event.target.value)}
+        >
+          {threat.manual ? (
+            STRIDE_ORDER.map((option) => (
+              <option key={option} value={option}>
+                {STRIDE_LABEL[option] ?? option}
+              </option>
+            ))
+          ) : (
+            <option value={threat.category ?? ''}>{threat.categoryName ?? threat.category}</option>
+          )}
+        </select>
+      </label>
+      {threat.manual ? null : (
+        <p className="threat-edit-hint">
+          The category belongs to the rule that detected this threat, so it is not editable here.
+        </p>
+      )}
       <label className="inspector-field">
         <span>State</span>
         <select value={state} onChange={(event) => setState(event.target.value as ThreatLifecycleState)}>

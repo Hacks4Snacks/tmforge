@@ -194,6 +194,51 @@ describe('ThreatsPanel', () => {
     });
   });
 
+  it('edits a threat: retitling a generated threat emits the title and leaves its category alone', () => {
+    const { onEditThreat } = renderPanel({ threats: [THREATS[0]] });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Spoofed client identity' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(onEditThreat).toHaveBeenCalledWith(THREATS[0], {
+      state: 'Open',
+      title: 'Spoofed client identity',
+    });
+  });
+
+  it("does not let a generated threat's category be edited, and says why", () => {
+    renderPanel({ threats: [THREATS[0]] });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+    expect(screen.getByLabelText('Category')).toBeDisabled();
+    expect(screen.getByText(/belongs to the rule that detected this threat/i)).toBeInTheDocument();
+  });
+
+  it("lets a manual threat's category be edited, since no rule owns it", () => {
+    const manual = threat({ id: 'manual:byo', ruleId: '', manual: true, category: 'Spoofing', title: 'Stolen laptop' });
+    const { onEditThreat } = renderPanel({ threats: [manual] });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(screen.getByLabelText('Category')).toBeEnabled();
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'Tampering' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(onEditThreat).toHaveBeenCalledWith(manual, expect.objectContaining({ category: 'Tampering' }));
+  });
+
+  it('clearing the title of a generated threat emits an empty title, which restores the rule wording', () => {
+    const retitled = threat({ id: 'client:TM1001', ruleId: 'TM1001', title: 'An author wrote this' });
+    const { onEditThreat } = renderPanel({ threats: [retitled] });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(onEditThreat).toHaveBeenCalledWith(retitled, { state: 'Open', title: '' });
+  });
+
   it('shows a non-open state badge and the justification for an accepted threat', () => {
     const accepted = threat({
       id: 'client:TM1023',
