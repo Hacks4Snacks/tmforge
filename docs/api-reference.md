@@ -49,6 +49,32 @@ and `/openapi` are matched first.
 `<format>` is one of `tm7`, `tmforge-json`, `drawio`, or `vsdx`. See
 [Formats & interoperability](formats.md).
 
+## Errors
+
+Failures are answered as [RFC 9457 problem documents](https://www.rfc-editor.org/rfc/rfc9457)
+(`application/problem+json`), and the status separates what you can fix from what you cannot:
+
+| Status | Meaning | Examples |
+| --- | --- | --- |
+| `400` | The request was unusable as sent. Retrying it unchanged cannot help. | Body that is not JSON; a missing `?to=`; an unregistered format id; content that is not valid base64; uploaded bytes that are not the format they claim to be. |
+| `404` | The path is not part of the `/v1` API, or the content was not recognized. | A mistyped endpoint; `POST /v1/detect` on bytes matching no known format. |
+| `500` | The server failed. This one is worth reporting. | Anything unexpected — the classification above is deliberately narrow, so a real fault is never disguised as your mistake. |
+
+The `detail` of a `400` names what was unusable, so the request can be corrected without guesswork:
+
+```json
+{
+  "status": 400,
+  "title": "The request could not be processed as sent.",
+  "detail": "No threat model format with id 'nonsense'.",
+  "instance": "/v1/model/convert"
+}
+```
+
+An unmatched path under `/v1` answers `404` as the API rather than falling through to the Studio's
+HTML shell, so a mistyped endpoint fails as a client error instead of returning a page a JSON client
+cannot parse. Paths outside `/v1` still reach the SPA, which is what makes client-side routing work.
+
 ## One analysis action
 
 Findings and threats are the same detection: a threat is a finding from a rule that declares a threat

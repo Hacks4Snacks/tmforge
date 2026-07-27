@@ -310,52 +310,98 @@ namespace ThreatModelForge.Api.Tests
         }
 
         /// <summary>
-        /// Documents that an unknown conversion target is answered with 500 rather than 400.
-        /// <para>
-        /// The target format is caller input, so a wrong one is a client error; the engine throws and
-        /// nothing in the host translates it, so the caller is told the server failed. This test pins
-        /// the current behaviour so it cannot drift further — <b>update it when the host starts
-        /// classifying this as a 400</b>, which is what it should return.
-        /// </para>
+        /// Verifies input the caller got wrong is reported as a client error, not a server error.
+        /// A 500 says the server broke and invites a retry; none of these can succeed on retry, so
+        /// each one has to be a 400 that names what was unusable.
         /// </summary>
+        /// <param name="route">The route to call.</param>
+        /// <param name="body">The request body.</param>
         /// <returns>A task.</returns>
         [TestMethod]
-        public async Task Convert_AnswersServerErrorForAnUnknownTarget()
+        [DataRow("/v1/model/convert?to=nonsense", Model, DisplayName = "unknown conversion target")]
+        [DataRow("/v1/model/convert?to=", Model, DisplayName = "empty conversion target")]
+        [DataRow("/v1/model/read", "{\"contentBase64\":\"eyJ9\",\"formatId\":\"nonsense\"}", DisplayName = "unknown read format")]
+        [DataRow("/v1/model/read", "{\"contentBase64\":\"AQID\",\"formatId\":\"tmforge-json\"}", DisplayName = "bytes that are not the named format")]
+        [DataRow("/v1/model/read", "{\"contentBase64\":\"!!not base64!!\"}", DisplayName = "malformed base64")]
+        [DataRow("/v1/detect", "{\"contentBase64\":\"!!not base64!!\"}", DisplayName = "malformed base64 on detect")]
+        public async Task CallerInputErrors_AreReportedAsBadRequest(string route, string body)
         {
-            using HttpResponseMessage response = await PostJson("/v1/model/convert?to=nonsense", Model);
+            using HttpResponseMessage response = await PostJson(route, body);
 
-            Assert.AreEqual(HttpStatusCode.InternalServerError, response.StatusCode);
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
         }
 
         /// <summary>
-        /// Documents that an unmatched <c>/v1</c> path is not answered as an API 404.
+        /// Verifies a bad request carries a problem document naming what went wrong, so the caller can
+        /// correct the request instead of guessing which parameter the server disliked.
+        /// </summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task ABadRequestExplainsWhatWasUnusable()
+        {
+            using HttpResponseMessage response = await PostJson("/v1/model/convert?to=nonsense", Model);
+
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.AreEqual("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.AreEqual(400, body.RootElement.GetProperty("status").GetInt32());
+            StringAssert.Contains(body.RootElement.GetProperty("detail").GetString(), "nonsense");
+        }
+
+        /// <summary>
+        /// Verifies a genuine server fault is still a 500. The bad-request handling above classifies by
+        /// exception type, so this guards the other side of that line: widening it until everything
+        /// looks like the caller's fault would hide real breakage behind a 400.
+        /// </summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task ReportFormatThatIsNotRecognized_StillRendersRatherThanFailing()
+        {
+            // An unknown report format is not an error at all: it falls back to HTML by design.
+            using HttpResponseMessage response = await PostJson("/v1/model/report?format=nonsense", Model);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            Assert.AreEqual("text/html", response.Content.Headers.ContentType?.MediaType);
+        }
+
+        /// <summary>
+        /// Verifies a mistyped API path is answered as an API 404, not with the Studio's HTML shell.
+        /// The SPA fallback is registered for every unmatched path, so without a dedicated <c>/v1</c>
+        /// fallback a caller that misspells an endpoint receives 200 and an HTML document, and fails
+        /// while parsing it rather than seeing the status it deserves.
+        /// </summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task UnknownV1Route_IsAnsweredAsAnApiNotFound()
+        {
+            using HttpResponseMessage response = await Client.GetAsync("/v1/no-such-endpoint");
+
+            Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode);
+            Assert.AreEqual("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+            Assert.AreNotEqual(
+                "text/html",
+                response.Content.Headers.ContentType?.MediaType,
+                "a mistyped API path must not be answered with the SPA shell.");
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.AreEqual(404, body.RootElement.GetProperty("status").GetInt32());
+        }
+
+        /// <summary>
+        /// Verifies the SPA fallback still works for everything that is not an API path, so fixing the
+        /// <c>/v1</c> case above cannot have broken client-side routing.
         /// <para>
-        /// The SPA fallback is registered for every unmatched path, so in a shipped image (which always
-        /// carries the built Studio) a mistyped API route returns the application shell with 200 and
-        /// <c>text/html</c>. A client that parses the body as JSON fails confusingly instead of seeing
-        /// the status it deserves. <b>Update this when unmatched <c>/v1</c> paths start returning a JSON
-        /// 404</b>, which is what an API surface should do.
-        /// </para>
-        /// <para>
-        /// The assertion is written against the invariant rather than the status code, because an
-        /// API-only build (<c>-p:BuildStudio=false</c>) has no <c>wwwroot</c> and answers 404 instead.
-        /// Both outcomes share the defect being pinned: the caller never gets a JSON error.
+        /// An API-only build (<c>-p:BuildStudio=false</c>) has no <c>wwwroot</c> and answers 404, so the
+        /// assertion only holds the SPA to account when it is actually present.
         /// </para>
         /// </summary>
         /// <returns>A task.</returns>
         [TestMethod]
-        public async Task UnknownV1Route_IsNotAnsweredAsAnApiError()
+        public async Task NonApiRoute_StillReachesTheSpa()
         {
-            using HttpResponseMessage response = await Client.GetAsync("/v1/no-such-endpoint");
-
-            Assert.AreNotEqual(
-                "application/json",
-                response.Content.Headers.ContentType?.MediaType,
-                "an unmatched /v1 path should eventually answer with a JSON 404.");
+            using HttpResponseMessage response = await Client.GetAsync("/some-client-side-route");
 
             if (response.StatusCode == HttpStatusCode.OK)
             {
-                // The SPA is present: its shell is served in place of an API error.
                 Assert.AreEqual("text/html", response.Content.Headers.ContentType?.MediaType);
             }
             else

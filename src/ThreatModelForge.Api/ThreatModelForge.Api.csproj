@@ -21,6 +21,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- InputErrorHandler decides which failures are the caller's fault. The negative half of that
+         decision — that an unexpected exception is still a 500 — cannot be reached over HTTP without
+         an endpoint that throws on purpose, so the test project calls the handler directly. -->
+    <InternalsVisibleTo Include="ThreatModelForge.Api.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Serves the OpenAPI document at /openapi/v1.json; the React client is generated from it. -->
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <!-- Direct reference forces the patched transitive Microsoft.OpenApi (GHSA-v5pm-xwqc-g5wc). -->

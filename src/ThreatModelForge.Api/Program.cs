@@ -35,7 +35,15 @@ namespace ThreatModelForge.Api
             // truth for the API contract; the React client's types are generated from it.
             builder.Services.AddOpenApi();
 
+            // Report a caller's bad input as 400 rather than 500. See InputErrorHandler for what
+            // counts as the caller's fault; everything else still surfaces as a server error.
+            builder.Services.AddProblemDetails();
+            builder.Services.AddExceptionHandler<InputErrorHandler>();
+
             WebApplication app = builder.Build();
+
+            // First in the pipeline so it wraps every endpoint below.
+            app.UseExceptionHandler();
             app.UseCors();
 
             // Custom rule packs are deployment configuration, not request input: they are named by the
@@ -138,6 +146,15 @@ namespace ThreatModelForge.Api
             app.MapPost("/v1/detect", DetectFormat)
                 .WithName("DetectFormat")
                 .WithTags("Formats");
+
+            // An unmatched /v1 path is a wrong API call, not a client-side route: answer it as the API
+            // rather than letting the SPA fallback below serve index.html with a 200. A caller that
+            // mistypes an endpoint gets a 404 it can act on instead of HTML it will fail to parse.
+            app.MapFallback("/v1/{**rest}", (HttpContext context) => TypedResults.Problem(
+                title: "No such endpoint.",
+                detail: $"{context.Request.Method} {context.Request.Path} is not part of the /v1 API.",
+                statusCode: StatusCodes.Status404NotFound,
+                instance: context.Request.Path));
 
             // Serve the Studio SPA's entry document for any non-API path so client-side routes
             // resolve. The /v1 and /openapi endpoints are matched first, so this only catches the rest.
