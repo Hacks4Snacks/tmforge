@@ -201,8 +201,28 @@ The image mounts your files at `/work`, so paths in your commands are relative t
 
 ## CI/CD
 
-You can run validation two ways in CI: with a downloaded self-contained binary, or with the CLI
-container image.
+On GitHub, use the first-party action. Elsewhere, run the self-contained binary or the CLI container.
+
+### With the first-party GitHub Action (recommended)
+
+```yaml
+permissions:
+  contents: read
+  security-events: write
+
+steps:
+  - uses: actions/checkout@v4
+  - uses: hacks4snacks/tmforge@v0.3
+    with:
+      version: "0.3"          # pin the engine image, not just the action ref
+      models: "**/*.tm7"
+      max-severity: warning
+```
+
+It analyzes every matching model, uploads SARIF to code scanning, and gates the build. It also
+accepts `rules`, `ruleset`, and `suppression-file`, so a pipeline gets the same custom-rule and
+suppression behavior as the CLI. See [Analysis rules & CI](analysis-rules.md#ci-integration) for the
+full input list.
 
 ### With the prebuilt binary (fastest cold start)
 

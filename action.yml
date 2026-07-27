@@ -52,6 +52,29 @@ inputs:
       use the CLI default (error), so only errors gate unless you opt into warnings.
     required: false
     default: ""
+  rules:
+    description: >-
+      Path to a declarative custom rule pack (*.tmrules.json) or a directory of them, relative to the
+      repository root. Custom rules are added to the built-in rules, never a replacement for them.
+    required: false
+    default: ""
+  ruleset:
+    description: >-
+      Path to a .ruleset file that enables or disables built-in rules, relative to the repository root.
+    required: false
+    default: ""
+  suppression-file:
+    description: >-
+      Path to a suppression .json file, relative to the repository root. A suppressed finding is still
+      produced and recorded; it just stops gating the build.
+    required: false
+    default: ""
+  pull:
+    description: >-
+      Pull the image before running. Set to 'false' to run an image already loaded on the runner, which
+      is how this repository tests the action against a locally built image.
+    required: false
+    default: "true"
   fail-on-findings:
     description: Fail the action when analysis reports gating findings (exit code 2). Set to 'false' to report without failing.
     required: false
@@ -68,6 +91,61 @@ inputs:
     description: Directory (relative to the workspace) the per-model SARIF files are written to.
     required: false
     default: .tmforge-sarif
+  upload-report:
+    description: >-
+      Upload the generated findings reports (SARIF, HTML, and JSON) as a workflow artifact. The SARIF
+      already reaches code scanning; this is for keeping the human-readable report with the run.
+    required: false
+    default: "false"
+  report-artifact-name:
+    description: Name of the workflow artifact created when 'upload-report' is enabled.
+    required: false
+    default: tmforge-reports
+  drift:
+    description: >-
+      What to do when architecture-relevant files changed but no threat model did: 'off', 'notice'
+      (report without failing), or 'fail'. Drift is inert until 'drift-watched-paths' is set, because
+      only the consumer knows which paths are architecture-relevant.
+    required: false
+    default: notice
+  drift-watched-paths:
+    description: >-
+      Globs, one per line, matching the files whose change should be accompanied by a threat-model
+      update (for example 'src/**' or 'infra/**'). Empty disables drift detection.
+    required: false
+    default: ""
+  drift-model-paths:
+    description: >-
+      Globs, one per line, matching the threat models that satisfy a drift check. Defaults to the
+      'models' input.
+    required: false
+    default: ""
+  drift-comment:
+    description: >-
+      Keep a single pull-request comment up to date with the drift result. Requires
+      'pull-requests: write'. A pull request from a fork receives a read-only token, so the comment is
+      skipped with a warning rather than failing the run.
+    required: false
+    default: "false"
+  review:
+    description: >-
+      Summarize how the threat models themselves changed in this pull request: 'off' or 'on'. The
+      review is informational and never gates the build.
+    required: false
+    default: "off"
+  review-comment:
+    description: >-
+      Keep a single pull-request comment up to date with the review summary. Requires
+      'pull-requests: write'; a fork's token is read-only, so it warns rather than failing.
+    required: false
+    default: "false"
+  token:
+    description: >-
+      Token used to read the list of files changed in the event. Reading the change list from the API
+      rather than the work tree is what makes drift correct under a shallow clone and for deleted or
+      renamed files.
+    required: false
+    default: ${{ github.token }}
 
 outputs:
   result:
@@ -79,10 +157,301 @@ outputs:
   sarif-directory:
     description: Directory the SARIF files were written to.
     value: ${{ inputs.sarif-directory }}
+  drift:
+    description: >-
+      'true' (watched paths changed and no threat model did), 'false' (no drift), or 'skipped' (drift
+      was off, unconfigured, or the event carried no comparable change list).
+    value: ${{ steps.drift.outputs.drift }}
+  drift-reason:
+    description: Why the drift result is what it is, suitable for a log line or a comment body.
+    value: ${{ steps.drift.outputs.drift-reason }}
+  drift-watched-count:
+    description: Number of changed files that matched 'drift-watched-paths'.
+    value: ${{ steps.drift.outputs.drift-watched-count }}
+  drift-model-count:
+    description: Number of changed files that matched 'drift-model-paths'.
+    value: ${{ steps.drift.outputs.drift-model-count }}
+  review:
+    description: "'reviewed', or 'skipped' when review was off or the change list was unavailable."
+    value: ${{ steps.review.outputs.review }}
+  review-changed-models:
+    description: Number of threat models this pull request changed.
+    value: ${{ steps.review.outputs.review-changed-models }}
 
 runs:
   using: composite
   steps:
+    # Runs before analysis and never fails on its own: the gate step enforces the result, so a drift
+    # failure still lets the SARIF reach code scanning first.
+    - name: Detect threat-model drift
+      id: drift
+      shell: bash
+      env:
+        DRIFT_MODE: ${{ inputs.drift }}
+        DRIFT_WATCHED: ${{ inputs.drift-watched-paths }}
+        DRIFT_MODELS: ${{ inputs.drift-model-paths != '' && inputs.drift-model-paths || inputs.models }}
+        DRIFT_TOKEN: ${{ inputs.token }}
+        DRIFT_API: ${{ github.api_url }}
+        DRIFT_REPO: ${{ github.repository }}
+        DRIFT_EVENT: ${{ github.event_name }}
+        DRIFT_PR: ${{ github.event.pull_request.number }}
+        DRIFT_BEFORE: ${{ github.event.before }}
+        DRIFT_AFTER: ${{ github.sha }}
+      run: |
+        set -uo pipefail
+
+        report() {
+          {
+            echo "drift=$1"
+            echo "drift-reason=$2"
+            echo "drift-watched-count=${3:-0}"
+            echo "drift-model-count=${4:-0}"
+          } >> "$GITHUB_OUTPUT"
+        }
+
+        # Every skip below reports why. A drift check that quietly evaluates nothing is worse than one
+        # that is plainly off, because it reads as "no drift" on a run that never looked.
+        if [ "$DRIFT_MODE" = "off" ]; then
+          report skipped "drift detection is off" 0 0
+          exit 0
+        fi
+        if [ -z "${DRIFT_WATCHED//[[:space:]]/}" ]; then
+          report skipped "no drift-watched-paths are configured" 0 0
+          exit 0
+        fi
+        if ! command -v jq >/dev/null 2>&1; then
+          echo "::warning::Skipping drift detection: jq is not available on this runner."
+          report skipped "jq is not available on this runner" 0 0
+          exit 0
+        fi
+
+        read_globs() {
+          local line
+          while IFS= read -r line; do
+            line=${line%$'\r'}
+            if [ -n "${line//[[:space:]]/}" ]; then
+              printf '%s\n' "$line"
+            fi
+          done <<< "$1"
+        }
+
+        mapfile -t watched_globs < <(read_globs "$DRIFT_WATCHED")
+        mapfile -t model_globs < <(read_globs "$DRIFT_MODELS")
+
+        api() {
+          curl -fsSL --retry 2 \
+            -H "Authorization: Bearer $DRIFT_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$1"
+        }
+
+        # The change list comes from the API rather than the work tree. That is what makes this correct
+        # under the default shallow clone, and what lets a deleted or renamed file still be seen.
+        changed=""
+        case "$DRIFT_EVENT" in
+          pull_request | pull_request_target)
+            if [ -z "$DRIFT_PR" ]; then
+              report skipped "the event carried no pull-request number" 0 0
+              exit 0
+            fi
+            page=1
+            while :; do
+              if ! body=$(api "$DRIFT_API/repos/$DRIFT_REPO/pulls/$DRIFT_PR/files?per_page=100&page=$page"); then
+                echo "::warning::Skipping drift detection: could not read the pull request's file list."
+                report skipped "could not read the pull request's file list" 0 0
+                exit 0
+              fi
+              changed+=$(printf '%s' "$body" | jq -r '.[] | .filename, (.previous_filename // empty)')$'\n'
+              [ "$(printf '%s' "$body" | jq 'length')" -lt 100 ] && break
+              page=$((page + 1))
+            done
+            ;;
+          push)
+            if [ -z "$DRIFT_BEFORE" ] || [ "$DRIFT_BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              report skipped "the push had no previous commit to compare against" 0 0
+              exit 0
+            fi
+            if ! body=$(api "$DRIFT_API/repos/$DRIFT_REPO/compare/$DRIFT_BEFORE...$DRIFT_AFTER?per_page=100"); then
+              echo "::warning::Skipping drift detection: could not compare the pushed commits."
+              report skipped "could not compare the pushed commits" 0 0
+              exit 0
+            fi
+            changed=$(printf '%s' "$body" | jq -r '.files[]? | .filename, (.previous_filename // empty)')
+            ;;
+          *)
+            report skipped "drift is evaluated for pull_request and push events only" 0 0
+            exit 0
+            ;;
+        esac
+
+        matches_any() {
+          local path="$1"
+          shift
+          local pattern
+          for pattern in "$@"; do
+            # Unquoted right-hand side: this is pattern matching against a string, not evaluation.
+            if [[ "$path" == $pattern ]]; then
+              return 0
+            fi
+            # A leading '**/' should also match a file at the repository root.
+            if [[ "$pattern" == '**/'* ]] && [[ "$path" == ${pattern#'**/'} ]]; then
+              return 0
+            fi
+          done
+          return 1
+        }
+
+        watched_count=0
+        model_count=0
+        while IFS= read -r path; do
+          [ -n "$path" ] || continue
+          # A path matching both is a model change: updating the model is what the check asks for.
+          if matches_any "$path" ${model_globs[@]+"${model_globs[@]}"}; then
+            model_count=$((model_count + 1))
+          elif matches_any "$path" ${watched_globs[@]+"${watched_globs[@]}"}; then
+            watched_count=$((watched_count + 1))
+          fi
+        done < <(printf '%s\n' "$changed" | sort -u)
+
+        if [ "$watched_count" -gt 0 ] && [ "$model_count" -eq 0 ]; then
+          drift=true
+          reason="$watched_count watched file(s) changed and no threat model changed"
+        elif [ "$watched_count" -eq 0 ]; then
+          drift=false
+          reason="no watched files changed"
+        else
+          drift=false
+          reason="$watched_count watched file(s) changed alongside $model_count threat-model change(s)"
+        fi
+
+        {
+          echo "### Threat model drift"
+          echo
+          if [ "$drift" = "true" ]; then
+            echo "**Drift detected** - $reason."
+            echo
+            echo "Review whether the threat model still describes the system, and update it if it does not."
+          else
+            echo "No drift - $reason."
+          fi
+          echo
+          echo "| Signal | Count |"
+          echo "| --- | --- |"
+          echo "| Changed files matching \`drift-watched-paths\` | $watched_count |"
+          echo "| Changed files matching \`drift-model-paths\` | $model_count |"
+        } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+
+        if [ "$drift" = "true" ]; then
+          if [ "$DRIFT_MODE" = "fail" ]; then
+            echo "::error::Threat-model drift: $reason."
+          else
+            echo "::notice::Threat-model drift: $reason."
+          fi
+        fi
+
+        report "$drift" "$reason" "$watched_count" "$model_count"
+        echo "Threat model drift: $drift ($reason)"
+
+    # Opt-in and best-effort: this step never fails the run, because a comment is a courtesy and the
+    # authoritative results are the outputs, the job summary, and the gate.
+    - name: Comment the drift result on the pull request
+      if: ${{ inputs.drift-comment == 'true' && github.event_name == 'pull_request' && steps.drift.outputs.drift != 'skipped' }}
+      shell: bash
+      env:
+        DRIFT: ${{ steps.drift.outputs.drift }}
+        DRIFT_REASON: ${{ steps.drift.outputs.drift-reason }}
+        DRIFT_WATCHED: ${{ steps.drift.outputs.drift-watched-count }}
+        DRIFT_MODEL: ${{ steps.drift.outputs.drift-model-count }}
+        DRIFT_TOKEN: ${{ inputs.token }}
+        DRIFT_API: ${{ github.api_url }}
+        DRIFT_REPO: ${{ github.repository }}
+        DRIFT_PR: ${{ github.event.pull_request.number }}
+      run: |
+        set -uo pipefail
+
+        if ! command -v jq >/dev/null 2>&1; then
+          echo "::warning::Skipping the drift comment: jq is not available on this runner."
+          exit 0
+        fi
+
+        marker='<!-- tmforge-drift -->'
+
+        api() {
+          curl -fsSL --retry 2 \
+            -H "Authorization: Bearer $DRIFT_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$1"
+        }
+
+        # Find our own comment by its marker. Requiring the marker at the *start* of the body means a
+        # human quoting it cannot be mistaken for it, so this never edits somebody else's comment.
+        comment_id=""
+        page=1
+        while :; do
+          if ! body=$(api "$DRIFT_API/repos/$DRIFT_REPO/issues/$DRIFT_PR/comments?per_page=100&page=$page"); then
+            echo "::warning::Could not read the pull request's comments; skipping the drift comment."
+            exit 0
+          fi
+          comment_id=$(printf '%s' "$body" |
+            jq -r --arg m "$marker" '[.[] | select(.body | startswith($m))] | first | .id // empty')
+          [ -n "$comment_id" ] && break
+          [ "$(printf '%s' "$body" | jq 'length')" -lt 100 ] && break
+          page=$((page + 1))
+        done
+
+        # Say nothing on a clean pull request that never drifted. The comment exists to be resolved,
+        # not to appear on every run.
+        if [ "$DRIFT" != "true" ] && [ -z "$comment_id" ]; then
+          echo "No drift and no existing comment; nothing to post."
+          exit 0
+        fi
+
+        if [ "$DRIFT" = "true" ]; then
+          summary="**Drift detected** - $DRIFT_REASON."
+          detail="Review whether the threat model still describes the system, and update it if it does not."
+        else
+          summary="**Resolved** - $DRIFT_REASON."
+          detail="This comment is kept up to date by the Threat Model Forge action."
+        fi
+
+        text=$(printf '%s\n### Threat model drift\n\n%s\n\n%s\n\n| Signal | Count |\n| --- | --- |\n| Changed files matching `drift-watched-paths` | %s |\n| Changed files matching `drift-model-paths` | %s |\n' \
+          "$marker" "$summary" "$detail" "$DRIFT_WATCHED" "$DRIFT_MODEL")
+
+        # jq builds the request body so the comment text is encoded rather than hand-escaped.
+        payload=$(jq -n --arg body "$text" '{body: $body}')
+        response=$(mktemp)
+
+        if [ -n "$comment_id" ]; then
+          verb=PATCH
+          url="$DRIFT_API/repos/$DRIFT_REPO/issues/comments/$comment_id"
+          done_word=updated
+        else
+          verb=POST
+          url="$DRIFT_API/repos/$DRIFT_REPO/issues/$DRIFT_PR/comments"
+          done_word=created
+        fi
+
+        code=$(curl -sS -o "$response" -w '%{http_code}' -X "$verb" \
+          -H "Authorization: Bearer $DRIFT_TOKEN" \
+          -H "Accept: application/vnd.github+json" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          -d "$payload" \
+          "$url")
+
+        case "$code" in
+          2*)
+            echo "Drift comment $done_word."
+            ;;
+          403 | 404)
+            echo "::warning::Not permitted to comment on this pull request (HTTP $code). A fork's token is read-only; for same-repository pull requests grant 'pull-requests: write'."
+            ;;
+          *)
+            echo "::warning::Could not post the drift comment (HTTP $code)."
+            ;;
+        esac
+
     - name: Analyze threat models
       id: analyze
       shell: bash
@@ -90,14 +459,49 @@ runs:
         TMF_IMAGE: ${{ inputs.image }}:${{ inputs.version }}
         TMF_MODELS: ${{ inputs.models }}
         TMF_MAX_SEVERITY: ${{ inputs.max-severity }}
+        TMF_RULES: ${{ inputs.rules }}
+        TMF_RULESET: ${{ inputs.ruleset }}
+        TMF_SUPPRESSIONS: ${{ inputs.suppression-file }}
+        TMF_PULL: ${{ inputs.pull }}
         TMF_SARIF_DIR: ${{ inputs.sarif-directory }}
       run: |
         set -uo pipefail
         mkdir -p "$TMF_SARIF_DIR"
 
-        # Expand the glob (** needs globstar) relative to the workspace.
+        # Every input arrives through the environment rather than a `${{ }}` interpolation in this
+        # script, so no input is ever parsed as shell source. The globs below are expanded by the
+        # shell's pathname expansion only; nothing is passed to eval or to a command string.
+        #
+        # Read one glob per line. Splitting on newlines rather than whitespace is what lets a pattern
+        # (or a matched path) contain a space without silently becoming two patterns.
+        patterns=()
+        while IFS= read -r pattern; do
+          pattern=${pattern%$'\r'}
+          if [ -n "${pattern//[[:space:]]/}" ]; then
+            patterns+=( "$pattern" )
+          fi
+        done <<< "$TMF_MODELS"
+
         shopt -s globstar nullglob
-        models=( $TMF_MODELS )
+        models=()
+        seen=$'\n'
+        for pattern in ${patterns[@]+"${patterns[@]}"}; do
+          # Clear IFS so the pattern is subject to pathname expansion but never to word splitting.
+          saved_ifs=$IFS
+          IFS=
+          matches=( $pattern )
+          IFS=$saved_ifs
+          for match in ${matches[@]+"${matches[@]}"}; do
+            [ -f "$match" ] || continue
+            # A file matching two patterns is analyzed once.
+            case "$seen" in
+              *$'\n'"$match"$'\n'*) continue ;;
+            esac
+            models+=( "$match" )
+            seen="${seen}${match}"$'\n'
+          done
+        done
+
         if [ ${#models[@]} -eq 0 ]; then
           echo "::warning::No threat models matched '$TMF_MODELS'."
           {
@@ -107,13 +511,44 @@ runs:
           exit 0
         fi
 
-        sev_args=()
+        # A mistyped rule or suppression path must not analyze with the built-in rules and report a
+        # clean run: that is the failure mode where a model looks safe because the policy never loaded.
+        analyze_args=( --reportFolder "$TMF_SARIF_DIR" )
         if [ -n "$TMF_MAX_SEVERITY" ]; then
-          sev_args=(--max-severity "$TMF_MAX_SEVERITY")
+          analyze_args+=( --max-severity "$TMF_MAX_SEVERITY" )
+        fi
+        if [ -n "$TMF_RULES" ]; then
+          if [ ! -e "$TMF_RULES" ]; then
+            echo "::error::rules path '$TMF_RULES' does not exist."
+            exit 1
+          fi
+          analyze_args+=( --rules "$TMF_RULES" )
+        fi
+        if [ -n "$TMF_RULESET" ]; then
+          if [ ! -f "$TMF_RULESET" ]; then
+            echo "::error::ruleset path '$TMF_RULESET' does not exist."
+            exit 1
+          fi
+          analyze_args+=( --ruleset "$TMF_RULESET" )
+        fi
+        if [ -n "$TMF_SUPPRESSIONS" ]; then
+          if [ ! -f "$TMF_SUPPRESSIONS" ]; then
+            echo "::error::suppression-file path '$TMF_SUPPRESSIONS' does not exist."
+            exit 1
+          fi
+          analyze_args+=( --suppressionFile "$TMF_SUPPRESSIONS" )
         fi
 
-        echo "Pulling $TMF_IMAGE"
-        docker pull -q "$TMF_IMAGE"
+        if [ "$TMF_PULL" = "false" ]; then
+          if ! docker image inspect "$TMF_IMAGE" >/dev/null 2>&1; then
+            echo "::error::Image $TMF_IMAGE is not present on the runner and pull is disabled."
+            exit 1
+          fi
+          echo "Using local image $TMF_IMAGE"
+        else
+          echo "Pulling $TMF_IMAGE"
+          docker pull -q "$TMF_IMAGE"
+        fi
 
         had_error=0
         had_findings=0
@@ -122,7 +557,7 @@ runs:
           code=0
           # Mount the workspace so analyze can read the model and write its SARIF report beside it.
           docker run --rm -v "$PWD":/work -w /work "$TMF_IMAGE" \
-            analyze "$model" --reportFolder "$TMF_SARIF_DIR" "${sev_args[@]}" || code=$?
+            analyze "$model" "${analyze_args[@]}" || code=$?
           echo "::endgroup::"
           case "$code" in
             0) echo "clean: $model" ;;
@@ -145,6 +580,275 @@ runs:
         } >> "$GITHUB_OUTPUT"
         echo "Threat Model Forge result: $result (exit code $exit_code)"
 
+    # Runs after analysis so the image is already on the runner. Informational only: it never gates.
+    - name: Review model changes
+      id: review
+      if: ${{ inputs.review == 'on' && github.event_name == 'pull_request' }}
+      shell: bash
+      env:
+        REVIEW_IMAGE: ${{ inputs.image }}:${{ inputs.version }}
+        REVIEW_MODELS: ${{ inputs.drift-model-paths != '' && inputs.drift-model-paths || inputs.models }}
+        REVIEW_TOKEN: ${{ inputs.token }}
+        REVIEW_API: ${{ github.api_url }}
+        REVIEW_REPO: ${{ github.repository }}
+        REVIEW_PR: ${{ github.event.pull_request.number }}
+        REVIEW_BASE: ${{ github.event.pull_request.base.sha }}
+        REVIEW_DIR: ${{ inputs.sarif-directory }}
+      run: |
+        set -uo pipefail
+
+        emit() {
+          {
+            echo "review=$1"
+            echo "review-changed-models=${2:-0}"
+          } >> "$GITHUB_OUTPUT"
+        }
+
+        if ! command -v jq >/dev/null 2>&1; then
+          echo "::warning::Skipping the model review: jq is not available on this runner."
+          emit skipped 0
+          exit 0
+        fi
+
+        read_globs() {
+          local line
+          while IFS= read -r line; do
+            line=${line%$'\r'}
+            if [ -n "${line//[[:space:]]/}" ]; then
+              printf '%s\n' "$line"
+            fi
+          done <<< "$1"
+        }
+
+        mapfile -t model_globs < <(read_globs "$REVIEW_MODELS")
+
+        matches_any() {
+          local path="$1"
+          shift
+          local pattern
+          for pattern in "$@"; do
+            # Unquoted right-hand side: pattern matching against a string, not evaluation.
+            if [[ "$path" == $pattern ]]; then
+              return 0
+            fi
+            if [[ "$pattern" == '**/'* ]] && [[ "$path" == ${pattern#'**/'} ]]; then
+              return 0
+            fi
+          done
+          return 1
+        }
+
+        api() {
+          curl -fsSL --retry 2 \
+            -H "Authorization: Bearer $REVIEW_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$1"
+        }
+
+        entries=""
+        page=1
+        while :; do
+          if ! body=$(api "$REVIEW_API/repos/$REVIEW_REPO/pulls/$REVIEW_PR/files?per_page=100&page=$page"); then
+            echo "::warning::Skipping the model review: could not read the pull request's file list."
+            emit skipped 0
+            exit 0
+          fi
+          entries+=$(printf '%s' "$body" |
+            jq -r '.[] | [.status, .filename, (.previous_filename // "")] | @tsv')$'\n'
+          [ "$(printf '%s' "$body" | jq 'length')" -lt 100 ] && break
+          page=$((page + 1))
+        done
+
+        mkdir -p "$REVIEW_DIR"
+        # The base revisions are fetched into the workspace so the container can see them, then
+        # removed: they are scaffolding for the diff, not something to publish with the reports.
+        base_root=".tmforge-review-base"
+        rm -rf "$base_root"
+        mkdir -p "$base_root"
+
+        results="[]"
+        changed=0
+        while IFS=$'\t' read -r status path previous; do
+          [ -n "${path:-}" ] || continue
+          matches_any "$path" ${model_globs[@]+"${model_globs[@]}"} || continue
+          changed=$((changed + 1))
+
+          if [ "$status" = "added" ] || [ "$status" = "removed" ]; then
+            results=$(jq --arg p "$path" --arg c "$status" '. + [{model: $p, change: $c}]' <<< "$results")
+            continue
+          fi
+
+          # A rename is diffed against its previous path, so moving a model is not read as a rewrite.
+          base_path="${previous:-$path}"
+          dest="$base_root/$path"
+          mkdir -p "$(dirname "$dest")"
+          if ! curl -fsSL --retry 2 \
+            -H "Authorization: Bearer $REVIEW_TOKEN" \
+            -H "Accept: application/vnd.github.raw" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -o "$dest" \
+            "$REVIEW_API/repos/$REVIEW_REPO/contents/${base_path// /%20}?ref=$REVIEW_BASE"; then
+            echo "::warning::Could not fetch the base revision of $path; skipping its diff."
+            results=$(jq --arg p "$path" '. + [{model: $p, change: "unavailable"}]' <<< "$results")
+            continue
+          fi
+
+          if ! diff_json=$(docker run --rm -v "$PWD":/work -w /work "$REVIEW_IMAGE" \
+            diff "$dest" "$path" --json 2>/dev/null); then
+            echo "::warning::Could not diff $path against its base revision."
+            results=$(jq --arg p "$path" '. + [{model: $p, change: "error"}]' <<< "$results")
+            continue
+          fi
+
+          results=$(jq --arg p "$path" --argjson d "$diff_json" \
+            '. + [{model: $p, change: "modified", summary: $d.data.summary, detail: $d.data}]' <<< "$results")
+        done <<< "$entries"
+
+        rm -rf "$base_root"
+
+        if [ "$changed" -eq 0 ]; then
+          echo "No threat models changed in this pull request."
+          emit reviewed 0
+          {
+            echo "### Threat model review"
+            echo
+            echo "No threat models changed in this pull request."
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          exit 0
+        fi
+
+        jq '.' <<< "$results" > "$REVIEW_DIR/review.json"
+
+        # The comment and summary stay bounded; the artifact carries everything.
+        table=$(jq -r '
+          .[] |
+          "| `" + .model + "` | " +
+          (if .change == "modified"
+            then "\(.summary.added) added, \(.summary.removed) removed, \(.summary.modified) modified"
+            else .change end) + " |"' <<< "$results")
+
+        max_changes=20
+        changes=$(jq -r --argjson max "$max_changes" '
+          [ .[] | select(.change == "modified") | .model as $m
+            | (.detail.added + .detail.removed + .detail.modified)[]
+            | { m: $m, kind: .kind, element: .element, name: .name, diagram: .diagram, props: .properties } ]
+          | .[:$max][]
+          | "- **" + .kind + "** " + .element + " `" + .name + "` (" + .diagram + ")"
+            + (if (.props | length) > 0
+               then " - " + ([ .props[] | .key + ": " + (.from // "unset") + " -> " + (.to // "unset") ] | join("; "))
+               else "" end)' <<< "$results")
+
+        total_changes=$(jq '[ .[] | select(.change == "modified")
+          | (.detail.added + .detail.removed + .detail.modified) | length ] | add // 0' <<< "$results")
+        overflow=$((total_changes - max_changes))
+
+        {
+          echo "### Threat model review"
+          echo
+          echo "| Model | Change |"
+          echo "| --- | --- |"
+          printf '%s\n' "$table"
+          if [ -n "$changes" ]; then
+            echo
+            printf '%s\n' "$changes"
+          fi
+          if [ "$overflow" -gt 0 ]; then
+            echo
+            echo "_and $overflow more change(s) - see \`review.json\` in the run's reports._"
+          fi
+        } > "$REVIEW_DIR/review.md"
+
+        cat "$REVIEW_DIR/review.md" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+        emit reviewed "$changed"
+        echo "Reviewed $changed changed threat model(s)."
+
+    # Opt-in and best-effort, exactly like the drift comment, and keyed by its own marker.
+    - name: Comment the review on the pull request
+      if: ${{ inputs.review == 'on' && inputs.review-comment == 'true' && github.event_name == 'pull_request' && steps.review.outputs.review == 'reviewed' }}
+      shell: bash
+      env:
+        REVIEW_DIR: ${{ inputs.sarif-directory }}
+        REVIEW_CHANGED: ${{ steps.review.outputs.review-changed-models }}
+        REVIEW_TOKEN: ${{ inputs.token }}
+        REVIEW_API: ${{ github.api_url }}
+        REVIEW_REPO: ${{ github.repository }}
+        REVIEW_PR: ${{ github.event.pull_request.number }}
+      run: |
+        set -uo pipefail
+
+        if ! command -v jq >/dev/null 2>&1; then
+          echo "::warning::Skipping the review comment: jq is not available on this runner."
+          exit 0
+        fi
+
+        marker='<!-- tmforge-review -->'
+
+        api() {
+          curl -fsSL --retry 2 \
+            -H "Authorization: Bearer $REVIEW_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$1"
+        }
+
+        comment_id=""
+        page=1
+        while :; do
+          if ! body=$(api "$REVIEW_API/repos/$REVIEW_REPO/issues/$REVIEW_PR/comments?per_page=100&page=$page"); then
+            echo "::warning::Could not read the pull request's comments; skipping the review comment."
+            exit 0
+          fi
+          comment_id=$(printf '%s' "$body" |
+            jq -r --arg m "$marker" '[.[] | select(.body | startswith($m))] | first | .id // empty')
+          [ -n "$comment_id" ] && break
+          [ "$(printf '%s' "$body" | jq 'length')" -lt 100 ] && break
+          page=$((page + 1))
+        done
+
+        if [ "$REVIEW_CHANGED" = "0" ] && [ -z "$comment_id" ]; then
+          echo "No threat models changed and no existing comment; nothing to post."
+          exit 0
+        fi
+
+        if [ -f "$REVIEW_DIR/review.md" ]; then
+          text="$marker"$'\n'"$(cat "$REVIEW_DIR/review.md")"
+        else
+          text="$marker"$'\n'"### Threat model review"$'\n\n'"No threat models changed in this pull request."
+        fi
+
+        payload=$(jq -n --arg body "$text" '{body: $body}')
+        response=$(mktemp)
+
+        if [ -n "$comment_id" ]; then
+          verb=PATCH
+          url="$REVIEW_API/repos/$REVIEW_REPO/issues/comments/$comment_id"
+          done_word=updated
+        else
+          verb=POST
+          url="$REVIEW_API/repos/$REVIEW_REPO/issues/$REVIEW_PR/comments"
+          done_word=created
+        fi
+
+        code=$(curl -sS -o "$response" -w '%{http_code}' -X "$verb" \
+          -H "Authorization: Bearer $REVIEW_TOKEN" \
+          -H "Accept: application/vnd.github+json" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          -d "$payload" \
+          "$url")
+
+        case "$code" in
+          2*)
+            echo "Review comment $done_word."
+            ;;
+          403 | 404)
+            echo "::warning::Not permitted to comment on this pull request (HTTP $code). A fork's token is read-only; for same-repository pull requests grant 'pull-requests: write'."
+            ;;
+          *)
+            echo "::warning::Could not post the review comment (HTTP $code)."
+            ;;
+        esac
+
     - name: Upload SARIF to code scanning
       # Runs even when analysis found issues, so results always reach the Security tab before the gate.
       if: ${{ always() && inputs.upload-sarif == 'true' }}
@@ -153,25 +857,49 @@ runs:
         sarif_file: ${{ inputs.sarif-directory }}
         category: ${{ inputs.category }}
 
+    - name: Upload findings reports
+      # Also runs on findings: the human-readable report is most useful precisely when the gate fails.
+      if: ${{ always() && inputs.upload-report == 'true' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.report-artifact-name }}
+        path: ${{ inputs.sarif-directory }}
+        if-no-files-found: warn
+
     - name: Gate the build on the result
       shell: bash
       env:
         RESULT: ${{ steps.analyze.outputs.result }}
         FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
+        DRIFT: ${{ steps.drift.outputs.drift }}
+        DRIFT_MODE: ${{ inputs.drift }}
+        DRIFT_REASON: ${{ steps.drift.outputs.drift-reason }}
       run: |
+        # Both gates are evaluated before exiting, so a run that trips two of them says so once
+        # rather than hiding the second behind the first.
+        failed=0
+
+        if [ "$DRIFT" = "true" ] && [ "$DRIFT_MODE" = "fail" ]; then
+          echo "::error::Threat-model drift: $DRIFT_REASON."
+          failed=1
+        fi
+
         case "$RESULT" in
           error)
             echo "::error::One or more threat models could not be analyzed."
-            exit 1
+            failed=1
             ;;
           fail)
             if [ "$FAIL_ON_FINDINGS" = "true" ]; then
               echo "::error::Threat model analysis reported gating findings. See the code scanning results."
-              exit 1
+              failed=1
+            else
+              echo "::warning::Threat model analysis reported findings (not gating: fail-on-findings=false)."
             fi
-            echo "::warning::Threat model analysis reported findings (not gating: fail-on-findings=false)."
             ;;
           *)
             echo "Threat model analysis passed."
             ;;
         esac
+
+        exit $failed

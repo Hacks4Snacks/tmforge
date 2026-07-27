@@ -207,3 +207,188 @@ jobs:
           path: artifacts/sarif
           if-no-files-found: warn
 
+  action:
+    name: First-party action
+    runs-on: ubuntu-latest
+    # Executes action.yml itself against a locally built image. Without this job the action is only
+    # ever exercised by consumers, so a change to its inputs or shell wiring regresses silently.
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build CLI image (amd64, load)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: build/Dockerfile
+          load: true
+          tags: tmforge-cli:ci
+          cache-from: type=gha,scope=tmforge-cli
+          cache-to: type=gha,mode=max,scope=tmforge-cli
+
+      # The example custom rule reports an error on the sample model, so the action must gate on it.
+      - name: Action reports the custom-rule finding
+        id: findings
+        uses: ./
+        with:
+          models: examples/webshop.tm7
+          image: tmforge-cli
+          version: ci
+          pull: "false"
+          rules: examples/corporate-policy.tmrules.json
+          upload-sarif: "false"
+          fail-on-findings: "false"
+          sarif-directory: .tmforge-findings
+
+      # The suppression silences exactly that finding, so the same inputs must now clear the gate.
+      - name: Action passes once the finding is suppressed
+        id: suppressed
+        uses: ./
+        with:
+          models: examples/webshop.tm7
+          image: tmforge-cli
+          version: ci
+          pull: "false"
+          rules: examples/corporate-policy.tmrules.json
+          suppression-file: examples/corporate-policy.suppressions.json
+          upload-sarif: "false"
+          upload-report: "true"
+          report-artifact-name: action-findings-report
+          sarif-directory: .tmforge-suppressed
+
+      - name: Action outcome matches the CLI
+        env:
+          FINDINGS_RESULT: ${{ steps.findings.outputs.result }}
+          FINDINGS_CODE: ${{ steps.findings.outputs.exit-code }}
+          SUPPRESSED_RESULT: ${{ steps.suppressed.outputs.result }}
+          SUPPRESSED_CODE: ${{ steps.suppressed.outputs.exit-code }}
+        run: |
+          set -uo pipefail
+          run_cli() {
+            docker run --rm -v "$PWD":/work -w /work tmforge-cli:ci analyze "$@" >/dev/null 2>&1
+            echo $?
+          }
+          cli_findings=$(run_cli examples/webshop.tm7 \
+            --rules examples/corporate-policy.tmrules.json --reportFolder .cli-findings)
+          cli_suppressed=$(run_cli examples/webshop.tm7 \
+            --rules examples/corporate-policy.tmrules.json \
+            --suppressionFile examples/corporate-policy.suppressions.json --reportFolder .cli-suppressed)
+
+          echo "action: findings=$FINDINGS_RESULT/$FINDINGS_CODE suppressed=$SUPPRESSED_RESULT/$SUPPRESSED_CODE"
+          echo "cli:    findings=$cli_findings suppressed=$cli_suppressed"
+
+          rc=0
+          if [ "$FINDINGS_CODE" != "2" ] || [ "$FINDINGS_RESULT" != "fail" ]; then
+            echo "::error::Expected the custom rule to gate (fail/2), got $FINDINGS_RESULT/$FINDINGS_CODE."
+            rc=1
+          fi
+          if [ "$SUPPRESSED_CODE" != "0" ] || [ "$SUPPRESSED_RESULT" != "pass" ]; then
+            echo "::error::Expected the suppression to clear the gate (pass/0), got $SUPPRESSED_RESULT/$SUPPRESSED_CODE."
+            rc=1
+          fi
+          if [ "$cli_findings" != "$FINDINGS_CODE" ]; then
+            echo "::error::CLI ($cli_findings) and action ($FINDINGS_CODE) disagree without the suppression."
+            rc=1
+          fi
+          if [ "$cli_suppressed" != "$SUPPRESSED_CODE" ]; then
+            echo "::error::CLI ($cli_suppressed) and action ($SUPPRESSED_CODE) disagree with the suppression."
+            rc=1
+          fi
+          exit $rc
+
+      # A mistyped rule path must fail rather than analyze with the built-in rules and report clean.
+      - name: Action rejects a missing rules path
+        id: missing-rules
+        continue-on-error: true
+        uses: ./
+        with:
+          models: examples/webshop.tm7
+          image: tmforge-cli
+          version: ci
+          pull: "false"
+          rules: examples/no-such-pack.tmrules.json
+          upload-sarif: "false"
+
+      - name: Assert the missing rules path failed
+        env:
+          OUTCOME: ${{ steps.missing-rules.outcome }}
+        run: |
+          if [ "$OUTCOME" != "failure" ]; then
+            echo "::error::A missing rules path must fail the action, not fall back to the built-in rules."
+            exit 1
+          fi
+          echo "A missing rules path failed the action, as it must."
+
+      # Drift is inert until the consumer names watched paths, and reports a reason either way.
+      - name: Drift reports skipped when switched off
+        id: drift-off
+        uses: ./
+        with:
+          models: examples/webshop.tm7
+          image: tmforge-cli
+          version: ci
+          pull: "false"
+          upload-sarif: "false"
+          drift: "off"
+          sarif-directory: .tmforge-drift-off
+
+      # Exercises the real change list for this event against globs nothing can have touched.
+      - name: Drift reports no change against paths that did not change
+        id: drift-clean
+        uses: ./
+        with:
+          models: examples/webshop.tm7
+          image: tmforge-cli
+          version: ci
+          pull: "false"
+          upload-sarif: "false"
+          drift-watched-paths: no-such-directory/**
+          sarif-directory: .tmforge-drift-clean
+
+      - name: Assert the drift contract
+        env:
+          OFF_DRIFT: ${{ steps.drift-off.outputs.drift }}
+          CLEAN_DRIFT: ${{ steps.drift-clean.outputs.drift }}
+          CLEAN_WATCHED: ${{ steps.drift-clean.outputs.drift-watched-count }}
+          CLEAN_REASON: ${{ steps.drift-clean.outputs.drift-reason }}
+        run: |
+          echo "drift(off)=$OFF_DRIFT  drift(clean)=$CLEAN_DRIFT ($CLEAN_REASON)"
+          rc=0
+          if [ "$OFF_DRIFT" != "skipped" ]; then
+            echo "::error::drift 'off' must report 'skipped', got '$OFF_DRIFT'."
+            rc=1
+          fi
+          if [ "$CLEAN_DRIFT" != "false" ] || [ "$CLEAN_WATCHED" != "0" ]; then
+            echo "::error::Watched paths that did not change must report 'false' with a zero count, got '$CLEAN_DRIFT'/'$CLEAN_WATCHED'."
+            rc=1
+          fi
+          exit $rc
+
+      # Exercises the review path against model globs no pull request can have touched, so the
+      # assertion holds whatever this pull request happens to change.
+      - name: Review reports no model changes against paths that did not change
+        id: review
+        if: github.event_name == 'pull_request'
+        uses: ./
+        with:
+          models: examples/webshop.tm7
+          image: tmforge-cli
+          version: ci
+          pull: "false"
+          upload-sarif: "false"
+          review: "on"
+          drift-model-paths: no-such-directory/**
+          sarif-directory: .tmforge-review
+
+      - name: Assert the review contract
+        if: github.event_name == 'pull_request'
+        env:
+          REVIEW: ${{ steps.review.outputs.review }}
+          CHANGED: ${{ steps.review.outputs.review-changed-models }}
+        run: |
+          echo "review=$REVIEW changed-models=$CHANGED"
+          if [ "$REVIEW" != "reviewed" ] || [ "$CHANGED" != "0" ]; then
+            echo "::error::Expected 'reviewed' with zero changed models, got '$REVIEW'/'$CHANGED'."
+            exit 1
+          fi
+

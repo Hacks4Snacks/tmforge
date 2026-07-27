@@ -32,3 +32,29 @@ tmforge analyze examples/webshop.tm7
 # Machine-readable SARIF + HTML report into a folder.
 tmforge analyze examples/webshop.tm7 --reportFolder out/reports
 ```
+
+## Custom rules and suppressions
+
+A matched pair showing how an organization layers its own policy on top of the built-in rules, and
+how a reviewed exception is recorded.
+
+| File | What it is |
+|------|------------|
+| [`corporate-policy.tmrules.json`](corporate-policy.tmrules.json) | One declarative rule: a store holding audit data must state a `RetentionDays` retention period. |
+| [`corporate-policy.suppressions.json`](corporate-policy.suppressions.json) | Records a reviewed exception for the audit log in `webshop.tm7`. |
+
+The rule reports an **error** against `webshop.tm7`, so it changes the gate outcome, and the
+suppression clears exactly that finding:
+
+```bash
+tmforge analyze examples/webshop.tm7 \
+  --rules examples/corporate-policy.tmrules.json                       # exit 2
+
+tmforge analyze examples/webshop.tm7 \
+  --rules examples/corporate-policy.tmrules.json \
+  --suppressionFile examples/corporate-policy.suppressions.json        # exit 0
+```
+
+CI runs this pair through both the CLI and the first-party Action and requires the same outcome from
+each, which is what keeps the Action's rule and suppression wiring honest. A suppressed finding is
+still produced and recorded — it simply stops gating the build.

@@ -632,23 +632,170 @@ when triage has to cross that kind of edit.
 
 ## CI integration
 
-Gate a pipeline on threat-model findings. The example uses GitHub Actions; adapt the runner and paths
-to your CI.
+### The first-party GitHub Action
+
+The action runs the pinned CLI container, writes the reports, uploads SARIF to code scanning, and
+gates the build:
 
 ```yaml
 name: threat-model
 on: [pull_request]
+
+permissions:
+  contents: read
+  security-events: write   # required to upload SARIF to code scanning
+
 jobs:
   analyze:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Download tmforge
-        run: |
-          curl -fsSL -o tmforge.tar.gz \
-            https://github.com/hacks4snacks/tmforge/releases/download/v0.1.0/tmforge-0.1.0-linux-x64.tar.gz
-          tar -xzf tmforge.tar.gz
-          echo "$PWD/tmforge-0.1.0-linux-x64" >> "$GITHUB_PATH"
+      - uses: hacks4snacks/tmforge@v0.3
+        with:
+          version: "0.3"                                  # pin the engine image, not just the action
+          models: "**/*.tm7"
+          rules: rules/corporate.tmrules.json
+          suppression-file: .tmforge/suppressions.json
+          max-severity: warning
+```
+
+| Input | Default | Purpose |
+| --- | --- | --- |
+| `models` | `**/*.tm7` | One glob per line. A file matched by two globs is analyzed once. |
+| `rules` | *(none)* | Custom rule pack, or a directory of them. Added to the built-in rules. |
+| `ruleset` | *(none)* | `.ruleset` file that enables or disables built-in rules. |
+| `suppression-file` | *(none)* | Suppression `.json` file. |
+| `max-severity` | `error` | Severity at or above which findings gate the build. |
+| `fail-on-findings` | `true` | Set `false` to report findings without failing. |
+| `upload-sarif` | `true` | Upload the SARIF to code scanning. |
+| `upload-report` | `false` | Also keep the reports as a workflow artifact. |
+| `image` / `version` | `ghcr.io/hacks4snacks/tmforge-cli` / `latest` | Pin `version` for a reproducible gate. |
+| `pull` | `true` | Set `false` to run an image already loaded on the runner. |
+
+Outputs are `result` (`pass`, `fail`, or `error`), `exit-code`, and `sarif-directory`.
+
+A `rules`, `ruleset`, or `suppression-file` path that does not exist **fails the action** rather than
+analyzing with the built-in rules alone. A model must never look clean because the policy it was
+supposed to be judged against silently failed to load.
+
+`examples/corporate-policy.tmrules.json` and `examples/corporate-policy.suppressions.json` are a
+working pair: the rule reports an error on `examples/webshop.tm7`, and the suppression clears exactly
+that finding. This repository's CI runs both through the action and through the CLI and requires the
+two to agree.
+
+### Drift detection
+
+Analysis can only judge the model you have. It cannot tell you the model stopped describing the
+system. Drift detection covers that gap: it reports a change that touched architecture-relevant code
+without touching a threat model.
+
+```yaml
+      - uses: hacks4snacks/tmforge@v0.3
+        with:
+          drift: notice          # 'off', 'notice' (default), or 'fail'
+          drift-watched-paths: |
+            src/**
+            infra/**
+```
+
+| Input | Default | Purpose |
+| --- | --- | --- |
+| `drift` | `notice` | `off`, `notice` (report without failing), or `fail`. |
+| `drift-watched-paths` | *(none)* | Globs, one per line, whose change should come with a model update. |
+| `drift-model-paths` | the `models` input | Globs that satisfy the check. |
+| `drift-comment` | `false` | Keep one pull-request comment up to date with the result. |
+| `token` | `github.token` | Used to read the event's file list. |
+
+Outputs are `drift` (`true`, `false`, or `skipped`), `drift-reason`, `drift-watched-count`, and
+`drift-model-count`. Every run writes a job-summary table, so the result is visible without granting
+any additional permission.
+
+Points worth knowing:
+
+- **Drift is inert until `drift-watched-paths` is set.** Only you know which paths are
+  architecture-relevant, so the default configuration reports `skipped` rather than guessing.
+- **A file matching both glob sets counts as a model change**, because updating the model is exactly
+  what the check asks for.
+- **The change list comes from the API, not the work tree.** That is what makes it correct under
+  `actions/checkout`'s default shallow clone, and what lets a deleted or renamed file still be seen.
+  A rename counts under both its old and new path.
+- **A run that cannot compute a change list reports `skipped`, never `false`.** That covers a first
+  push, a `schedule` or `workflow_dispatch` run, and an unreadable file list. "We looked and found
+  nothing" and "we never looked" are different answers, and only one of them is reassuring.
+- `fail` mode is enforced in the same gate as findings, so the SARIF still reaches code scanning
+  first and a run that trips both gates reports both.
+
+#### Commenting on the pull request
+
+`drift-comment: true` keeps **one** comment up to date instead of adding a new one per run:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write     # only needed for drift-comment
+
+# ...
+        with:
+          drift-comment: "true"
+          drift-watched-paths: src/**
+```
+
+The comment is found by a hidden `<!-- tmforge-drift -->` marker and updated in place, so a pull
+request that drifts and is then fixed ends with a single comment saying it is resolved rather than a
+stale warning. The marker must be at the *start* of a comment body, so quoting it in a review
+conversation cannot cause the action to edit someone else's comment.
+
+Commenting is best-effort and never fails the run: a pull request from a fork receives a read-only
+token, and that case reports a warning. Nothing else about drift needs `pull-requests: write` — the
+outputs, the job summary, and the gate all work without it.
+
+### Reviewing model changes
+
+Drift asks whether the model was updated. Review shows **how** it changed, so a reviewer does not
+have to read a diff of serialized XML:
+
+```yaml
+      - uses: hacks4snacks/tmforge@v0.3
+        with:
+          review: "on"
+          review-comment: "true"   # optional; needs pull-requests: write
+          upload-report: "true"    # optional; keeps the full detail with the run
+```
+
+For every threat model the pull request touches, the action fetches the base revision and runs
+`tmforge diff` against it, then renders one summary: a table of models with added, removed, and
+modified counts, followed by the individual element and property changes.
+
+| Input | Default | Purpose |
+| --- | --- | --- |
+| `review` | `off` | `off` or `on`. Review is informational and never gates the build. |
+| `review-comment` | `false` | Keep one pull-request comment up to date with the summary. |
+
+Outputs are `review` (`reviewed` or `skipped`) and `review-changed-models`.
+
+Points worth knowing:
+
+- **The summary is bounded and the detail is not.** At most 20 element changes appear in the summary
+  and the comment; the complete diff for every model is written to `review.json` in the report
+  directory, which `upload-report: true` attaches to the run alongside the HTML findings reports. A
+  pull request that rewrites a model should not produce a comment nobody can read.
+- **A renamed model is diffed against its previous path**, so moving a file reads as a move rather
+  than a wholesale rewrite.
+- **Comparison is by element id, not file position.** Re-layout and re-serialization produce no diff,
+  which is what makes the summary worth reading.
+- If a base revision or a diff cannot be produced for one model, that model is reported as
+  `unavailable` and the rest of the review still runs.
+- Like the drift comment, the review comment is opt-in, idempotent through its own
+  `<!-- tmforge-review -->` marker, and best-effort: a fork's read-only token produces a warning
+  rather than a failure.
+
+### Without the action
+
+Any runner that can execute the CLI works the same way — `analyze` returns `2` when a model has
+findings, which fails the step, and `1` for a tool error:
+
+```yaml
       - name: Analyze threat models
         run: |
           set -e
@@ -662,7 +809,6 @@ jobs:
           sarif_file: reports
 ```
 
-`tmforge analyze` returns `2` when a model has findings, which fails the step; `1` signals a tool error.
 See the [deployment guide](deployment.md#cicd) for container-based pipelines.
 
 ## See also
