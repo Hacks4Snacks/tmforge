@@ -10,6 +10,8 @@ import {
   buildAnalysis,
   applyCanvasEdgeChanges,
   applyFlags,
+  deleteFromGraph,
+  sameIds,
   initialTheme,
   STORAGE_KEY,
   LEGACY_MODEL_KEY,
@@ -367,5 +369,57 @@ describe('Editor — initialTheme', () => {
   it('defaults to light when no theme is saved and no OS preference is available', () => {
     window.localStorage.removeItem(THEME_KEY);
     expect(initialTheme()).toBe('light');
+  });
+});
+
+describe('Editor — deleting a selection', () => {
+  const a: DfdNode = { id: 'a', type: 'process', position: { x: 0, y: 0 }, data: { label: 'A' } };
+  const b: DfdNode = { id: 'b', type: 'process', position: { x: 0, y: 0 }, data: { label: 'B' } };
+  const c: DfdNode = { id: 'c', type: 'datastore', position: { x: 0, y: 0 }, data: { label: 'C' } };
+  const ab: DfdEdge = { id: 'ab', source: 'a', target: 'b' };
+  const bc: DfdEdge = { id: 'bc', source: 'b', target: 'c' };
+
+  it('deletes every selected element, not just the first', () => {
+    const result = deleteFromGraph([a, b, c], [], ['a', 'b'], []);
+    expect(result.nodes.map((n) => n.id)).toEqual(['c']);
+  });
+
+  it('takes the flows connected to a deleted element with it, at either end', () => {
+    const result = deleteFromGraph([a, b, c], [ab, bc], ['b'], []);
+    // 'b' is the target of ab and the source of bc; both go.
+    expect(result.nodes.map((n) => n.id)).toEqual(['a', 'c']);
+    expect(result.edges).toEqual([]);
+  });
+
+  it('deletes a selected flow without touching its endpoints', () => {
+    const result = deleteFromGraph([a, b, c], [ab, bc], [], ['ab']);
+    expect(result.nodes.map((n) => n.id)).toEqual(['a', 'b', 'c']);
+    expect(result.edges.map((e) => e.id)).toEqual(['bc']);
+  });
+
+  it('handles a selection holding both elements and flows', () => {
+    const result = deleteFromGraph([a, b, c], [ab, bc], ['a'], ['bc']);
+    expect(result.nodes.map((n) => n.id)).toEqual(['b', 'c']);
+    // 'ab' went with 'a' even though only 'bc' was selected.
+    expect(result.edges).toEqual([]);
+  });
+
+  it('leaves the graph alone when nothing is selected', () => {
+    const result = deleteFromGraph([a, b], [ab], [], []);
+    expect(result.nodes).toEqual([a, b]);
+    expect(result.edges).toEqual([ab]);
+  });
+});
+
+describe('Editor — sameIds', () => {
+  it('recognizes an unchanged selection so the Inspector is not remounted mid-edit', () => {
+    expect(sameIds([], [])).toBe(true);
+    expect(sameIds(['a', 'b'], ['a', 'b'])).toBe(true);
+  });
+
+  it('sees a changed selection', () => {
+    expect(sameIds(['a'], ['a', 'b'])).toBe(false);
+    expect(sameIds(['a', 'b'], ['b', 'a'])).toBe(false);
+    expect(sameIds(['a'], ['b'])).toBe(false);
   });
 });

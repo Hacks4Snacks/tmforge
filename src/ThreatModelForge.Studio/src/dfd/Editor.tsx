@@ -342,6 +342,32 @@ export function applyCanvasEdgeChanges(changes: EdgeChange<DfdEdge>[], current: 
   return applyEdgeChangesToGraph(geometrySafe, current);
 }
 
+/** True when two id lists hold the same ids in the same order. */
+export function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, index) => id === b[index]);
+}
+
+/**
+ * The graph left after deleting a selection. Deleting an element takes its flows with it, because a
+ * flow with a missing endpoint is not a model — so a selection of elements removes more edges than
+ * the ones the author selected.
+ */
+export function deleteFromGraph(
+  nodes: DfdNode[],
+  edges: DfdEdge[],
+  doomedNodeIds: readonly string[],
+  doomedEdgeIds: readonly string[],
+): { nodes: DfdNode[]; edges: DfdEdge[] } {
+  const doomedNodes = new Set(doomedNodeIds);
+  const doomedEdges = new Set(doomedEdgeIds);
+  return {
+    nodes: nodes.filter((n) => !doomedNodes.has(n.id)),
+    edges: edges.filter(
+      (e) => !doomedEdges.has(e.id) && !doomedNodes.has(e.source) && !doomedNodes.has(e.target),
+    ),
+  };
+}
+
 export function Editor() {
   const [pages, setPages] = useState<PageGraph[]>(INITIAL_WORKSPACE.pages);
   const [activePageId, setActivePageId] = useState<string>(INITIAL_ACTIVE.id);
@@ -354,7 +380,9 @@ export function Editor() {
   const [engine, setEngine] = useState<IEngineClient>(offlineEngine);
   const [engineOnline, setEngineOnline] = useState(false);
   const [formats, setFormats] = useState<FormatInfo[]>([]);
-  const [selection, setSelection] = useState<{ node: string | null; edge: string | null }>({ node: null, edge: null });
+  // The whole selection, not just its first member: the Inspector edits every selected element, and
+  // a bulk delete has to take the connected flows with it.
+  const [selection, setSelection] = useState<{ nodes: string[]; edges: string[] }>({ nodes: [], edges: [] });
   const [stencils, setStencils] = useState<StencilInfo[]>(FALLBACK_STENCILS);
   const [recentStencilIds, setRecentStencilIds] = useState<string[]>(loadRecentStencilIds);
   const [packs, setPacks] = useState<PackInfo[]>(FALLBACK_PACKS);
@@ -604,7 +632,7 @@ export function Editor() {
         : { nodes: target.nodes, edges: target.edges };
       setNodes(applied.nodes);
       setEdges(applied.edges);
-      setSelection({ node: null, edge: null });
+      setSelection({ nodes: [], edges: [] });
       reset();
       window.setTimeout(() => fitView({ padding: 0.25, maxZoom: 1.15, duration: 200 }), 0);
     },
@@ -617,7 +645,7 @@ export function Editor() {
     setActivePageId(id);
     setNodes([]);
     setEdges([]);
-    setSelection({ node: null, edge: null });
+    setSelection({ nodes: [], edges: [] });
     reset();
   }, [allPages, pages.length, setNodes, setEdges, reset]);
 
@@ -650,7 +678,7 @@ export function Editor() {
           : { nodes: next.nodes, edges: next.edges };
         setNodes(applied.nodes);
         setEdges(applied.edges);
-        setSelection({ node: null, edge: null });
+        setSelection({ nodes: [], edges: [] });
         reset();
       }
     },
@@ -784,10 +812,7 @@ export function Editor() {
       takeSnapshot();
       setNodes((nds) => [...nds.map((n) => (n.selected ? { ...n, selected: false } : n)), ...clone.nodes]);
       setEdges((eds) => [...eds.map((e) => (e.selected ? { ...e, selected: false } : e)), ...clone.edges]);
-      setSelection({
-        node: clone.nodes[0]?.id ?? null,
-        edge: clone.nodes.length === 0 ? clone.edges[0]?.id ?? null : null,
-      });
+      setSelection({ nodes: clone.nodes.map((n) => n.id), edges: clone.edges.map((e) => e.id) });
     },
     [setNodes, setEdges, takeSnapshot],
   );
@@ -1010,7 +1035,15 @@ export function Editor() {
 
   const onSelectionChange = useCallback(
     ({ nodes: selectedNodes, edges: selectedEdges }: { nodes: DfdNode[]; edges: DfdEdge[] }) => {
-      setSelection({ node: selectedNodes[0]?.id ?? null, edge: selectedEdges[0]?.id ?? null });
+      setSelection((prev) => {
+        const nextNodes = selectedNodes.map((n) => n.id);
+        const nextEdges = selectedEdges.map((e) => e.id);
+        // React Flow re-emits the selection on every graph change. Returning the previous object when
+        // nothing moved keeps the Inspector from remounting mid-edit (which would drop focus).
+        return sameIds(prev.nodes, nextNodes) && sameIds(prev.edges, nextEdges)
+          ? prev
+          : { nodes: nextNodes, edges: nextEdges };
+      });
     },
     [],
   );
@@ -1037,12 +1070,18 @@ export function Editor() {
     [setEdges],
   );
 
+  // The property writers take a set of ids so a bulk edit is one state update under one snapshot.
+  // A single selection is just the one-element case, so there is only ever one code path.
   const setEdgeProperty = useCallback(
-    (id: string, key: string, value: string) => {
+    (ids: string[], key: string, value: string) => {
+      if (ids.length === 0) {
+        return;
+      }
       takeSnapshot();
+      const targets = new Set(ids);
       setEdges((eds) =>
         eds.map((e) => {
-          if (e.id !== id) {
+          if (!targets.has(e.id)) {
             return e;
           }
           const properties = { ...(e.data?.properties ?? {}) };
@@ -1059,11 +1098,15 @@ export function Editor() {
   );
 
   const setNodeProperty = useCallback(
-    (id: string, key: string, value: string) => {
+    (ids: string[], key: string, value: string) => {
+      if (ids.length === 0) {
+        return;
+      }
       takeSnapshot();
+      const targets = new Set(ids);
       setNodes((nds) =>
         nds.map((n) => {
-          if (n.id !== id) {
+          if (!targets.has(n.id)) {
             return n;
           }
           const properties = { ...(n.data.properties ?? {}) };
@@ -1076,11 +1119,15 @@ export function Editor() {
   );
 
   const removeNodeProperty = useCallback(
-    (id: string, key: string) => {
+    (ids: string[], key: string) => {
+      if (ids.length === 0) {
+        return;
+      }
       takeSnapshot();
+      const targets = new Set(ids);
       setNodes((nds) =>
         nds.map((n) => {
-          if (n.id !== id) {
+          if (!targets.has(n.id)) {
             return n;
           }
           const properties = { ...(n.data.properties ?? {}) };
@@ -1093,20 +1140,27 @@ export function Editor() {
   );
 
   const deleteSelected = useCallback(() => {
-    if (!selection.node && !selection.edge) {
+    if (selection.nodes.length === 0 && selection.edges.length === 0) {
       return;
     }
     takeSnapshot();
-    if (selection.node) {
-      const nodeId = selection.node;
-      setNodes((nds) => nds.filter((n) => n.id !== nodeId));
-      setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
-    } else if (selection.edge) {
-      const edgeId = selection.edge;
-      setEdges((eds) => eds.filter((e) => e.id !== edgeId));
-    }
-    setSelection({ node: null, edge: null });
+    setNodes((nds) => deleteFromGraph(nds, [], selection.nodes, selection.edges).nodes);
+    setEdges((eds) => deleteFromGraph([], eds, selection.nodes, selection.edges).edges);
+    setSelection({ nodes: [], edges: [] });
   }, [selection, setNodes, setEdges, takeSnapshot]);
+
+  // React Flow fires onNodesDelete AND onEdgesDelete for a single deletion (removing an element takes
+  // its flows with it), so snapshotting in both would cost two undos for one Backspace. onBeforeDelete
+  // fires exactly once, before anything is removed, with the connected flows already resolved.
+  const beforeDelete = useCallback(
+    ({ nodes: doomedNodes, edges: doomedEdges }: { nodes: DfdNode[]; edges: DfdEdge[] }) => {
+      if (doomedNodes.length > 0 || doomedEdges.length > 0) {
+        takeSnapshot();
+      }
+      return Promise.resolve(true);
+    },
+    [takeSnapshot],
+  );
 
   const clearFlags = useCallback(() => {
     setNodes((nds) => nds.map((n) => (n.className ? { ...n, className: undefined } : n)));
@@ -1316,7 +1370,7 @@ export function Editor() {
         if (item.kind === 'flow') {
           setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)));
           setEdges((eds) => eds.map((e) => (e.selected !== (e.id === item.id) ? { ...e, selected: e.id === item.id } : e)));
-          setSelection({ node: null, edge: item.id });
+          setSelection({ nodes: [], edges: [item.id] });
           const edge = allPages.find((p) => p.id === item.pageId)?.edges.find((e) => e.id === item.id);
           const ends = [edge?.source, edge?.target].filter((id): id is string => Boolean(id)).map((id) => ({ id }));
           if (ends.length > 0) {
@@ -1325,7 +1379,7 @@ export function Editor() {
         } else {
           setEdges((eds) => eds.map((e) => (e.selected ? { ...e, selected: false } : e)));
           setNodes((nds) => nds.map((n) => (n.selected !== (n.id === item.id) ? { ...n, selected: n.id === item.id } : n)));
-          setSelection({ node: item.id, edge: null });
+          setSelection({ nodes: [item.id], edges: [] });
           fitView({ nodes: [{ id: item.id }], padding: 0.6, duration: 400, maxZoom: 1.4 });
         }
       };
@@ -1400,7 +1454,7 @@ export function Editor() {
       setThreatTriage(model.threats ?? []);
       flaggedIdsRef.current = new Set();
       analysisActiveRef.current = false;
-      setSelection({ node: null, edge: null });
+      setSelection({ nodes: [], edges: [] });
       reset();
       // A freshly loaded model is the new saved baseline, so it does not read as dirty.
       setSavedJson(
@@ -1477,7 +1531,7 @@ export function Editor() {
     setThreatTriage([]);
     flaggedIdsRef.current = new Set();
     analysisActiveRef.current = false;
-    setSelection({ node: null, edge: null });
+    setSelection({ nodes: [], edges: [] });
     reset();
   }, [setNodes, setEdges, reset]);
 
@@ -1501,8 +1555,14 @@ export function Editor() {
     [takeSnapshot, renameNode, renameEdge, setEdgeLabelOffset],
   );
 
-  const selectedNode = nodes.find((n) => n.id === selection.node) ?? null;
-  const selectedEdge = edges.find((e) => e.id === selection.edge) ?? null;
+  const selectedNodes = useMemo(() => {
+    const ids = new Set(selection.nodes);
+    return nodes.filter((n) => ids.has(n.id));
+  }, [nodes, selection.nodes]);
+  const selectedEdges = useMemo(() => {
+    const ids = new Set(selection.edges);
+    return edges.filter((e) => ids.has(e.id));
+  }, [edges, selection.edges]);
 
   return (
     <DfdActionsContext.Provider value={actions}>
@@ -1550,8 +1610,7 @@ export function Editor() {
             onConnect={onConnect}
             onReconnect={onReconnect}
             onNodeDragStart={takeSnapshot}
-            onNodesDelete={takeSnapshot}
-            onEdgesDelete={takeSnapshot}
+            onBeforeDelete={beforeDelete}
             onSelectionChange={onSelectionChange}
             onPaneClick={findings.length || threats.length ? clearFlags : undefined}
             nodeTypes={nodeTypes}
@@ -1684,8 +1743,8 @@ export function Editor() {
           />
         </div>
         <Inspector
-          node={selectedNode}
-          edge={selectedEdge}
+          nodes={selectedNodes}
+          edges={selectedEdges}
           stencils={stencils}
           propertySchema={propertySchema}
           onBeginNameEdit={takeSnapshot}
