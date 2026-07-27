@@ -1,6 +1,7 @@
 namespace ThreatModelForge.Editing.Tests
 {
     using System;
+    using System.Linq;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
     using ThreatModelForge.Editing;
     using ThreatModelForge.KnowledgeBase;
@@ -101,6 +102,84 @@ namespace ThreatModelForge.Editing.Tests
             });
 
             Assert.AreEqual("TLS", DiagramElementHelper.GetCustomProperties(element)["Protocol"]);
+        }
+
+        /// <summary>
+        /// Verifies that setting a property the tool has already typed moves that typed selection
+        /// rather than adding a custom attribute beside it. Leaving both would give the element two
+        /// answers to the same question, and whichever the reader reached first would win.
+        /// </summary>
+        [TestMethod]
+        public void SetCustomPropertyMovesAnExistingTypedSelection()
+        {
+            StencilRectangle element = TypedElement();
+
+            DiagramElementHelper.SetCustomProperty(element, "Protocol", "HTTP");
+
+            Assert.AreEqual("HTTP", DiagramElementHelper.GetCustomProperties(element)["Protocol"]);
+            Assert.AreEqual(1, element.Properties.OfType<ListDisplayAttribute>().Count());
+            Assert.AreEqual(0, element.Properties.OfType<CustomStringDisplayAttribute>().Count());
+        }
+
+        /// <summary>
+        /// Verifies that a value the typed property does not offer is still stored, as a custom
+        /// attribute, so an authored value is preserved rather than silently dropped.
+        /// </summary>
+        [TestMethod]
+        public void SetCustomPropertyFallsBackToACustomAttributeForAnUnknownValue()
+        {
+            StencilRectangle element = TypedElement();
+
+            DiagramElementHelper.SetCustomProperty(element, "Protocol", "QUIC");
+
+            Assert.AreEqual("QUIC", DiagramElementHelper.GetCustomProperties(element)["Protocol"]);
+            Assert.AreEqual(1, element.Properties.OfType<CustomStringDisplayAttribute>().Count());
+        }
+
+        /// <summary>
+        /// Verifies that moving a typed selection clears a custom attribute previously written for the
+        /// same key. A custom value outranks a typed one when read, so a stale one left behind would
+        /// override the value just set.
+        /// </summary>
+        [TestMethod]
+        public void SetCustomPropertyClearsAStaleCustomValueWhenTheTypedSelectionMoves()
+        {
+            StencilRectangle element = TypedElement();
+            DiagramElementHelper.SetCustomProperty(element, "Protocol", "QUIC");
+
+            DiagramElementHelper.SetCustomProperty(element, "Protocol", "HTTP");
+
+            Assert.AreEqual("HTTP", DiagramElementHelper.GetCustomProperties(element)["Protocol"]);
+            Assert.AreEqual(0, element.Properties.OfType<CustomStringDisplayAttribute>().Count());
+        }
+
+        /// <summary>
+        /// Verifies that a property with no typed counterpart still round-trips as a custom attribute.
+        /// </summary>
+        [TestMethod]
+        public void SetCustomPropertyStillUpdatesAnUntypedProperty()
+        {
+            StencilRectangle element = new StencilRectangle { Guid = Guid.NewGuid() };
+
+            DiagramElementHelper.SetCustomProperty(element, "Port", "443");
+            DiagramElementHelper.SetCustomProperty(element, "Port", "8443");
+
+            Assert.AreEqual("8443", DiagramElementHelper.GetCustomProperties(element)["Port"]);
+            Assert.AreEqual(1, element.Properties.OfType<CustomStringDisplayAttribute>().Count());
+        }
+
+        private static StencilRectangle TypedElement()
+        {
+            StencilRectangle element = new StencilRectangle { Guid = Guid.NewGuid() };
+            element.Properties.Add(new ListDisplayAttribute
+            {
+                Name = "Protocol",
+                DisplayName = "Protocol",
+                Value = new[] { "Select", "HTTPS", "HTTP" },
+                SelectedIndex = 1,
+            });
+
+            return element;
         }
     }
 }

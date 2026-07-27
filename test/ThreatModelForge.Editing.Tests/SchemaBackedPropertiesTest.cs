@@ -97,6 +97,36 @@ namespace ThreatModelForge.Editing.Tests
         }
 
         /// <summary>
+        /// Verifies that typing a property replaces a typed value already recorded for it rather than
+        /// adding a second one. Readers take the first typed attribute they find, so a leftover would
+        /// keep the old value and the element would grow by one attribute per edit.
+        /// </summary>
+        [TestMethod]
+        public void ApplyReplacesAnAlreadyTypedPropertyInsteadOfAddingASecond()
+        {
+            (ThreatModel model, StencilParallelLines store) = ModelWithStore();
+
+            // The state a model arrives in after a previous export: the property is already typed,
+            // with an option list from whatever schema was current then.
+            store.Properties.Add(new ListDisplayAttribute
+            {
+                Name = "Encrypted",
+                DisplayName = "Encrypted",
+                Value = new[] { "Select", "No", "At-rest" },
+                SelectedIndex = 2,
+            });
+            store.Properties.Add(new CustomStringDisplayAttribute { Value = "Encrypted:TDE" });
+
+            SchemaBackedProperties.Apply(model, BuildKnowledgeBase("GE.DS"));
+
+            ListDisplayAttribute typed = store.Properties.OfType<ListDisplayAttribute>()
+                .Single(p => p.DisplayName == "Encrypted");
+            string[] options = (string[])typed.Value!;
+            Assert.AreEqual("TDE", options[typed.SelectedIndex]);
+            Assert.AreEqual("TDE", DiagramElementHelper.GetCustomProperties(store)["Encrypted"]);
+        }
+
+        /// <summary>
         /// Verifies that a free-text schema property is left as a custom attribute.
         /// </summary>
         [TestMethod]
