@@ -45,7 +45,7 @@ tmforge <command> [options] <file>
 | [`layout`](#layout) | Author | Auto-lay-out the diagram (layered; no hand-placed coordinates). |
 | [`rules`](#rules) | Analyze | Compile an MTMT `.tb7` template into a versioned rule pack. |
 | [`analyze`](#analyze) | Analyze | Evaluate the analysis rules against a model. |
-| [`analysis`](#analysis) | Analyze | Validate a stored analysis document (and check whether it is stale). |
+| [`analysis`](#analysis) | Analyze | Validate a stored analysis document (and check whether it is stale), or compare two of them. |
 | [`threats`](#threats) | Analyze | Report or author threats — the persisted, triaged view of the findings (`--write` to persist; `--add`/`--edit`/`--remove` to author). |
 | [`accept`](#accept) | Analyze | Accept a generated threat's risk (records a justification). |
 | [`report`](#report) | Report | Generate a self-contained HTML report. |
@@ -228,6 +228,30 @@ tmforge diff payments.v1.tm7 payments.v2.tm7 --json
 
 Identity is preserved in `.tm7`; other formats do not round-trip element ids, so `diff` is most
 useful on `.tm7`.
+
+#### Trust boundary crossings
+
+Ignoring geometry is what keeps the structural diff quiet when a model is merely re-laid-out, but
+**which trust boundaries a flow crosses is derived from geometry**. Dragging a data store out of its
+boundary changes no stored property at all, so on the structural comparison alone that edit is
+indistinguishable from no edit — while being the single change most likely to matter in review.
+
+`diff` therefore reports crossings as their own section:
+
+```text
+Boundary crossings:
+  ~ flow "Browse & checkout" [Diagram 1]  6bf80ac0-f21b-46b4-ae4f-bafb8beef13a
+      - no longer crosses "Public Internet"
+      + now crosses "Partner Network"
+
+0 added, 0 removed, 0 modified, 1 with changed boundary crossings.
+```
+
+Flows and boundaries are matched by id, so renaming a boundary is not a crossing change. A flow that
+was added or deleted is labelled as such, and one that never crossed anything is left out — the
+element sections already report it, and repeating it here would bury the crossings that carry the
+signal. Under `--json` the same information appears as `data.crossings`, counted in
+`data.summary.crossingChanges`.
 
 #### Readable `.tm7` diffs in git
 
@@ -569,10 +593,11 @@ tmforge analyze payments.tm7 --suppressionFile suppressions.json --json
 ### `analysis`
 
 Validate a stored [analysis document](analysis-rules.md#the-analysis-document) — the
-`<model>.analysis.json` written by `analyze --reportFolder`.
+`<model>.analysis.json` written by `analyze --reportFolder` — or compare two of them.
 
 ```text
 tmforge analysis validate [--model <path>] [--expect-version <n>] [--json] <document>
+tmforge analysis diff [--json] <base> <head>
 ```
 
 | Option | Meaning |
@@ -608,6 +633,45 @@ sha256:ca329391…. Re-run the analysis.
 The command also refuses a document written by a **newer** build, rather than reading it on older
 assumptions and silently misinterpreting fields whose meaning has changed. Version 1 is currently the
 only schema version, so there is nothing to migrate from yet.
+
+#### Comparing two analyses
+
+`analysis diff` answers the question a count cannot: not how many findings there are now, but **which
+ones arrived**.
+
+```bash
+tmforge analysis diff before/payments.analysis.json after/payments.analysis.json
+```
+
+```text
+Introduced:
+  warning  TM1014:48761fb5…:f59d24bf…:0  (generated-threat)
+      Data store [Session Secrets …] stores credentials but is not encrypted at rest…
+
+Resolved:
+  warning  TM1021:48761fb5…:6b3c361c…:0  (generated-threat)
+      Data store [Audit Log …] holds log or audit data and its Signed property is not evidenced…
+
+4 introduced, 1 resolved, 0 reclassified, 1 unchanged.
+```
+
+Findings are matched on the stable id every document carries,
+`{ruleId}:{diagram}:{target}:{occurrence}` — never on position, which renumbers the moment a rule is
+enabled or disabled. Three consequences are worth knowing:
+
+- **Renaming an element is not a finding change.** The message carries the display name, so it is
+  rewritten; the identity is not. Editorial churn stays out of the delta.
+- **A suppressed finding is reclassified, not resolved.** Suppressing something records it with a new
+  disposition rather than dropping it, and saying "resolved" would claim the underlying condition
+  went away — which a suppression explicitly does not claim. A rule whose severity was reconfigured
+  lands in the same bucket.
+- **A changed rule selection is reported, not folded in.** If the analyzer fingerprints differ, the
+  command still compares but warns, so a finding that appeared only because a new rule was switched
+  on is not read as one the change introduced.
+
+**Exit codes:** `0` when nothing was introduced, `1` on tool error, `2` when findings were
+introduced — so a gate can depend on "no new findings" without comparing counts itself. Resolving
+findings never fails the command.
 
 ### `threats`
 

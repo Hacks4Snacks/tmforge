@@ -1,0 +1,15 @@
+{
+  "files": [
+    {
+      "file": "webshop.tm7",
+      "suppressions": [
+        {
+          "rule": "example-corporate/CORP-1",
+          "model": "Diagram 1",
+          "target": "Audit Log (Generic Data Store) ID=6b3c361c-b7be-5f01-be4b-0cd6e29c6686",
+          "justification": "Example only. Retention for this store is set by the platform log policy rather than the model, and the exception is reviewed each quarter."
+        }
+      ]
+    }
+  ]
+}

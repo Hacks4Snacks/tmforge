@@ -5,6 +5,7 @@ namespace ThreatModelForge.Cli
     using System.IO;
     using System.Linq;
     using System.Text;
+    using ThreatModelForge.Analysis;
     using ThreatModelForge.Editing;
     using ThreatModelForge.Model;
 
@@ -14,6 +15,12 @@ namespace ThreatModelForge.Cli
     /// produces no diff; only added, removed, and modified elements (with per-property changes) are
     /// reported.
     /// </summary>
+    /// <remarks>
+    /// The structural diff ignores geometry, which is what keeps it quiet when a model is merely
+    /// re-laid-out. Trust-boundary containment, however, is derived from geometry, so the diff is
+    /// paired with a comparison of what each flow crosses — otherwise dragging a data store out of its
+    /// boundary would report nothing at all.
+    /// </remarks>
     internal static class DiffCommand
     {
         /// <summary>
@@ -61,14 +68,15 @@ namespace ThreatModelForge.Cli
             (ThreatModel revisedModel, _) = CliModelLoader.Load(revisedPath);
 
             ModelDifference difference = ModelDiff.Compare(baseModel, revisedModel);
+            CrossingDifference crossings = BoundaryCrossingDiff.Compare(baseModel, revisedModel);
 
             if (parsed.Json)
             {
-                CliJson.WriteEnvelope("diff", BuildPayload(difference));
+                CliJson.WriteEnvelope("diff", BuildPayload(difference, crossings));
                 return 0;
             }
 
-            WriteText(difference);
+            WriteText(difference, crossings);
             return 0;
         }
 
@@ -136,7 +144,7 @@ namespace ThreatModelForge.Cli
             return builder.ToString();
         }
 
-        private static object BuildPayload(ModelDifference difference)
+        private static object BuildPayload(ModelDifference difference, CrossingDifference crossings)
         {
             return new
             {
@@ -145,11 +153,31 @@ namespace ThreatModelForge.Cli
                     added = difference.Added.Count,
                     removed = difference.Removed.Count,
                     modified = difference.Modified.Count,
+                    crossingChanges = crossings.Changes.Count,
                 },
                 added = difference.Added.Select(ToPayload).ToArray(),
                 removed = difference.Removed.Select(ToPayload).ToArray(),
                 modified = difference.Modified.Select(ToPayload).ToArray(),
+                crossings = crossings.Changes.Select(ToPayload).ToArray(),
             };
+        }
+
+        private static object ToPayload(CrossingChange change)
+        {
+            return new
+            {
+                flowId = change.FlowId,
+                flow = change.FlowName,
+                diagram = change.DiagramName,
+                kind = change.Kind.ToString().ToLowerInvariant(),
+                added = change.Added.Select(ToPayload).ToArray(),
+                removed = change.Removed.Select(ToPayload).ToArray(),
+            };
+        }
+
+        private static object ToPayload(CrossedBoundary boundary)
+        {
+            return new { id = boundary.Id, name = boundary.Name };
         }
 
         private static object ToPayload(ElementChange change)
@@ -167,9 +195,9 @@ namespace ThreatModelForge.Cli
             };
         }
 
-        private static void WriteText(ModelDifference difference)
+        private static void WriteText(ModelDifference difference, CrossingDifference crossings)
         {
-            if (difference.IsEmpty)
+            if (difference.IsEmpty && crossings.IsEmpty)
             {
                 Console.WriteLine("No differences.");
                 return;
@@ -178,11 +206,48 @@ namespace ThreatModelForge.Cli
             WriteSection("Added", "+", difference.Added, includeProperties: false);
             WriteSection("Removed", "-", difference.Removed, includeProperties: false);
             WriteSection("Modified", "~", difference.Modified, includeProperties: true);
+            WriteCrossings(crossings);
 
             Console.WriteLine(
                 difference.Added.Count + " added, "
                 + difference.Removed.Count + " removed, "
-                + difference.Modified.Count + " modified.");
+                + difference.Modified.Count + " modified, "
+                + crossings.Changes.Count + " with changed boundary crossings.");
+        }
+
+        /// <summary>
+        /// Writes the flows whose trust-boundary crossings changed. This is reported separately from
+        /// the element sections because it is derived from geometry rather than from any stored
+        /// property: a flow can appear in no other section and still have started crossing a boundary.
+        /// </summary>
+        /// <param name="crossings">The crossing difference to render.</param>
+        private static void WriteCrossings(CrossingDifference crossings)
+        {
+            if (crossings.IsEmpty)
+            {
+                return;
+            }
+
+            Console.WriteLine("Boundary crossings:");
+            foreach (CrossingChange change in crossings.Changes)
+            {
+                string page = string.IsNullOrEmpty(change.DiagramName) ? string.Empty : " [" + change.DiagramName + "]";
+                string state = change.Kind == ChangeKind.Modified
+                    ? string.Empty
+                    : " (" + change.Kind.ToString().ToLowerInvariant() + " flow)";
+                Console.WriteLine("  ~ flow \"" + change.FlowName + "\"" + page + state + "  " + change.FlowId);
+                foreach (CrossedBoundary boundary in change.Added)
+                {
+                    Console.WriteLine("      + now crosses \"" + boundary.Name + "\"");
+                }
+
+                foreach (CrossedBoundary boundary in change.Removed)
+                {
+                    Console.WriteLine("      - no longer crosses \"" + boundary.Name + "\"");
+                }
+            }
+
+            Console.WriteLine();
         }
 
         private static void WriteSection(string title, string marker, IReadOnlyList<ElementChange> changes, bool includeProperties)
@@ -225,6 +290,10 @@ namespace ThreatModelForge.Cli
             Console.Error.WriteLine();
             Console.Error.WriteLine("Elements are compared by their stable id, so re-layout or re-serialization produces");
             Console.Error.WriteLine("no diff. Reports added, removed, and modified elements with per-property changes.");
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("Trust-boundary crossings are reported separately, because which boundaries a flow");
+            Console.Error.WriteLine("crosses is derived from geometry: moving an element across a boundary changes no");
+            Console.Error.WriteLine("stored property, so it would otherwise not show up as a difference at all.");
             Console.Error.WriteLine();
             Console.Error.WriteLine("--textconv prints a canonical, deterministic outline of a single model, for use as a");
             Console.Error.WriteLine("git textconv so 'git diff' renders readable .tm7 changes. Wire it up with:");

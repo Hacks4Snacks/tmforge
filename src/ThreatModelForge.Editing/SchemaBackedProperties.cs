@@ -142,6 +142,12 @@ namespace ThreatModelForge.Editing
                 }
 
                 element.Properties.Remove(custom);
+
+                // Replace any typed property already recorded for this key rather than adding a
+                // second one. Readers take the first list attribute they find, so leaving the old one
+                // in place would silently keep the old value and quietly grow the element by one
+                // attribute per edit.
+                RemoveListProperties(element, descriptor.Name);
                 element.Properties.Add(new ListDisplayAttribute
                 {
                     Name = descriptor.Name,
@@ -149,6 +155,17 @@ namespace ThreatModelForge.Editing
                     Value = options.ToArray(),
                     SelectedIndex = index,
                 });
+            }
+        }
+
+        private static void RemoveListProperties(Entity element, string name)
+        {
+            foreach (ListDisplayAttribute stale in element.Properties
+                .OfType<ListDisplayAttribute>()
+                .Where(list => string.Equals(list.DisplayName ?? string.Empty, name, StringComparison.OrdinalIgnoreCase))
+                .ToList())
+            {
+                element.Properties.Remove(stale);
             }
         }
 

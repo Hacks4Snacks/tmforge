@@ -77,6 +77,16 @@ namespace ThreatModelForge.Editing
                 throw new ArgumentException("Value cannot be null or empty.", nameof(key));
             }
 
+            // A property the tool has already typed is stored as a list selection, not as a custom
+            // attribute. Update that selection in place: adding a custom attribute beside it would
+            // leave the element holding two answers to the same question, and on the next read
+            // whichever one happens to come first wins.
+            if (TrySelectListValue(element, key, value))
+            {
+                RemoveCustomProperty(element, key);
+                return;
+            }
+
             string encoded = key + ":" + value;
             string prefix = key + ":";
             foreach (CustomStringDisplayAttribute property in element.Properties.OfType<CustomStringDisplayAttribute>())
@@ -147,6 +157,57 @@ namespace ThreatModelForge.Editing
         {
             return string.Equals(property.Name, NamePropertyName, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(property.DisplayName, NamePropertyName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Points an existing typed list property at <paramref name="value"/>.
+        /// </summary>
+        /// <remarks>
+        /// Returns <see langword="false"/> when the element has no such list property, or when the
+        /// value is not one of the options the tool offers for it. In that second case the caller
+        /// falls back to a custom attribute, which preserves the value rather than dropping it and
+        /// which readers give precedence over the typed selection.
+        /// </remarks>
+        /// <param name="element">The element.</param>
+        /// <param name="key">The property key, matched against the list's display name.</param>
+        /// <param name="value">The value to select.</param>
+        /// <returns><see langword="true"/> when a typed selection was updated.</returns>
+        private static bool TrySelectListValue(Entity element, string key, string value)
+        {
+            foreach (ListDisplayAttribute list in element.Properties.OfType<ListDisplayAttribute>())
+            {
+                if (!string.Equals(list.DisplayName ?? string.Empty, key, StringComparison.OrdinalIgnoreCase) ||
+                    !(list.Value is string[] options))
+                {
+                    continue;
+                }
+
+                int index = Array.FindIndex(
+                    options,
+                    option => string.Equals(option, value, StringComparison.OrdinalIgnoreCase));
+                if (index < 0)
+                {
+                    return false;
+                }
+
+                list.SelectedIndex = index;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static void RemoveCustomProperty(Entity element, string key)
+        {
+            string prefix = key + ":";
+            foreach (CustomStringDisplayAttribute stale in element.Properties
+                .OfType<CustomStringDisplayAttribute>()
+                .Where(property => (property.Value as string ?? string.Empty)
+                    .StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                .ToList())
+            {
+                element.Properties.Remove(stale);
+            }
         }
     }
 }

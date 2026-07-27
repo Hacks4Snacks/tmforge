@@ -1,0 +1,31 @@
+{
+  "schema": "tmforge-rules",
+  "version": 2,
+  "dialect": "urn:tmforge:rules:flat-v1",
+  "pack": {
+    "id": "example-corporate",
+    "name": "Example corporate policy",
+    "version": "1.0.0"
+  },
+  "elementTypes": [
+    { "id": "GE.DS", "name": "Data store", "parentId": "ROOT" }
+  ],
+  "properties": [
+    {
+      "name": "RetentionDays",
+      "elementTypeIds": ["GE.DS"]
+    }
+  ],
+  "rules": [
+    {
+      "id": "CORP-1",
+      "severity": "error",
+      "appliesTo": "datastore",
+      "message": "{name} holds audit data but declares no RetentionDays, so how long the evidence survives is unstated.",
+      "fullDescription": "An internal policy example: a store flagged as holding log or audit data must state its retention period, because evidence that is silently aged out cannot support an investigation.",
+      "helpText": "Set a RetentionDays property on the store to the number of days records are kept.",
+      "when": { "property": "StoresLogData", "equals": "Yes" },
+      "assert": { "property": "RetentionDays", "present": true }
+    }
+  ]
+}

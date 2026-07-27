@@ -3,10 +3,12 @@ namespace ThreatModelForge.Cli.Tests
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using System.Text.Json;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
     using ThreatModelForge.Editing;
     using ThreatModelForge.Engine;
+    using ThreatModelForge.KnowledgeBase;
     using ThreatModelForge.Model;
     using ThreatModelForge.Model.Abstracts;
 
@@ -130,6 +132,54 @@ namespace ThreatModelForge.Cli.Tests
             Assert.AreEqual(1, exit);
         }
 
+        /// <summary>
+        /// The regression this guards: saving a <c>.tm7</c> converts a schema-backed property into the
+        /// tool's typed representation, and a later <c>set</c> has to move that typed value. Writing a
+        /// custom attribute beside it instead reports success, changes nothing a reader will see, and
+        /// leaves the element carrying one more property for every edit.
+        /// </summary>
+        [TestMethod]
+        public void SetOverwritesAPropertyTheFileHasAlreadyTyped()
+        {
+            string path = this.NewModel();
+            string id = this.AddElement("store", "Ledger");
+            Guid element = Guid.Parse(id);
+
+            Capture(() => SetCommand.Run(new[] { path, "--id", id, "--property", "Encrypted=At-rest" }));
+            Assert.AreEqual("At-rest", this.LoadProperties(element)["Encrypted"]);
+
+            (int exit, _) = Capture(() => SetCommand.Run(new[] { path, "--id", id, "--property", "Encrypted=No" }));
+
+            Assert.AreEqual(0, exit);
+            Assert.AreEqual("No", this.LoadProperties(element)["Encrypted"]);
+            Assert.AreEqual(
+                1,
+                this.TypedPropertyCount(element, "Encrypted"),
+                "the element should carry one Encrypted property, not one per edit");
+        }
+
+        /// <summary>
+        /// Verifies that repeated edits keep converging on a single property. A duplicate is not only
+        /// a stale read: the tool refuses a model that carries two properties with the same identity.
+        /// </summary>
+        [TestMethod]
+        public void RepeatedSetsDoNotAccumulateProperties()
+        {
+            string path = this.NewModel();
+            string id = this.AddElement("store", "Ledger");
+            Guid element = Guid.Parse(id);
+
+            foreach (string value in new[] { "At-rest", "No", "TDE", "Platform" })
+            {
+                Assert.AreEqual(
+                    0,
+                    Capture(() => SetCommand.Run(new[] { path, "--id", id, "--property", "Encrypted=" + value })).Exit);
+            }
+
+            Assert.AreEqual("Platform", this.LoadProperties(element)["Encrypted"]);
+            Assert.AreEqual(1, this.TypedPropertyCount(element, "Encrypted"));
+        }
+
         private static (int Exit, string Stdout) Capture(Func<int> run)
         {
             using StringWriter outWriter = new StringWriter();
@@ -178,6 +228,23 @@ namespace ThreatModelForge.Cli.Tests
             Entity? element = DiagramEditor.FindElement(diagram, id);
             Assert.IsNotNull(element);
             return DiagramElementHelper.GetCustomProperties(element);
+        }
+
+        /// <summary>
+        /// Counts how many typed (list) properties the saved model records under one display name.
+        /// </summary>
+        /// <param name="id">The element id.</param>
+        /// <param name="name">The property's display name.</param>
+        /// <returns>The number of typed properties carrying that name.</returns>
+        private int TypedPropertyCount(Guid id, string name)
+        {
+            (ThreatModel model, _) = CliModelLoader.Load(this.ModelPath);
+            DrawingSurfaceModel? diagram = AuthoringSupport.FirstDiagram(model);
+            Assert.IsNotNull(diagram);
+            Entity? element = DiagramEditor.FindElement(diagram, id);
+            Assert.IsNotNull(element);
+            return element!.Properties.OfType<ListDisplayAttribute>()
+                .Count(list => string.Equals(list.DisplayName, name, StringComparison.OrdinalIgnoreCase));
         }
     }
 }

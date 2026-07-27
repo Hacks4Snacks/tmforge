@@ -145,6 +145,48 @@ namespace ThreatModelForge.Cli.Tests
             Assert.AreEqual(original, reserialized);
         }
 
+        /// <summary>
+        /// Verifies that moving a flow out of a trust boundary is reported, even though it changes no
+        /// stored property and so produces no structural difference at all. Without this the command
+        /// would print "No differences." for a change of exposure.
+        /// </summary>
+        [TestMethod]
+        public void MovingAFlowOutOfABoundaryIsReportedDespiteNoStructuralChange()
+        {
+            string basePath = this.Write("base.tm7", BuildWithBoundary(crossing: true));
+            string revisedPath = this.Write("revised.tm7", BuildWithBoundary(crossing: false));
+
+            (int exit, string output) = Capture(new[] { basePath, revisedPath });
+
+            Assert.AreEqual(0, exit);
+            StringAssert.Contains(output, "Boundary crossings:");
+            StringAssert.Contains(output, "no longer crosses \"Perimeter\"");
+            Assert.IsFalse(output.Contains("No differences."), output);
+        }
+
+        /// <summary>
+        /// Verifies that the JSON envelope carries the crossing changes and counts them in the summary.
+        /// </summary>
+        [TestMethod]
+        public void CrossingChangesAppearInTheJsonEnvelope()
+        {
+            string basePath = this.Write("base.tm7", BuildWithBoundary(crossing: false));
+            string revisedPath = this.Write("revised.tm7", BuildWithBoundary(crossing: true));
+
+            (int exit, string output) = Capture(new[] { basePath, revisedPath, "--json" });
+
+            Assert.AreEqual(0, exit);
+            using JsonDocument document = JsonDocument.Parse(output);
+            JsonElement data = document.RootElement.GetProperty("data");
+            Assert.AreEqual(1, data.GetProperty("summary").GetProperty("crossingChanges").GetInt32());
+
+            JsonElement crossing = data.GetProperty("crossings").EnumerateArray().Single();
+            Assert.AreEqual("modified", crossing.GetProperty("kind").GetString());
+            Assert.AreEqual(
+                "Perimeter",
+                crossing.GetProperty("added").EnumerateArray().Single().GetProperty("name").GetString());
+        }
+
         private static (int Exit, string Output) Capture(string[] args)
         {
             using StringWriter writer = new StringWriter();
@@ -185,6 +227,54 @@ namespace ThreatModelForge.Cli.Tests
             DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "Main" };
             surface.Borders[process] = processElement;
             surface.Borders[store] = storeElement;
+            surface.Lines[flow] = flowElement;
+
+            ThreatModel model = new ThreatModel();
+            model.DrawingSurfaceList.Add(surface);
+            return model;
+        }
+
+        /// <summary>
+        /// Builds a model with a trust boundary and one flow, where only the flow's source coordinate
+        /// differs between the two variants. Every stored property is identical either way, so the two
+        /// models differ solely in what the flow crosses.
+        /// </summary>
+        /// <param name="crossing">Whether the flow should start inside the boundary and so cross it.</param>
+        /// <returns>The model.</returns>
+        private static ThreatModel BuildWithBoundary(bool crossing)
+        {
+            Guid boundary = new Guid("44444444-4444-4444-4444-444444444444");
+            Guid flow = new Guid("55555555-5555-5555-5555-555555555555");
+
+            BorderBoundary boundaryElement = new BorderBoundary
+            {
+                Guid = boundary,
+                GenericTypeId = "GE.TB.B",
+                TypeId = "GE.TB.B",
+                Left = 50,
+                Top = 50,
+                Width = 200,
+                Height = 200,
+            };
+            DiagramElementHelper.SetName(boundaryElement, "Perimeter");
+
+            Connector flowElement = new Connector
+            {
+                Guid = flow,
+                TypeId = "GE.DF",
+                SourceX = crossing ? 60 : 10,
+                SourceY = crossing ? 60 : 10,
+                TargetX = 500,
+                TargetY = 500,
+            };
+            DiagramElementHelper.SetName(flowElement, "query");
+
+            DrawingSurfaceModel surface = new DrawingSurfaceModel
+            {
+                Guid = new Guid("66666666-6666-6666-6666-666666666666"),
+                Header = "Main",
+            };
+            surface.Borders[boundary] = boundaryElement;
             surface.Lines[flow] = flowElement;
 
             ThreatModel model = new ThreatModel();
