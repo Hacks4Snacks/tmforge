@@ -216,6 +216,17 @@ jobs:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
 
+      # A YAML parse cannot catch this: the file stays valid YAML, but GitHub parses expressions
+      # everywhere in a step - including inside a run script's shell comments - and an empty one
+      # fails the whole action to load. Checked before the image build so the failure is fast and
+      # names the cause. The pattern is escaped so this check is not itself read as an expression.
+      - name: Reject empty expressions in the action manifest
+        run: |
+          if grep -nE '\$\{\{[[:space:]]*\}\}' action.yml; then
+            echo "::error file=action.yml::Empty GitHub expression. The action will fail to load with 'An expression was expected'."
+            exit 1
+          fi
+
       - name: Build CLI image (amd64, load)
         uses: docker/build-push-action@v7
         with:

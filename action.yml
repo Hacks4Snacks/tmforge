@@ -468,9 +468,12 @@ runs:
         set -uo pipefail
         mkdir -p "$TMF_SARIF_DIR"
 
-        # Every input arrives through the environment rather than a `${{ }}` interpolation in this
+        # Every input arrives through the environment rather than being interpolated into this
         # script, so no input is ever parsed as shell source. The globs below are expanded by the
         # shell's pathname expansion only; nothing is passed to eval or to a command string.
+        #
+        # (Do not write a GitHub expression here, even inside a comment: the template engine parses
+        # the whole run block, so an empty one fails the action with "An expression was expected".)
         #
         # Read one glob per line. Splitting on newlines rather than whitespace is what lets a pattern
         # (or a matched path) contain a space without silently becoming two patterns.
