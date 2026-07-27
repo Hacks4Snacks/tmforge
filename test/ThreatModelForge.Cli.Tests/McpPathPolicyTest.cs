@@ -210,7 +210,8 @@ namespace ThreatModelForge.Cli.Tests
 
         /// <summary>
         /// Verifies that an entry whose declared expanded size alone blows the read budget is refused
-        /// before any of it is decompressed.
+        /// before any of it is decompressed. As with the file read limit, the assertion names the
+        /// declared-size wording so the test cannot be satisfied by the streaming backstop instead.
         /// </summary>
         [TestMethod]
         public void ValidateExpandedContent_RejectsEntryLargerThanTheRemainingBudget()
@@ -220,7 +221,7 @@ namespace ThreatModelForge.Cli.Tests
 
             InvalidDataException error = Assert.Throws<InvalidDataException>(
                 () => policy.ValidateExpandedContent(package, "vsdx"));
-            StringAssert.Contains(error.Message, "Expanded Visio package");
+            StringAssert.Contains(error.Message, "declares 4096 bytes, over the remaining MCP read budget");
         }
 
         /// <summary>Verifies that the expansion budget is only applied to the format that carries an archive.</summary>
@@ -301,15 +302,20 @@ namespace ThreatModelForge.Cli.Tests
             _ = Assert.Throws<FileNotFoundException>(() => policy.ReadAllBytes("absent.tm7"));
         }
 
-        /// <summary>Verifies that a file larger than the read limit is refused on its length alone.</summary>
+        /// <summary>
+        /// Verifies that a file larger than the read limit is refused on its reported length, before any
+        /// of it is buffered. The assertion is on the size wording specifically: the streaming backstop
+        /// further down enforces the same bound, so a test that accepted either message would still pass
+        /// with this pre-check deleted and the whole file read first.
+        /// </summary>
         [TestMethod]
-        public void ReadAllBytes_RejectsAFileOverTheReadLimit()
+        public void ReadAllBytes_RejectsAFileOverTheReadLimitBeforeBufferingIt()
         {
             File.WriteAllBytes(Path.Join(this.WorkingDirectory, "big.tm7"), new byte[2048]);
             McpPathPolicy policy = this.CreatePolicy(maxReadBytes: 1024);
 
             IOException error = Assert.Throws<IOException>(() => policy.ReadAllBytes("big.tm7"));
-            StringAssert.Contains(error.Message, "read limit");
+            StringAssert.Contains(error.Message, "2048 bytes, over the MCP read limit");
         }
 
         /// <summary>

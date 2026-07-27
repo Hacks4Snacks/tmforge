@@ -88,7 +88,8 @@ namespace ThreatModelForge.Cli
             using FileStream input = new FileStream(resolved, FileMode.Open, FileAccess.Read, FileShare.Read);
             if (input.Length > this.MaxReadBytes)
             {
-                throw new IOException($"Model file exceeds the MCP read limit of {this.MaxReadBytes} bytes.");
+                throw new IOException(
+                    $"Model file is {input.Length} bytes, over the MCP read limit of {this.MaxReadBytes} bytes.");
             }
 
             using MemoryStream output = new MemoryStream((int)input.Length);
@@ -100,7 +101,10 @@ namespace ThreatModelForge.Cli
                 total += count;
                 if (total > this.MaxReadBytes)
                 {
-                    throw new IOException($"Model file exceeds the MCP read limit of {this.MaxReadBytes} bytes.");
+                    // Reached only when the file delivered more than it reported — it grew mid-read, or
+                    // its length cannot be trusted. Worth saying separately from the size check above.
+                    throw new IOException(
+                        $"Model file grew past the MCP read limit of {this.MaxReadBytes} bytes while it was being read.");
                 }
 
                 output.Write(buffer.AsSpan(0, count));
@@ -133,7 +137,8 @@ namespace ThreatModelForge.Cli
             {
                 if (entry.Length > this.MaxReadBytes - expandedBytes)
                 {
-                    throw new InvalidDataException($"Expanded Visio package exceeds the MCP read limit of {this.MaxReadBytes} bytes.");
+                    throw new InvalidDataException(
+                        $"Visio package entry declares {entry.Length} bytes, over the remaining MCP read budget of {this.MaxReadBytes - expandedBytes} bytes.");
                 }
 
                 using Stream entryStream = entry.Open();
@@ -142,7 +147,10 @@ namespace ThreatModelForge.Cli
                 {
                     if (count > this.MaxReadBytes - expandedBytes)
                     {
-                        throw new InvalidDataException($"Expanded Visio package exceeds the MCP read limit of {this.MaxReadBytes} bytes.");
+                        // Reached only when an entry expands past the size it declared, which is the
+                        // shape of a bomb with a lying header rather than a merely large package.
+                        throw new InvalidDataException(
+                            $"Visio package entry expanded past the MCP read budget of {this.MaxReadBytes} bytes while it was being read.");
                     }
 
                     expandedBytes += count;
