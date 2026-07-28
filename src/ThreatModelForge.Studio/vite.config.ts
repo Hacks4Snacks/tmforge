@@ -20,6 +20,21 @@ export default defineConfig(({ mode }) => {
       setupFiles: ['./src/test/setup.ts'],
       include: ['src/**/*.test.{ts,tsx}'],
       css: false,
+      coverage: {
+        provider: 'v8',
+        include: ['src/**/*.{ts,tsx}'],
+        // Test files, the app shell, and the generated API client types are not behaviour to cover.
+        exclude: ['src/**/*.test.{ts,tsx}', 'src/main.tsx', 'src/dfd/engine/schema.d.ts', 'src/vite-env.d.ts'],
+        // Floors, not targets: raise them as coverage improves, and never lower one without saying
+        // why. They sit just under today's numbers so an unrelated change cannot trip them, while a
+        // real regression still fails the run.
+        thresholds: {
+          statements: 67,
+          branches: 80,
+          functions: 60,
+          lines: 67,
+        },
+      },
     },
   };
 });

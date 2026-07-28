@@ -650,9 +650,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: hacks4snacks/tmforge@v0.3
+      - uses: hacks4snacks/tmforge@v0.7
         with:
-          version: "0.3"                                  # pin the engine image, not just the action
+          version: "0.7"                                  # pin the engine image, not just the action
           models: "**/*.tm7"
           rules: rules/corporate.tmrules.json
           suppression-file: .tmforge/suppressions.json
@@ -690,7 +690,7 @@ system. Drift detection covers that gap: it reports a change that touched archit
 without touching a threat model.
 
 ```yaml
-      - uses: hacks4snacks/tmforge@v0.3
+      - uses: hacks4snacks/tmforge@v0.7
         with:
           drift: notice          # 'off', 'notice' (default), or 'fail'
           drift-watched-paths: |
@@ -756,7 +756,7 @@ Drift asks whether the model was updated. Review shows **how** it changed, so a 
 have to read a diff of serialized XML:
 
 ```yaml
-      - uses: hacks4snacks/tmforge@v0.3
+      - uses: hacks4snacks/tmforge@v0.7
         with:
           review: "on"
           review-comment: "true"   # optional; needs pull-requests: write

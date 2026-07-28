@@ -58,8 +58,11 @@ function applyProperty(model: TmForgeModel, id: string, property: string, value:
  * Applies the user's per-conflict choices to a copy of the merged model. The engine already
  * resolved every conflict to `ours`, so we only overwrite the properties the user flipped to
  * `theirs`. Only `Property` conflicts are machine-applicable; structural ones are informational.
+ *
+ * Exported for test: this is the only place a resolution choice turns into a model edit, so it is
+ * where a mistake would quietly discard someone's work.
  */
-function applyChoices(
+export function applyChoices(
   merged: TmForgeModel,
   conflicts: MergeConflict[],
   choices: Record<string, 'ours' | 'theirs'>,

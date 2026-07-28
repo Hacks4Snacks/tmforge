@@ -1,0 +1,428 @@
+namespace ThreatModelForge.Api.Tests
+{
+    using System;
+    using System.Net;
+    using System.Net.Http;
+    using System.Text;
+    using System.Text.Json;
+    using System.Threading.Tasks;
+    using Microsoft.AspNetCore.Mvc.Testing;
+    using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+    /// <summary>
+    /// Tests the hosted <c>/v1</c> surface over real HTTP. The rest of this project drives
+    /// <c>EngineService</c> directly, which leaves everything the host itself owns unexercised:
+    /// routing, status codes, model binding, query-string handling, content types, and download file
+    /// names. Those are the parts a client actually depends on, and none of them are visible from a
+    /// facade-level test.
+    /// </summary>
+    [TestClass]
+    public class ApiEndpointsTest
+    {
+        /// <summary>A minimal but real model: one process, no flows.</summary>
+        private const string Model =
+            "{\"schema\":\"tmforge-json\",\"version\":\"0.1\"," +
+            "\"elements\":[{\"id\":\"a\",\"kind\":\"process\",\"name\":\"Alpha\",\"x\":10,\"y\":10,\"width\":120,\"height\":60}]," +
+            "\"flows\":[]}";
+
+        /// <summary>
+        /// The in-memory host. <c>Program</c> is a static class and cannot be a type argument, so the
+        /// factory is anchored on a public type from the same assembly — it only uses the type to
+        /// locate that assembly's entry point.
+        /// </summary>
+        private static WebApplicationFactory<HealthStatusDto>? factory;
+
+        private static HttpClient? client;
+
+        /// <summary>Gets the shared client.</summary>
+        private static HttpClient Client => client ?? throw new InvalidOperationException("Host not started.");
+
+        /// <summary>Starts one host for the whole class; booting it per test would dominate the run.</summary>
+        /// <param name="context">The MSTest context.</param>
+        [ClassInitialize]
+        public static void ClassInitialize(TestContext context)
+        {
+            factory = new WebApplicationFactory<HealthStatusDto>();
+            client = factory.CreateClient();
+        }
+
+        /// <summary>Shuts the host down.</summary>
+        [ClassCleanup]
+        public static void ClassCleanup()
+        {
+            client?.Dispose();
+            factory?.Dispose();
+        }
+
+        /// <summary>Verifies the health probe the container smoke test and orchestrators depend on.</summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task Health_ReportsOk()
+        {
+            using HttpResponseMessage response = await Client.GetAsync("/v1/health");
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            Assert.AreEqual("application/json", response.Content.Headers.ContentType?.MediaType);
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.AreEqual("ok", body.RootElement.GetProperty("status").GetString());
+        }
+
+        /// <summary>
+        /// Verifies every catalog route serves a non-empty collection. A non-empty body is what
+        /// separates "the route is wired" from "the engine is actually behind it".
+        /// </summary>
+        /// <param name="route">The catalog route.</param>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        [DataRow("/v1/formats")]
+        [DataRow("/v1/stencils")]
+        [DataRow("/v1/stencil-packs")]
+        [DataRow("/v1/rules")]
+        [DataRow("/v1/rule-packs")]
+        [DataRow("/v1/property-schema")]
+        public async Task Catalogs_ServeNonEmptyCollections(string route)
+        {
+            using HttpResponseMessage response = await Client.GetAsync(route);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            Assert.AreEqual("application/json", response.Content.Headers.ContentType?.MediaType);
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.AreEqual(JsonValueKind.Array, body.RootElement.ValueKind);
+            Assert.IsTrue(body.RootElement.GetArrayLength() > 0, route + " served an empty catalog.");
+        }
+
+        /// <summary>
+        /// Verifies the rule bundle is served with the shape the Studio reads. A default host loads no
+        /// custom packs, so the pack list is legitimately empty here — <see cref="ApiCustomRulesTest"/>
+        /// covers a host that has been given one.
+        /// </summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task RuleBundle_IsServedWithNoCustomPacksByDefault()
+        {
+            using HttpResponseMessage response = await Client.GetAsync("/v1/rule-bundle");
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.AreEqual(JsonValueKind.Array, body.RootElement.GetProperty("rulePacks").ValueKind);
+            Assert.AreEqual(0, body.RootElement.GetProperty("rulePacks").GetArrayLength());
+            Assert.AreEqual(0, body.RootElement.GetProperty("diagnostics").GetArrayLength());
+        }
+
+        /// <summary>Verifies the analysis routes accept a model and answer with JSON.</summary>
+        /// <param name="route">The analysis route.</param>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        [DataRow("/v1/model/analyze")]
+        [DataRow("/v1/model/analysis")]
+        [DataRow("/v1/model/analysis-document")]
+        [DataRow("/v1/model/threats")]
+        [DataRow("/v1/model/threat-register")]
+        public async Task ModelRoutes_AcceptAModelAndAnswerJson(string route)
+        {
+            using HttpResponseMessage response = await PostJson(route, Model);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            Assert.AreEqual("application/json", response.Content.Headers.ContentType?.MediaType);
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.AreNotEqual(JsonValueKind.Null, body.RootElement.ValueKind);
+        }
+
+        /// <summary>Verifies a three-way merge is accepted in the shape the Studio posts it.</summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task Merge_AcceptsBaseOursAndTheirs()
+        {
+            string request = "{\"base\":" + Model + ",\"ours\":" + Model + ",\"theirs\":" + Model + "}";
+
+            using HttpResponseMessage response = await PostJson("/v1/model/merge", request);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.AreEqual(JsonValueKind.Object, body.RootElement.ValueKind);
+        }
+
+        /// <summary>Verifies the .tm7 export is delivered as a downloadable XML document.</summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task ExportTm7_DownloadsXml()
+        {
+            using HttpResponseMessage response = await PostJson("/v1/model/export/tm7", Model);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            Assert.AreEqual("application/xml", response.Content.Headers.ContentType?.MediaType);
+            Assert.AreEqual("model.tm7", response.Content.Headers.ContentDisposition?.FileName);
+
+            // The MTMT root element, not merely well-formed XML: this is what makes the download a .tm7.
+            StringAssert.StartsWith(await response.Content.ReadAsStringAsync(), "<ThreatModel");
+        }
+
+        /// <summary>
+        /// Verifies each conversion target carries the content type and download name a browser needs.
+        /// These pairings live only in the host, so nothing below it can catch them being swapped.
+        /// </summary>
+        /// <param name="format">The target format id.</param>
+        /// <param name="contentType">The expected content type.</param>
+        /// <param name="fileName">The expected download file name.</param>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        [DataRow("tm7", "application/xml", "model.tm7")]
+        [DataRow("drawio", "application/xml", "model.drawio")]
+        [DataRow("vsdx", "application/vnd.ms-visio.drawing", "model.vsdx")]
+        [DataRow("tmforge-json", "application/json", "model.tmforge.json")]
+        public async Task Convert_LabelsEachTargetFormat(string format, string contentType, string fileName)
+        {
+            using HttpResponseMessage response = await PostJson("/v1/model/convert?to=" + format, Model);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            Assert.AreEqual(contentType, response.Content.Headers.ContentType?.MediaType);
+            Assert.AreEqual(fileName, response.Content.Headers.ContentDisposition?.FileName);
+        }
+
+        /// <summary>Verifies the threat-model report is served as HTML or SVG on request.</summary>
+        /// <param name="format">The report format.</param>
+        /// <param name="contentType">The expected content type.</param>
+        /// <param name="fileName">The expected download file name.</param>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        [DataRow("html", "text/html", "report.html")]
+        [DataRow("svg", "image/svg+xml", "report.svg")]
+        public async Task Report_ServesTheRequestedRendering(string format, string contentType, string fileName)
+        {
+            using HttpResponseMessage response = await PostJson("/v1/model/report?format=" + format, Model);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            Assert.AreEqual(contentType, response.Content.Headers.ContentType?.MediaType);
+            Assert.AreEqual(fileName, response.Content.Headers.ContentDisposition?.FileName);
+        }
+
+        /// <summary>
+        /// Verifies the analysis evidence is named the way <c>tmforge analyze --reportFolder</c> names
+        /// it, so a downloaded artifact drops straight into a review folder or a CI upload.
+        /// </summary>
+        /// <param name="format">The evidence format.</param>
+        /// <param name="contentType">The expected content type.</param>
+        /// <param name="fileName">The expected download file name.</param>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        [DataRow("sarif", "application/sarif+json", "findings.sarif")]
+        [DataRow("json", "application/json", "findings.json")]
+        [DataRow("html", "text/html", "findings.html")]
+        public async Task AnalysisReport_ServesTheRequestedEvidence(string format, string contentType, string fileName)
+        {
+            using HttpResponseMessage response = await PostJson("/v1/model/analysis-report?format=" + format, Model);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            Assert.AreEqual(contentType, response.Content.Headers.ContentType?.MediaType);
+            Assert.AreEqual(fileName, response.Content.Headers.ContentDisposition?.FileName);
+        }
+
+        /// <summary>Verifies SARIF served over HTTP is valid SARIF, not just bytes with a SARIF name.</summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task AnalysisReport_ServesRealSarif()
+        {
+            using HttpResponseMessage response = await PostJson("/v1/model/analysis-report?format=sarif", Model);
+
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.AreEqual("2.1.0", body.RootElement.GetProperty("version").GetString());
+            Assert.IsTrue(body.RootElement.GetProperty("runs").GetArrayLength() > 0);
+        }
+
+        /// <summary>Verifies an uploaded model is decoded from base64 and read back as a model.</summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task Read_DecodesAnUploadedModel()
+        {
+            string request = "{\"contentBase64\":\"" + Base64(Model) + "\",\"formatId\":\"tmforge-json\"}";
+
+            using HttpResponseMessage response = await PostJson("/v1/model/read", request);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.AreEqual("Alpha", body.RootElement.GetProperty("elements")[0].GetProperty("name").GetString());
+        }
+
+        /// <summary>Verifies format detection answers with the format it recognized.</summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task Detect_IdentifiesAKnownFormat()
+        {
+            using HttpResponseMessage response = await PostJson("/v1/detect", "{\"contentBase64\":\"" + Base64(Model) + "\"}");
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.AreEqual("tmforge-json", body.RootElement.GetProperty("id").GetString());
+        }
+
+        /// <summary>
+        /// Verifies unrecognized content is a 404 rather than a 200 carrying null. This is the only
+        /// route with a two-result union, so it is the only one where that distinction can regress.
+        /// </summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task Detect_ReportsNotFoundForUnrecognizedContent()
+        {
+            using HttpResponseMessage response = await PostJson("/v1/detect", "{\"contentBase64\":\"" + Base64("not a model") + "\"}");
+
+            Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        /// <summary>
+        /// Verifies malformed input is refused as a client error. Without this the host could start
+        /// answering 500 for a bad request body and nothing would notice.
+        /// </summary>
+        /// <param name="body">The request body.</param>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        [DataRow("{ this is not json", DisplayName = "malformed JSON")]
+        [DataRow("null", DisplayName = "null body")]
+        public async Task Analyze_RejectsAnUnusableBody(string body)
+        {
+            using HttpResponseMessage response = await PostJson("/v1/model/analyze", body);
+
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        /// <summary>Verifies a required query parameter is enforced by the host, not by the engine.</summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task Convert_RequiresATargetFormat()
+        {
+            using HttpResponseMessage response = await PostJson("/v1/model/convert", Model);
+
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        /// <summary>
+        /// Verifies the OpenAPI document is served, since the Studio's client types are generated from
+        /// it and a host that stops publishing it breaks that generation silently.
+        /// </summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task OpenApi_DocumentIsServed()
+        {
+            using HttpResponseMessage response = await Client.GetAsync("/openapi/v1.json");
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.IsTrue(body.RootElement.GetProperty("paths").TryGetProperty("/v1/health", out _));
+        }
+
+        /// <summary>
+        /// Verifies input the caller got wrong is reported as a client error, not a server error.
+        /// A 500 says the server broke and invites a retry; none of these can succeed on retry, so
+        /// each one has to be a 400 that names what was unusable.
+        /// </summary>
+        /// <param name="route">The route to call.</param>
+        /// <param name="body">The request body.</param>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        [DataRow("/v1/model/convert?to=nonsense", Model, DisplayName = "unknown conversion target")]
+        [DataRow("/v1/model/convert?to=", Model, DisplayName = "empty conversion target")]
+        [DataRow("/v1/model/read", "{\"contentBase64\":\"eyJ9\",\"formatId\":\"nonsense\"}", DisplayName = "unknown read format")]
+        [DataRow("/v1/model/read", "{\"contentBase64\":\"AQID\",\"formatId\":\"tmforge-json\"}", DisplayName = "bytes that are not the named format")]
+        [DataRow("/v1/model/read", "{\"contentBase64\":\"!!not base64!!\"}", DisplayName = "malformed base64")]
+        [DataRow("/v1/detect", "{\"contentBase64\":\"!!not base64!!\"}", DisplayName = "malformed base64 on detect")]
+        public async Task CallerInputErrors_AreReportedAsBadRequest(string route, string body)
+        {
+            using HttpResponseMessage response = await PostJson(route, body);
+
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        /// <summary>
+        /// Verifies a bad request carries a problem document naming what went wrong, so the caller can
+        /// correct the request instead of guessing which parameter the server disliked.
+        /// </summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task ABadRequestExplainsWhatWasUnusable()
+        {
+            using HttpResponseMessage response = await PostJson("/v1/model/convert?to=nonsense", Model);
+
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.AreEqual("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.AreEqual(400, body.RootElement.GetProperty("status").GetInt32());
+            StringAssert.Contains(body.RootElement.GetProperty("detail").GetString(), "nonsense");
+        }
+
+        /// <summary>
+        /// Verifies a genuine server fault is still a 500. The bad-request handling above classifies by
+        /// exception type, so this guards the other side of that line: widening it until everything
+        /// looks like the caller's fault would hide real breakage behind a 400.
+        /// </summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task ReportFormatThatIsNotRecognized_StillRendersRatherThanFailing()
+        {
+            // An unknown report format is not an error at all: it falls back to HTML by design.
+            using HttpResponseMessage response = await PostJson("/v1/model/report?format=nonsense", Model);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            Assert.AreEqual("text/html", response.Content.Headers.ContentType?.MediaType);
+        }
+
+        /// <summary>
+        /// Verifies a mistyped API path is answered as an API 404, not with the Studio's HTML shell.
+        /// The SPA fallback is registered for every unmatched path, so without a dedicated <c>/v1</c>
+        /// fallback a caller that misspells an endpoint receives 200 and an HTML document, and fails
+        /// while parsing it rather than seeing the status it deserves.
+        /// </summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task UnknownV1Route_IsAnsweredAsAnApiNotFound()
+        {
+            using HttpResponseMessage response = await Client.GetAsync("/v1/no-such-endpoint");
+
+            Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode);
+            Assert.AreEqual("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+            Assert.AreNotEqual(
+                "text/html",
+                response.Content.Headers.ContentType?.MediaType,
+                "a mistyped API path must not be answered with the SPA shell.");
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.AreEqual(404, body.RootElement.GetProperty("status").GetInt32());
+        }
+
+        /// <summary>
+        /// Verifies the SPA fallback still works for everything that is not an API path, so fixing the
+        /// <c>/v1</c> case above cannot have broken client-side routing.
+        /// <para>
+        /// An API-only build (<c>-p:BuildStudio=false</c>) has no <c>wwwroot</c> and answers 404, so the
+        /// assertion only holds the SPA to account when it is actually present.
+        /// </para>
+        /// </summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task NonApiRoute_StillReachesTheSpa()
+        {
+            using HttpResponseMessage response = await Client.GetAsync("/some-client-side-route");
+
+            if (response.StatusCode == HttpStatusCode.OK)
+            {
+                Assert.AreEqual("text/html", response.Content.Headers.ContentType?.MediaType);
+            }
+            else
+            {
+                Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode);
+            }
+        }
+
+        /// <summary>Base64-encodes UTF-8 text.</summary>
+        /// <param name="text">The text.</param>
+        /// <returns>The encoded text.</returns>
+        private static string Base64(string text) => Convert.ToBase64String(Encoding.UTF8.GetBytes(text));
+
+        /// <summary>Posts a JSON body to a route.</summary>
+        /// <param name="route">The route.</param>
+        /// <param name="body">The JSON body.</param>
+        /// <returns>The response.</returns>
+        private static async Task<HttpResponseMessage> PostJson(string route, string body)
+        {
+            using StringContent content = new StringContent(body, Encoding.UTF8, "application/json");
+            return await Client.PostAsync(route, content);
+        }
+    }
+}

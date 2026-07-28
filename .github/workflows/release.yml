@@ -191,3 +191,57 @@ jobs:
           # Publish last: this is when GitHub freezes the release, with every asset attached.
           gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
             --draft=false --prerelease="$pre" --latest="$latest"
+
+      # release-please only ever cuts the exact tag (v0.7.1), but the action is documented as
+      # `uses: hacks4snacks/tmforge@v0.7` (action.yml, docs/deployment.md, docs/analysis-rules.md),
+      # so the floating refs have to be maintained here or the documented usage resolves to nothing.
+      # Skipped for prereleases, and a tag only moves when this release is the newest in its own
+      # series, so re-releasing an older patch line cannot drag a floating tag backwards.
+      - name: Update floating major and major.minor tags
+        if: steps.meta.outputs.prerelease != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          major="v${version%%.*}"
+          rest="${version#*.}"
+          minor="$major.${rest%%.*}"
+
+          # Resolve through the tag object so an annotated tag still yields the commit.
+          target="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_REF_NAME" --jq .sha)"
+
+          # Every released version tag, oldest first. The three-component filter drops the
+          # floating tags themselves and every prerelease tag.
+          released="$(gh api --paginate "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/v" \
+                        --jq '.[].ref' \
+                      | sed 's:^refs/tags/::' \
+                      | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+                      | sort -V)"
+
+          move() {
+            alias="$1"
+            newest=""
+            while read -r tag; do
+              case "$tag" in "$alias".*) newest="$tag" ;; esac
+            done <<< "$released"
+
+            if [ "$newest" != "$GITHUB_REF_NAME" ]; then
+              echo "Leaving $alias where it is: $newest is newer than $GITHUB_REF_NAME."
+              return
+            fi
+
+            if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$alias" >/dev/null 2>&1; then
+              gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$alias" \
+                -f "sha=$target" -F force=true >/dev/null
+              echo "Moved $alias to $target ($GITHUB_REF_NAME)."
+            else
+              gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+                -f "ref=refs/tags/$alias" -f "sha=$target" >/dev/null
+              echo "Created $alias at $target ($GITHUB_REF_NAME)."
+            fi
+          }
+
+          move "$major"
+          move "$minor"
