@@ -878,7 +878,7 @@ source of truth for the `.tm7`. `apply` materializes it; `export` emits it from 
     { "alias": "DB", "kind": "store", "stencil": "azure-sql", "name": "Orders DB", "boundary": "TB1" }
   ],
   "flows": [
-    { "from": "API", "to": "DB", "name": "store order",
+    { "alias": "F1", "from": "API", "to": "DB", "name": "store order",
       "props": { "DataType": "Customer Content", "Protocol": "SQL", "Port": "1433" } }
   ]
 }
@@ -888,7 +888,16 @@ source of truth for the `.tm7`. `apply` materializes it; `export` emits it from 
   inside it so trust-boundary crossings are computed and membership round-trips through `export`.
 - `elements[].alias` gives each element a **deterministic** id (stable across rebuilds), and flows
   reference elements by that alias (or by unique name).
+- `flows[].alias` does the same for a flow. It is optional: a flow without one still gets a stable id,
+  derived from its endpoints and name. Declaring an alias is what lets a flow be **renamed or
+  re-pointed without moving its id** — worth doing for any flow whose findings you expect to track.
 - Either `kind` or `stencil` identifies an element; a stencil's base primitive sets the kind.
+
+**Every identifier `apply` assigns is derived, never minted**, so applying one manifest twice produces
+the same model: the same page, component, and connector ids. That is what keeps finding ids
+(`{ruleId}:{diagram}:{target}:{occurrence}`), threat-register triage, and `tmforge diff` aligned
+across rebuilds. Aliases are the durable form of that identity; the structural fallback is stable
+against re-applying a manifest, but renaming an alias-less object moves its id.
 
 ### `apply`
 

@@ -2,6 +2,7 @@ namespace ThreatModelForge.Engine
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.Linq;
     using System.Text.Json;
     using System.Text.Json.Serialization;
@@ -18,6 +19,9 @@ namespace ThreatModelForge.Engine
     /// </summary>
     public static class ManifestSupport
     {
+        /// <summary>The page a manifest builds onto. Also the key its deterministic id derives from.</summary>
+        private const string DefaultPageName = "Diagram 1";
+
         private static readonly JsonSerializerOptions SerializerOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -58,7 +62,17 @@ namespace ThreatModelForge.Engine
             error = null;
             summary = default;
             model = new ThreatModel { Version = "1.0" };
-            DrawingSurfaceModel diagram = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "Diagram 1" };
+
+            // Every identifier this method assigns is derived, never minted. Applying a manifest
+            // rebuilds the whole model, so a fresh guid anywhere means two applies of one manifest
+            // share no identity: finding ids (which embed the page and the target), threat-register
+            // keys, and structural diffs all move even though nothing about the model changed.
+            DrawingSurfaceModel diagram = new DrawingSurfaceModel
+            {
+                Guid = AuthoringSupport.DeterministicPageId(DefaultPageName),
+                Header = DefaultPageName,
+            };
+
             model.DrawingSurfaceList.Add(diagram);
             if (!string.IsNullOrWhiteSpace(manifest.Name))
             {
@@ -72,6 +86,7 @@ namespace ThreatModelForge.Engine
 
             DiagramEditor editor = new DiagramEditor(model);
             HashSet<Guid> aliasIds = new HashSet<Guid>();
+            HashSet<string> structuralKeys = new HashSet<string>(StringComparer.Ordinal);
 
             Dictionary<string, int> memberCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             foreach (ManifestElement element in elements.Where(element => !string.IsNullOrEmpty(element.Boundary)))
@@ -107,6 +122,10 @@ namespace ThreatModelForge.Engine
                     }
 
                     boxes[boundary.Alias!] = new BoundaryBox(x, y);
+                }
+                else
+                {
+                    AuthoringSupport.RekeyComponent(diagram, id, StructuralId("boundary:" + boundary.Name, structuralKeys));
                 }
 
                 cursorY = y + height + 40;
@@ -159,6 +178,11 @@ namespace ThreatModelForge.Engine
                 {
                     return false;
                 }
+
+                if (string.IsNullOrEmpty(element.Alias))
+                {
+                    AuthoringSupport.RekeyComponent(diagram, id, StructuralId("element:" + name, structuralKeys));
+                }
             }
 
             foreach (ManifestFlow flow in flows)
@@ -199,6 +223,33 @@ namespace ThreatModelForge.Engine
                 {
                     return false;
                 }
+
+                if (!string.IsNullOrEmpty(flow.Alias))
+                {
+                    if (!TryAssignFlowAlias(diagram, id, flow.Alias!, aliasIds, out error))
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    string key = "flow:" + flow.From + ">" + flow.To + ":" + flow.Name;
+                    AuthoringSupport.RekeyConnector(diagram, id, StructuralId(key, structuralKeys));
+                }
+            }
+
+            // Identifiers are derived, and every object is stored under its own. If two ever derived the
+            // same one, the second would overwrite the first in the diagram's dictionaries and simply be
+            // missing from the model while the summary below still counted it. Checking what was built
+            // against what was declared turns that into a failure instead of silent loss.
+            int expectedComponents = boundaries.Count + elements.Count;
+            if (diagram.Borders.Count != expectedComponents || diagram.Lines.Count != flows.Count)
+            {
+                error = "Internal error: the manifest declared " + expectedComponents.ToString(CultureInfo.InvariantCulture) +
+                    " components and " + flows.Count.ToString(CultureInfo.InvariantCulture) + " flows, but the model holds " +
+                    diagram.Borders.Count.ToString(CultureInfo.InvariantCulture) + " and " +
+                    diagram.Lines.Count.ToString(CultureInfo.InvariantCulture) + ". Two objects resolved to one identifier.";
+                return false;
             }
 
             summary = new ManifestSummary(boundaries.Count, elements.Count, flows.Count);
@@ -245,9 +296,11 @@ namespace ThreatModelForge.Engine
 
                 foreach (Connector connector in surface.Lines.Values.OfType<Connector>())
                 {
-                    Dictionary<string, string> userProps = FilterProps(DiagramElementHelper.GetCustomProperties(connector));
+                    IReadOnlyDictionary<string, string> connectorProps = DiagramElementHelper.GetCustomProperties(connector);
+                    Dictionary<string, string> userProps = FilterProps(connectorProps);
                     flows.Add(new ManifestFlow
                     {
+                        Alias = connectorProps.TryGetValue(AuthoringSupport.AliasPropertyName, out string? flowAlias) ? flowAlias : null,
                         From = ReferenceFor(surface, connector.SourceGuid),
                         To = ReferenceFor(surface, connector.TargetGuid),
                         Name = NullIfEmpty(DiagramElementHelper.GetName(connector)),
@@ -324,6 +377,52 @@ namespace ThreatModelForge.Engine
             AuthoringSupport.RekeyComponent(diagram, current, desired);
             assigned = desired;
             return true;
+        }
+
+        /// <summary>
+        /// Gives a connector its deterministic id from a declared alias, mirroring <see cref="TryAssignAlias"/>.
+        /// Flow aliases share the element alias space because both resolve through the same reference
+        /// syntax, so a flow may not take an alias an element already holds.
+        /// </summary>
+        private static bool TryAssignFlowAlias(DrawingSurfaceModel diagram, Guid current, string alias, HashSet<Guid> used, out string? error)
+        {
+            error = null;
+            Guid desired = AuthoringSupport.DeterministicId(alias);
+            if (!used.Add(desired))
+            {
+                error = "Duplicate alias '" + alias + "'; aliases must be unique within a model.";
+                return false;
+            }
+
+            if (DiagramEditor.FindElement(diagram, current) is Entity connector)
+            {
+                DiagramElementHelper.SetCustomProperty(connector, AuthoringSupport.AliasPropertyName, alias);
+            }
+
+            AuthoringSupport.RekeyConnector(diagram, current, desired);
+            return true;
+        }
+
+        /// <summary>
+        /// Derives an identifier for an object the manifest did not give an alias, from a structural
+        /// key describing what the manifest does say about it. Two objects with the same key — two
+        /// unnamed stores, two flows between one pair of elements — get an occurrence suffix, so the
+        /// ids stay distinct and still land in the same order on the next apply.
+        /// </summary>
+        /// <remarks>
+        /// This is a fallback, not a substitute for an alias: it is stable against re-applying the
+        /// same manifest, but renaming an object or reordering same-keyed siblings moves the id.
+        /// Declaring an alias is what makes an identity survive editing.
+        /// </remarks>
+        private static Guid StructuralId(string key, HashSet<string> used)
+        {
+            string unique = key;
+            for (int occurrence = 2; !used.Add(unique); occurrence++)
+            {
+                unique = key + "#" + occurrence.ToString(CultureInfo.InvariantCulture);
+            }
+
+            return AuthoringSupport.DeterministicStructuralId(unique);
         }
 
         private static (int X, int Y) NextElementPosition(string? boundaryAlias, Dictionary<string, BoundaryBox> boxes, ref int unassigned, int unassignedBaseY)

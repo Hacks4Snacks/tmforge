@@ -226,6 +226,22 @@ namespace ThreatModelForge.Engine
         public static Guid DeterministicId(string alias) => DeterministicGuid.FromElementId(alias);
 
         /// <summary>
+        /// Derives a stable, deterministic page GUID from a page id, in its own namespace so a page and
+        /// an element that happen to share an id do not collide.
+        /// </summary>
+        /// <param name="pageId">The page id.</param>
+        /// <returns>A deterministic GUID for the page.</returns>
+        public static Guid DeterministicPageId(string pageId) => DeterministicGuid.FromPageId(pageId);
+
+        /// <summary>
+        /// Derives a stable identifier for an object with no author-supplied alias, in its own namespace
+        /// so it can never collide with an alias.
+        /// </summary>
+        /// <param name="key">The structural key describing the object.</param>
+        /// <returns>A deterministic GUID for the key.</returns>
+        public static Guid DeterministicStructuralId(string key) => DeterministicGuid.FromStructuralKey(key);
+
+        /// <summary>
         /// Re-keys a component to a new GUID within its diagram, updating both the dictionary key and
         /// the entity. Used to give an aliased element its deterministic id after it is created.
         /// </summary>
@@ -248,6 +264,37 @@ namespace ThreatModelForge.Engine
                 }
 
                 diagram.Borders[desired] = border!;
+            }
+        }
+
+        /// <summary>
+        /// Re-keys a connector to a new GUID within its diagram. Connectors live in a separate
+        /// collection from components, so re-keying one needs its own routine.
+        /// </summary>
+        /// <param name="diagram">The diagram containing the connector.</param>
+        /// <param name="current">The connector's current GUID.</param>
+        /// <param name="desired">The desired GUID.</param>
+        public static void RekeyConnector(DrawingSurfaceModel diagram, Guid current, Guid desired)
+        {
+            if (diagram == null)
+            {
+                throw new ArgumentNullException(nameof(diagram));
+            }
+
+            if (current == desired)
+            {
+                return;
+            }
+
+            if (diagram.Lines.TryGetValue(current, out object? line))
+            {
+                diagram.Lines.Remove(current);
+                if (line is Connector connector)
+                {
+                    connector.Guid = desired;
+                }
+
+                diagram.Lines[desired] = line!;
             }
         }
 

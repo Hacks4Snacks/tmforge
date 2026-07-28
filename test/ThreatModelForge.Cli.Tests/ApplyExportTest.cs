@@ -1,9 +1,13 @@
 namespace ThreatModelForge.Cli.Tests
 {
     using System;
+    using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using System.Text.Json;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
+    using ThreatModelForge.Engine;
+    using ThreatModelForge.Model;
 
     /// <summary>
     /// Unit tests for the declarative manifest verbs (<c>tmforge apply</c> and <c>tmforge export</c>).
@@ -19,6 +23,38 @@ namespace ThreatModelForge.Cli.Tests
             "{\"alias\":\"EXT\",\"kind\":\"external\",\"name\":\"Client\"}]," +
             "\"flows\":[{\"from\":\"EXT\",\"to\":\"P1\",\"name\":\"call\",\"props\":{\"Protocol\":\"HTTPS\"}}," +
             "{\"from\":\"P1\",\"to\":\"DS\",\"name\":\"write\"}]}";
+
+        /// <summary>Two flows the structural key cannot tell apart: same endpoints, same name.</summary>
+        private const string DuplicateFlowManifest =
+            "{\"name\":\"T\",\"elements\":[" +
+            "{\"alias\":\"a\",\"kind\":\"external\",\"name\":\"Client\"}," +
+            "{\"alias\":\"b\",\"kind\":\"process\",\"name\":\"Service\"}]," +
+            "\"flows\":[{\"from\":\"a\",\"to\":\"b\",\"name\":\"Call\"}," +
+            "{\"from\":\"a\",\"to\":\"b\",\"name\":\"Call\"}]}";
+
+        /// <summary>A flow carrying its own alias.</summary>
+        private const string AliasedFlowManifest =
+            "{\"name\":\"T\",\"elements\":[" +
+            "{\"alias\":\"a\",\"kind\":\"external\",\"name\":\"Client\"}," +
+            "{\"alias\":\"b\",\"kind\":\"process\",\"name\":\"Service\"}]," +
+            "\"flows\":[{\"alias\":\"primary\",\"from\":\"a\",\"to\":\"b\",\"name\":\"Request\"}]}";
+
+        /// <summary>A manifest declaring no aliases at all — every id has to come from a structural key.</summary>
+        private const string NoAliasManifest =
+            "{\"name\":\"T\",\"boundaries\":[{\"name\":\"Edge\"}]," +
+            "\"elements\":[" +
+            "{\"kind\":\"external\",\"name\":\"Client\"}," +
+            "{\"kind\":\"process\",\"name\":\"Service\"}]," +
+            "\"flows\":[{\"from\":\"Client\",\"to\":\"Service\",\"name\":\"Call\"}]}";
+
+        /// <summary>
+        /// An alias written to look exactly like the structural key of another element. Both are
+        /// author-controlled strings, so the two derivations have to live in separate namespaces.
+        /// </summary>
+        private const string AliasShapedLikeAStructuralKeyManifest =
+            "{\"name\":\"T\",\"elements\":[" +
+            "{\"alias\":\"element:Widget\",\"kind\":\"process\",\"name\":\"Aliased\"}," +
+            "{\"kind\":\"process\",\"name\":\"Widget\"}]}";
 
         /// <summary>
         /// Gets or sets the working directory created for each test.
@@ -154,6 +190,161 @@ namespace ThreatModelForge.Cli.Tests
             }
 
             Assert.IsTrue(foundP1, "the exported manifest must preserve P1 with its boundary membership");
+        }
+
+        /// <summary>
+        /// Applying one manifest twice reproduces every identifier — the page, each component, and each
+        /// connector.
+        /// </summary>
+        /// <remarks>
+        /// <c>apply</c> rebuilds the whole model, so any identifier it mints rather than derives moves
+        /// on every run. That is not cosmetic: a finding id is
+        /// <c>{ruleId}:{diagram}:{target}:{occurrence}</c>, so a fresh page guid alone moves every
+        /// finding in the model, orphans the triage recorded against a threat-register key, and makes
+        /// a no-op re-apply read as a wholesale rewrite in <c>tmforge diff</c> and in the pull-request
+        /// review the Action posts.
+        /// </remarks>
+        [TestMethod]
+        public void ApplyingOneManifestTwiceReproducesEveryIdentifier()
+        {
+            Manifest manifest = ManifestSupport.Deserialize(SampleManifest)
+                ?? throw new InvalidOperationException("the sample manifest must parse");
+
+            Assert.IsTrue(ManifestSupport.Build(manifest, force: false, out ThreatModel first, out _, out string? firstError), firstError);
+            Assert.IsTrue(ManifestSupport.Build(manifest, force: false, out ThreatModel second, out _, out string? secondError), secondError);
+
+            DrawingSurfaceModel firstPage = first.DrawingSurfaceList[0];
+            DrawingSurfaceModel secondPage = second.DrawingSurfaceList[0];
+
+            Assert.AreEqual(firstPage.Guid, secondPage.Guid, "the page identifier moved between applies");
+            CollectionAssert.AreEquivalent(
+                firstPage.Borders.Keys.ToList(),
+                secondPage.Borders.Keys.ToList(),
+                "component identifiers moved between applies");
+            CollectionAssert.AreEquivalent(
+                firstPage.Lines.Keys.ToList(),
+                secondPage.Lines.Keys.ToList(),
+                "connector identifiers moved between applies");
+        }
+
+        /// <summary>
+        /// Two flows between the same pair of elements with the same name still get distinct identifiers,
+        /// and the same two on the next apply. Deriving an id from a structural key is only safe if
+        /// same-keyed siblings are disambiguated; collapsing them would silently drop a flow.
+        /// </summary>
+        [TestMethod]
+        public void FlowsSharingEndpointsAndNameGetDistinctStableIdentifiers()
+        {
+            Manifest manifest = ManifestSupport.Deserialize(DuplicateFlowManifest)
+                ?? throw new InvalidOperationException("the manifest must parse");
+
+            Assert.IsTrue(ManifestSupport.Build(manifest, force: false, out ThreatModel first, out _, out string? error), error);
+            Assert.IsTrue(ManifestSupport.Build(manifest, force: false, out ThreatModel second, out _, out error), error);
+
+            List<Guid> firstFlows = first.DrawingSurfaceList[0].Lines.Keys.ToList();
+
+            Assert.AreEqual(2, firstFlows.Count, "both flows must survive");
+            Assert.AreEqual(2, firstFlows.Distinct().Count(), "the two flows collapsed onto one identifier");
+            CollectionAssert.AreEquivalent(firstFlows, second.DrawingSurfaceList[0].Lines.Keys.ToList());
+        }
+
+        /// <summary>
+        /// A flow alias fixes the connector's identity and survives <c>export</c>, so a flow's identity
+        /// can be carried deliberately rather than inferred from its endpoints and name — which is what
+        /// lets a flow be renamed or re-pointed without moving its id.
+        /// </summary>
+        [TestMethod]
+        public void FlowAliasFixesIdentityAndSurvivesExport()
+        {
+            Manifest manifest = ManifestSupport.Deserialize(AliasedFlowManifest)
+                ?? throw new InvalidOperationException("the manifest must parse");
+            Assert.IsTrue(ManifestSupport.Build(manifest, force: false, out ThreatModel model, out _, out string? error), error);
+
+            Guid expected = AuthoringSupport.DeterministicId("primary");
+            Assert.IsTrue(
+                model.DrawingSurfaceList[0].Lines.ContainsKey(expected),
+                "the connector did not take the identifier its alias derives");
+
+            Manifest exported = ManifestSupport.Extract(model);
+            Assert.AreEqual("primary", exported.Flows![0].Alias, "export dropped the flow alias");
+        }
+
+        /// <summary>
+        /// Renaming an aliased flow leaves its identifier alone, which is the point of declaring one:
+        /// the structural fallback would move the id, because the name is part of its key.
+        /// </summary>
+        [TestMethod]
+        public void RenamingAnAliasedFlowKeepsItsIdentifier()
+        {
+            Manifest before = ManifestSupport.Deserialize(AliasedFlowManifest)
+                ?? throw new InvalidOperationException("the manifest must parse");
+            Manifest after = ManifestSupport.Deserialize(AliasedFlowManifest.Replace("Request", "Renamed", StringComparison.Ordinal))
+                ?? throw new InvalidOperationException("the manifest must parse");
+
+            Assert.IsTrue(ManifestSupport.Build(before, force: false, out ThreatModel first, out _, out string? error), error);
+            Assert.IsTrue(ManifestSupport.Build(after, force: false, out ThreatModel second, out _, out error), error);
+
+            CollectionAssert.AreEquivalent(
+                first.DrawingSurfaceList[0].Lines.Keys.ToList(),
+                second.DrawingSurfaceList[0].Lines.Keys.ToList(),
+                "renaming an aliased flow moved its identifier");
+        }
+
+        /// <summary>A flow may not take an alias an element already holds, or the two would collide.</summary>
+        [TestMethod]
+        public void FlowAliasCollidingWithAnElementIsRejected()
+        {
+            Manifest manifest = ManifestSupport.Deserialize(
+                AliasedFlowManifest.Replace("\"alias\":\"primary\"", "\"alias\":\"a\"", StringComparison.Ordinal))
+                ?? throw new InvalidOperationException("the manifest must parse");
+
+            Assert.IsFalse(ManifestSupport.Build(manifest, force: false, out _, out _, out string? error));
+            StringAssert.Contains(error, "Duplicate alias");
+        }
+
+        /// <summary>
+        /// A manifest that declares no aliases is still reproduced identically. Aliases are optional and
+        /// a concise manifest is the documented starting point, so the structural fallback has to hold
+        /// on its own — otherwise the guarantee would reach only manifests somebody had already annotated.
+        /// </summary>
+        [TestMethod]
+        public void AManifestWithoutAliasesIsStillReproducedIdentically()
+        {
+            Manifest manifest = ManifestSupport.Deserialize(NoAliasManifest)
+                ?? throw new InvalidOperationException("the manifest must parse");
+
+            Assert.IsTrue(ManifestSupport.Build(manifest, force: false, out ThreatModel first, out _, out string? error), error);
+            Assert.IsTrue(ManifestSupport.Build(manifest, force: false, out ThreatModel second, out _, out error), error);
+
+            DrawingSurfaceModel firstPage = first.DrawingSurfaceList[0];
+            DrawingSurfaceModel secondPage = second.DrawingSurfaceList[0];
+
+            Assert.AreEqual(3, firstPage.Borders.Count, "the boundary and both elements must be present");
+            CollectionAssert.AreEquivalent(
+                firstPage.Borders.Keys.ToList(),
+                secondPage.Borders.Keys.ToList(),
+                "component identifiers moved between applies");
+            CollectionAssert.AreEquivalent(
+                firstPage.Lines.Keys.ToList(),
+                secondPage.Lines.Keys.ToList(),
+                "connector identifiers moved between applies");
+        }
+
+        /// <summary>
+        /// An alias may read exactly like another element's structural key without the two colliding.
+        /// Both strings are author-controlled, and the alias and structural allocators use separate
+        /// uniqueness sets, so a shared derivation namespace would let the second object overwrite the
+        /// first in the diagram and vanish — while the summary still counted it.
+        /// </summary>
+        [TestMethod]
+        public void AnAliasShapedLikeAStructuralKeyDoesNotCollide()
+        {
+            Manifest manifest = ManifestSupport.Deserialize(AliasShapedLikeAStructuralKeyManifest)
+                ?? throw new InvalidOperationException("the manifest must parse");
+
+            Assert.IsTrue(ManifestSupport.Build(manifest, force: false, out ThreatModel model, out _, out string? error), error);
+
+            Assert.AreEqual(2, model.DrawingSurfaceList[0].Borders.Count, "an element was lost to an identifier collision");
         }
 
         private static JsonElement OpenData(string path)
