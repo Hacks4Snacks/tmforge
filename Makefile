@@ -78,7 +78,7 @@ version: ## Print the resolved project version
 # ===========================================================================
 # Build & test
 # ===========================================================================
-.PHONY: restore build test test-studio format format-check
+.PHONY: restore build test test-studio format format-check coverage coverage-accept
 restore: ## Restore NuGet packages
 	$(DOTNET) restore $(TRAVERSAL)
 
@@ -90,6 +90,17 @@ test: ## Run the .NET test suite
 
 test-studio: ## Run the Studio type-check + Vitest suite
 	cd $(STUDIO_DIR) && $(NPM) ci && $(NPM) test
+
+coverage: ## Measure coverage on both sides and enforce the committed floors
+	$(DOTNET) test $(TRAVERSAL) -c $(CONFIG) \
+		--collect:"XPlat Code Coverage" --results-directory TestResults/coverage
+	python3 build/coverage-summary.py --results TestResults/coverage
+	cd $(STUDIO_DIR) && $(NPM) run coverage
+
+coverage-accept: ## Rewrite the .NET floors from the current run (after a deliberate improvement)
+	$(DOTNET) test $(TRAVERSAL) -c $(CONFIG) \
+		--collect:"XPlat Code Coverage" --results-directory TestResults/coverage
+	python3 build/coverage-summary.py --results TestResults/coverage --update-floors
 
 format: ## Apply `dotnet format` (whitespace, style, analyzers)
 	$(DOTNET) format $(SOLUTION)

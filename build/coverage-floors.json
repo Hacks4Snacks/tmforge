@@ -1,0 +1,16 @@
+{
+  "_comment": "Minimum line coverage per project, recorded from a RELEASE run \u2014 the configuration CI enforces. Release reports far fewer coverable lines than Debug (optimized-away sequence points), so its percentages read several points higher; regenerating these from a Debug run would leave the ratchet slack. Raise a floor as coverage improves; never lower one without saying why in the pull request. Regenerate with `make coverage-accept`.",
+  "total": 86.5,
+  "projects": {
+    "ThreatModelForge.Analysis": 90.8,
+    "ThreatModelForge.Analysis.Reporting": 97.9,
+    "ThreatModelForge.Analysis.Rules": 96.3,
+    "ThreatModelForge.Api": 98.9,
+    "ThreatModelForge.Cli": 69.5,
+    "ThreatModelForge.Core": 95.8,
+    "ThreatModelForge.Editing": 88.6,
+    "ThreatModelForge.Engine": 89.9,
+    "ThreatModelForge.Formats": 93.2,
+    "ThreatModelForge.Reporting": 92.7
+  }
+}

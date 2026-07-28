@@ -28,7 +28,15 @@ jobs:
         run: dotnet build dirs.proj -c Release
 
       - name: Test
-        run: dotnet test dirs.proj -c Release --no-build
+        run: >
+          dotnet test dirs.proj -c Release --no-build
+          --collect:"XPlat Code Coverage" --results-directory TestResults/coverage
+
+      # Coverage is a ratchet, not a target: the floors in build/coverage-floors.json sit just under
+      # the numbers at the time they were recorded, so an unrelated change cannot trip them while a
+      # real regression still fails the build. Raise a floor when coverage improves.
+      - name: Coverage floors
+        run: python3 build/coverage-summary.py --results TestResults/coverage
 
   studio:
     name: Studio build & test
@@ -51,6 +59,10 @@ jobs:
 
       - name: Test (type-check + Vitest)
         run: npm test
+
+      # Thresholds live in vite.config.ts alongside the rest of the Vitest setup.
+      - name: Coverage floors
+        run: npm run coverage
 
       - name: Build (production bundle)
         run: npm run build
