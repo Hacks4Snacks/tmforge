@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.8.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.7.0...v0.8.0) (2026-07-28)
+
+
+### Features
+
+* **action:** analyze, drift, and review modes for the GitHub Action ([#76](https://github.com/Hacks4Snacks/tmforge/issues/76)) ([29c2ca3](https://github.com/Hacks4Snacks/tmforge/commit/29c2ca33971020a7224fbe89268bfd7e70284a16))
+* **analysis:** versioned analysis evidence with stable finding identity  ([#73](https://github.com/Hacks4Snacks/tmforge/issues/73)) ([780b713](https://github.com/Hacks4Snacks/tmforge/commit/780b7133cc07eb789fddddb0397ac5e2a5ca09bd))
+* centralize custom rule support and unify engines ([#70](https://github.com/Hacks4Snacks/tmforge/issues/70)) ([dd09a47](https://github.com/Hacks4Snacks/tmforge/commit/dd09a47f520baf0b09fa811e843ae05954832ca4))
+* Studio reporting update + "unknown" property support ([#72](https://github.com/Hacks4Snacks/tmforge/issues/72)) ([9d82f63](https://github.com/Hacks4Snacks/tmforge/commit/9d82f633d0d1733b8dc57a874fe519e564ba4a51))
+* **studio:** edit a whole selection in the inspector, delete it in one undo ([#78](https://github.com/Hacks4Snacks/tmforge/issues/78)) ([1bda13b](https://github.com/Hacks4Snacks/tmforge/commit/1bda13bd4b122cec9f402701adf72821073b3fc6))
+* **threats:** allow editing threat titles, keep category rule-owned ([#77](https://github.com/Hacks4Snacks/tmforge/issues/77)) ([6183998](https://github.com/Hacks4Snacks/tmforge/commit/618399865217148a4c837f836b6f1fba8b25bbeb))
+* **threats:** author-controlled manual ids, Critical priority, and register origin/status ([#74](https://github.com/Hacks4Snacks/tmforge/issues/74)) ([97bc13b](https://github.com/Hacks4Snacks/tmforge/commit/97bc13b6a79834ccdf1a6b5c710e4eca694c9ad7))
+
+
+### Bug Fixes
+
+* **mtmt:** restore .tm7 openability and close the ROOT differential ([#75](https://github.com/Hacks4Snacks/tmforge/issues/75)) ([8b32461](https://github.com/Hacks4Snacks/tmforge/commit/8b32461e46a2db7e03914d8457696b32d93797d6))
+
 ## [0.7.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.6.0...v0.7.0) (2026-07-24)
 
 
