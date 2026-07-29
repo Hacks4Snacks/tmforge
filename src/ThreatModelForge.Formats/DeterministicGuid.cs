@@ -28,6 +28,8 @@ namespace ThreatModelForge.Formats
 
         private const string PageNamespace = "tmforge-page:";
 
+        private const string StructuralNamespace = "tmforge-structural:";
+
         /// <summary>
         /// Derives the identifier for an element or flow. This is the same derivation the authoring
         /// aliases use, so a model built from a manifest and the same model read back from JSON agree
@@ -41,6 +43,21 @@ namespace ThreatModelForge.Formats
         /// <param name="id">The author's page id.</param>
         /// <returns>A stable identifier for the id.</returns>
         public static Guid FromPageId(string id) => Derive(PageNamespace, id);
+
+        /// <summary>
+        /// Derives the identifier for an object that has no author-supplied id, from a key describing
+        /// its position in the document.
+        /// </summary>
+        /// <remarks>
+        /// This is deliberately a different namespace from <see cref="FromElementId"/>. Both are fed
+        /// author-influenced strings, so sharing one namespace would let an alias that happened to read
+        /// like a structural key derive the same identifier as the object that key describes — and
+        /// because the two are allocated against separate uniqueness sets, nothing would catch it. The
+        /// second object would simply overwrite the first and disappear from the model.
+        /// </remarks>
+        /// <param name="key">The structural key.</param>
+        /// <returns>A stable identifier for the key.</returns>
+        public static Guid FromStructuralKey(string key) => Derive(StructuralNamespace, key);
 
         private static Guid Derive(string space, string id)
         {

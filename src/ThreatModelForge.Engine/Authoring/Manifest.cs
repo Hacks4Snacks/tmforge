@@ -10,8 +10,31 @@ namespace ThreatModelForge.Engine
     /// </summary>
     public sealed class Manifest
     {
+        /// <summary>The schema name a versioned manifest declares.</summary>
+        public const string SchemaName = "tmforge-manifest";
+
+        /// <summary>The manifest schema version this build writes and can read.</summary>
+        public const int CurrentVersion = 1;
+
+        /// <summary>
+        /// Gets or sets the schema name. Absent on manifests written before the envelope existed, which
+        /// are read as <see cref="CurrentVersion"/>.
+        /// </summary>
+        public string? Schema { get; set; }
+
+        /// <summary>
+        /// Gets or sets the schema version. Absent on manifests written before the envelope existed.
+        /// </summary>
+        public int? Version { get; set; }
+
         /// <summary>Gets or sets the model title.</summary>
         public string? Name { get; set; }
+
+        /// <summary>
+        /// Gets or sets the pages the model is drawn on. Optional: a manifest that declares none builds
+        /// onto one default page.
+        /// </summary>
+        public List<ManifestPage>? Pages { get; set; }
 
         /// <summary>Gets or sets the trust boundaries.</summary>
         public List<ManifestBoundary>? Boundaries { get; set; }

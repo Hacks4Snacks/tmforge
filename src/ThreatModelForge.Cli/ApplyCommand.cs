@@ -55,20 +55,9 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            Manifest? manifest;
-            try
+            if (!ManifestSupport.TryRead(File.ReadAllText(input!), out Manifest? manifest, out string? readError))
             {
-                manifest = ManifestSupport.Deserialize(File.ReadAllText(input!));
-            }
-            catch (JsonException ex)
-            {
-                Console.Error.WriteLine("Invalid manifest JSON: " + ex.Message);
-                return 1;
-            }
-
-            if (manifest == null)
-            {
-                Console.Error.WriteLine("The manifest is empty.");
+                Console.Error.WriteLine(readError);
                 return 1;
             }
 

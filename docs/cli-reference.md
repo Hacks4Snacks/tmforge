@@ -17,9 +17,11 @@ tmforge <command> [options] <file>
 - **Help.** `tmforge --help` lists commands; `tmforge <command> --help` (also `-h`, `-?`) shows
   command-specific options.
 - **Version.** `tmforge --version` prints the released version.
-- **Elements are addressed by GUID, alias, or unique name.** `add --alias <name>` gives an element a
-  stable, citeable id plus a handle that `connect`/`set`/`remove`/`rename`/`show` resolve (they also
-  accept a unique element name). Discover ids with `tmforge list` or the output of `add`.
+- **Elements and flows are addressed by GUID, alias, or unique name.** `add --alias <name>` gives an
+  element a stable, citeable id plus a handle that `connect`/`set`/`remove`/`rename`/`show` resolve
+  (they also accept a unique name). A flow declared with an alias in a
+  [manifest](#declarative-manifest) is addressable the same way. Discover ids with `tmforge list` or
+  the output of `add`.
 
 ## Command summary
 
@@ -431,11 +433,20 @@ tmforge connect payments.tm7 \
 
 ### `remove`
 
-Remove an element and its connected flows. The element is found on any page by default; `--page`
-scopes the search to one page.
+Remove an element and its connected flows, or remove a single flow. The object is found on any page
+by default; `--page` scopes the search to one page.
 
 ```text
-tmforge remove --id <guid> [--page <name|index>] [--json] <file>
+tmforge remove --id <ref> [--page <name|index>] [--json] <file>
+```
+
+`--id` accepts a GUID, an **alias**, or a unique name. An alias resolves a flow as readily as an
+element, so a flow given an alias in the manifest can be removed by that alias — and removing a flow
+removes only that flow, leaving both endpoints in place.
+
+```bash
+tmforge remove payments.tm7 --id ORD               # the store, plus every flow touching it
+tmforge remove payments.tm7 --id checkout-request  # just that one flow
 ```
 
 ### `rename`
@@ -448,7 +459,7 @@ tmforge rename --id <ref> --name <name> [--page <name|index>] [--json] <file>
 
 ### `set`
 
-Set the name and/or properties of an existing element or flow by GUID. Use this to resolve linter
+Set the name and/or properties of an existing element or flow. Use this to resolve linter
 findings (e.g. add a missing `Protocol`) without recreating the element. List every settable property
 and its allowed values with [`tmforge properties`](#properties).
 
@@ -456,9 +467,13 @@ and its allowed values with [`tmforge properties`](#properties).
 tmforge set --id <ref> [--name <name>] [--page <name|index>] [--property KEY=VALUE ...] [--json] <file>
 ```
 
+`--id` accepts a GUID, an **alias**, or a unique name — and an alias or name resolves a **flow** just
+as it resolves an element, so a flow given an alias in the manifest can be edited by that alias
+instead of by its GUID.
+
 ```bash
 tmforge set payments.tm7 --id 3333... --property Protocol=HTTPS --property Port=443
-tmforge set payments.tm7 --id 3333... --name "Authenticated request" --property AuthenticationScheme=OAuth
+tmforge set payments.tm7 --id checkout-request --property AuthenticationScheme=OAuth
 ```
 
 ### `page`
@@ -878,7 +893,7 @@ source of truth for the `.tm7`. `apply` materializes it; `export` emits it from 
     { "alias": "DB", "kind": "store", "stencil": "azure-sql", "name": "Orders DB", "boundary": "TB1" }
   ],
   "flows": [
-    { "from": "API", "to": "DB", "name": "store order",
+    { "alias": "F1", "from": "API", "to": "DB", "name": "store order",
       "props": { "DataType": "Customer Content", "Protocol": "SQL", "Port": "1433" } }
   ]
 }
@@ -888,7 +903,84 @@ source of truth for the `.tm7`. `apply` materializes it; `export` emits it from 
   inside it so trust-boundary crossings are computed and membership round-trips through `export`.
 - `elements[].alias` gives each element a **deterministic** id (stable across rebuilds), and flows
   reference elements by that alias (or by unique name).
+- `flows[].alias` does the same for a flow. It is optional: a flow without one still gets a stable id,
+  derived from its endpoints and name. Declaring an alias is what lets a flow be **renamed or
+  re-pointed without moving its id** — worth doing for any flow whose findings you expect to track.
+  It is also the handle you pass to `set --id` or `remove --id` to edit that flow later, instead of
+  looking up its GUID.
 - Either `kind` or `stencil` identifies an element; a stencil's base primitive sets the kind.
+
+**Every identifier `apply` assigns is derived, never minted**, so applying one manifest twice produces
+the same model: the same page, component, and connector ids. That is what keeps finding ids
+(`{ruleId}:{diagram}:{target}:{occurrence}`), threat-register triage, and `tmforge diff` aligned
+across rebuilds. Aliases are the durable form of that identity; the structural fallback is stable
+against re-applying a manifest, but renaming an alias-less object moves its id.
+
+### Envelope
+
+A manifest may declare `"schema": "tmforge-manifest"` and a numeric `"version"`. Both are optional —
+a manifest without them is read as the current version, because the concise form predates the
+envelope. What the envelope buys is refusal rather than guesswork: a manifest from a newer build is
+rejected with an upgrade hint instead of being read on assumptions that no longer hold, and a
+document of another schema (a model, a rule pack) is named as such instead of being coerced into a
+manifest that declares almost nothing. `export` stamps the envelope.
+
+### Pages
+
+A manifest may declare `pages`, and each boundary and element may name the one it is drawn on:
+
+```json
+{
+  "schema": "tmforge-manifest",
+  "version": 1,
+  "pages": [
+    { "alias": "ctx", "name": "Context" },
+    { "alias": "payments", "name": "Payments service" }
+  ],
+  "elements": [
+    { "alias": "API", "kind": "process", "name": "Checkout API", "page": "ctx" },
+    { "alias": "LEDGER", "kind": "process", "name": "Ledger", "page": "payments" }
+  ]
+}
+```
+
+Pages are optional: a manifest that declares none builds onto one default page, exactly as before. An
+object that names no page goes on the first. A page's alias (or its name) fixes its identifier, which
+matters because finding ids embed it.
+
+**A flow may not cross pages.** A connector belongs to one surface, so both endpoints have to be
+drawn on the same page; a flow whose endpoints are on different pages is refused rather than drawn on
+whichever page resolved first. Naming a page the manifest does not declare is refused too, rather than
+quietly placing the object on the first page.
+
+`export` records `pages` only when the model has more than one, so a single-page model produces
+exactly the manifest it always did.
+
+### Geometry
+
+`boundaries[]` and `elements[]` accept optional `x`, `y`, `width`, and `height`. Position and size are
+each all-or-nothing: supplying `x` without `y` is an error rather than a half-honoured request.
+
+- Omit them and the object is placed automatically, exactly as before.
+- Supply them and the object goes where you asked.
+- A boundary with no size grows to contain any member you placed explicitly, rather than clipping it.
+- A boundary with a fixed size that cannot hold the members it must lay out is rejected, because the
+  automatic grid would put them outside the box you drew.
+
+A member placed outside the boundary it belongs to is allowed: nothing is being clipped, both objects
+go where they were asked, and refusing it would make a diagram already in that state impossible to
+re-apply.
+
+`tmforge export --geometry` records the geometry. It is off by default because the manifest's job is
+to be reviewable, and coordinates churn whenever a diagram is tidied — they bury the property change
+somebody actually needs to read. **Turn it on when the layout matters.** Without it, `export` followed
+by `apply` re-runs automatic placement, and because trust-boundary containment is derived from
+geometry that can change which boundaries a flow crosses:
+
+```bash
+tmforge export --geometry --out payments.json payments.tm7   # lossless round trip
+tmforge export --out payments.json payments.tm7              # concise, layout re-derived
+```
 
 ### `apply`
 
@@ -913,15 +1005,16 @@ tmforge apply model.json --dry-run
 
 ### `export`
 
-Emit a manifest from an existing model (round-trips with `apply`). Geometry is intentionally dropped
-so the manifest stays a stable, diffable source.
+Emit a manifest from an existing model (round-trips with `apply`). Geometry is dropped unless you ask
+for it with `--geometry`, so the manifest stays a stable, diffable source by default.
 
 ```text
-tmforge export [--out <manifest.json>] [--json] <model>
+tmforge export [--out <manifest.json>] [--geometry] [--json] <model>
 ```
 
 ```bash
 tmforge export payments.tm7 --out payments.json
+tmforge export --geometry payments.tm7 --out payments.json
 tmforge export payments.tm7 | jq '.elements'
 ```
 

@@ -134,7 +134,7 @@ namespace ThreatModelForge.Cli
             Console.Error.WriteLine("Usage:");
             Console.Error.WriteLine("  tmforge set --id <ref> [--name <name>] [--page <name|index>] [--property KEY=VALUE]... [--json] <file>");
             Console.Error.WriteLine();
-            Console.Error.WriteLine("--id accepts a GUID, an element --alias, or a unique element name.");
+            Console.Error.WriteLine("--id accepts a GUID, an element or flow --alias, or a unique name.");
             Console.Error.WriteLine();
             Console.Error.WriteLine("Resolve analysis findings, e.g. --property Protocol=HTTPS --property Port=443,");
             Console.Error.WriteLine("--property DataType=\"Customer Content\", or --property AuthenticationScheme=OAuth.");

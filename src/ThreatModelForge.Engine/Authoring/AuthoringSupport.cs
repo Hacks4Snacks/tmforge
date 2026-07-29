@@ -196,7 +196,7 @@ namespace ThreatModelForge.Engine
             if (aliasMatches.Count > 1)
             {
                 error = "Alias '" + token + "' matches " + aliasMatches.Count.ToString(CultureInfo.InvariantCulture) +
-                    " elements; use a GUID to disambiguate.";
+                    " objects; use a GUID to disambiguate.";
                 return false;
             }
 
@@ -209,11 +209,12 @@ namespace ThreatModelForge.Engine
             if (nameMatches.Count > 1)
             {
                 error = "Name '" + token + "' matches " + nameMatches.Count.ToString(CultureInfo.InvariantCulture) +
-                    " elements; use an --alias or a GUID.";
+                    " objects; use an --alias or a GUID.";
                 return false;
             }
 
-            error = "No element with GUID, alias, or name '" + token + "' (run 'tmforge list components <file>').";
+            error = "No element or flow with GUID, alias, or name '" + token +
+                "' (run 'tmforge list components <file>' or 'tmforge list flows <file>').";
             return false;
         }
 
@@ -226,29 +227,95 @@ namespace ThreatModelForge.Engine
         public static Guid DeterministicId(string alias) => DeterministicGuid.FromElementId(alias);
 
         /// <summary>
+        /// Derives a stable, deterministic page GUID from a page id, in its own namespace so a page and
+        /// an element that happen to share an id do not collide.
+        /// </summary>
+        /// <param name="pageId">The page id.</param>
+        /// <returns>A deterministic GUID for the page.</returns>
+        public static Guid DeterministicPageId(string pageId) => DeterministicGuid.FromPageId(pageId);
+
+        /// <summary>
+        /// Derives a stable identifier for an object with no author-supplied alias, in its own namespace
+        /// so it can never collide with an alias.
+        /// </summary>
+        /// <param name="key">The structural key describing the object.</param>
+        /// <returns>A deterministic GUID for the key.</returns>
+        public static Guid DeterministicStructuralId(string key) => DeterministicGuid.FromStructuralKey(key);
+
+        /// <summary>
         /// Re-keys a component to a new GUID within its diagram, updating both the dictionary key and
         /// the entity. Used to give an aliased element its deterministic id after it is created.
         /// </summary>
         /// <param name="diagram">The diagram containing the component.</param>
         /// <param name="current">The component's current GUID.</param>
         /// <param name="desired">The desired GUID.</param>
+        /// <exception cref="ArgumentException">
+        /// The diagram does not hold <paramref name="current"/>. Every caller has just created it there,
+        /// so this means the wrong surface was passed — and returning quietly would leave the object
+        /// carrying the minted identifier this re-key exists to replace.
+        /// </exception>
         public static void RekeyComponent(DrawingSurfaceModel diagram, Guid current, Guid desired)
         {
+            if (diagram == null)
+            {
+                throw new ArgumentNullException(nameof(diagram));
+            }
+
             if (current == desired)
             {
                 return;
             }
 
-            if (diagram.Borders.TryGetValue(current, out object? border))
+            if (!diagram.Borders.TryGetValue(current, out object? border))
             {
-                diagram.Borders.Remove(current);
-                if (border is Entity entity)
-                {
-                    entity.Guid = desired;
-                }
-
-                diagram.Borders[desired] = border!;
+                throw new ArgumentException(
+                    "The diagram does not contain a component with id " + current.ToString() + ".",
+                    nameof(current));
             }
+
+            diagram.Borders.Remove(current);
+            if (border is Entity entity)
+            {
+                entity.Guid = desired;
+            }
+
+            diagram.Borders[desired] = border!;
+        }
+
+        /// <summary>
+        /// Re-keys a connector to a new GUID within its diagram. Connectors live in a separate
+        /// collection from components, so re-keying one needs its own routine.
+        /// </summary>
+        /// <param name="diagram">The diagram containing the connector.</param>
+        /// <param name="current">The connector's current GUID.</param>
+        /// <param name="desired">The desired GUID.</param>
+        /// <exception cref="ArgumentException">The diagram does not hold <paramref name="current"/>.</exception>
+        public static void RekeyConnector(DrawingSurfaceModel diagram, Guid current, Guid desired)
+        {
+            if (diagram == null)
+            {
+                throw new ArgumentNullException(nameof(diagram));
+            }
+
+            if (current == desired)
+            {
+                return;
+            }
+
+            if (!diagram.Lines.TryGetValue(current, out object? line))
+            {
+                throw new ArgumentException(
+                    "The diagram does not contain a connector with id " + current.ToString() + ".",
+                    nameof(current));
+            }
+
+            diagram.Lines.Remove(current);
+            if (line is Connector connector)
+            {
+                connector.Guid = desired;
+            }
+
+            diagram.Lines[desired] = line!;
         }
 
         /// <summary>
