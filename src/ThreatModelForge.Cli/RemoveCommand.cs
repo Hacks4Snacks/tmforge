@@ -8,8 +8,8 @@ namespace ThreatModelForge.Cli
     using ThreatModelForge.Model;
 
     /// <summary>
-    /// Implements the <c>tmforge remove</c> command: removes an element by GUID. Removing a
-    /// component also removes any data flows attached to it.
+    /// Implements the <c>tmforge remove</c> command: removes an element or a flow. Removing an
+    /// element also removes any data flows attached to it; removing a flow removes only that flow.
     /// </summary>
     internal static class RemoveCommand
     {
@@ -83,7 +83,7 @@ namespace ThreatModelForge.Cli
             }
             else
             {
-                Console.Error.WriteLine("Removed " + removed.Count + " element(s) from " + input + ".");
+                Console.Error.WriteLine("Removed " + removed.Count + " object(s) from " + input + ".");
             }
 
             return 0;
@@ -91,12 +91,12 @@ namespace ThreatModelForge.Cli
 
         private static void PrintUsage()
         {
-            Console.Error.WriteLine("Remove an element (and its connected flows).");
+            Console.Error.WriteLine("Remove an element (and its connected flows), or remove a single flow.");
             Console.Error.WriteLine("Usage:");
             Console.Error.WriteLine("  tmforge remove --id <ref> [--page <name|index>] [--json] <file>");
             Console.Error.WriteLine();
-            Console.Error.WriteLine("--id accepts a GUID, an element --alias, or a unique element name.");
-            Console.Error.WriteLine("The element is found on any page by default; --page scopes the search to one page.");
+            Console.Error.WriteLine("--id accepts a GUID, an element or flow --alias, or a unique name.");
+            Console.Error.WriteLine("The object is found on any page by default; --page scopes the search to one page.");
         }
     }
 }

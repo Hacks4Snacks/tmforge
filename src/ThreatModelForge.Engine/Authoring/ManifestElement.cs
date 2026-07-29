@@ -20,7 +20,25 @@ namespace ThreatModelForge.Engine
         /// <summary>Gets or sets the alias of the trust boundary this element belongs to.</summary>
         public string? Boundary { get; set; }
 
+        /// <summary>Gets or sets the alias of the page this element is drawn on. Defaults to the first page.</summary>
+        public string? Page { get; set; }
+
         /// <summary>Gets or sets the typed custom properties the analyzer reads.</summary>
         public Dictionary<string, string>? Props { get; set; }
+
+        /// <summary>
+        /// Gets or sets the left edge. Optional: an element with no geometry is placed automatically
+        /// inside its boundary. Supplying it fixes the element in place.
+        /// </summary>
+        public int? X { get; set; }
+
+        /// <summary>Gets or sets the top edge. See <see cref="X"/>.</summary>
+        public int? Y { get; set; }
+
+        /// <summary>Gets or sets the width. See <see cref="X"/>.</summary>
+        public int? Width { get; set; }
+
+        /// <summary>Gets or sets the height. See <see cref="X"/>.</summary>
+        public int? Height { get; set; }
     }
 }

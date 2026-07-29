@@ -25,7 +25,7 @@ namespace ThreatModelForge.Cli
                 return 1;
             }
 
-            CliArgs parsed = CliArgs.Parse(args, new[] { "out" });
+            CliArgs parsed = CliArgs.Parse(args, new[] { "out" }, new[] { "geometry" });
             if (parsed.Help)
             {
                 PrintUsage();
@@ -53,7 +53,7 @@ namespace ThreatModelForge.Cli
             }
 
             (ThreatModel model, _) = CliModelLoader.Load(input!);
-            Manifest manifest = ManifestSupport.Extract(model);
+            Manifest manifest = ManifestSupport.Extract(model, parsed.HasFlag("geometry"));
             string json = ManifestSupport.Serialize(manifest);
 
             string? output = parsed.Get("out");
@@ -90,9 +90,11 @@ namespace ThreatModelForge.Cli
         {
             Console.Error.WriteLine("Export a model as a declarative JSON manifest (round-trips with 'tmforge apply').");
             Console.Error.WriteLine("Usage:");
-            Console.Error.WriteLine("  tmforge export [--out <manifest.json>] [--json] <model>");
+            Console.Error.WriteLine("  tmforge export [--out <manifest.json>] [--geometry] [--json] <model>");
             Console.Error.WriteLine();
             Console.Error.WriteLine("If --out is omitted, the manifest is written to standard output.");
+            Console.Error.WriteLine("--geometry records each object's position and size, so a hand-laid-out diagram");
+            Console.Error.WriteLine("survives a round trip. It is off by default to keep the manifest diffable.");
         }
     }
 }
