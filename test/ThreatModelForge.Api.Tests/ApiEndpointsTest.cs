@@ -1,6 +1,8 @@
 namespace ThreatModelForge.Api.Tests
 {
     using System;
+    using System.Collections.Generic;
+    using System.Linq;
     using System.Net;
     using System.Net.Http;
     using System.Text;
@@ -24,6 +26,21 @@ namespace ThreatModelForge.Api.Tests
             "{\"schema\":\"tmforge-json\",\"version\":\"0.1\"," +
             "\"elements\":[{\"id\":\"a\",\"kind\":\"process\",\"name\":\"Alpha\",\"x\":10,\"y\":10,\"width\":120,\"height\":60}]," +
             "\"flows\":[]}";
+
+        /// <summary>
+        /// A request body carrying a real authoring manifest. The manifest travels as a JSON string so
+        /// its envelope is checked exactly as written, which is why it is escaped here rather than
+        /// nested as an object.
+        /// </summary>
+        private const string ManifestRequest =
+            "{\"manifest\":\"{" +
+            "\\\"schema\\\":\\\"tmforge-manifest\\\",\\\"version\\\":1,\\\"name\\\":\\\"T\\\"," +
+            "\\\"boundaries\\\":[{\\\"alias\\\":\\\"tb1\\\",\\\"name\\\":\\\"Edge\\\"}]," +
+            "\\\"elements\\\":[" +
+            "{\\\"alias\\\":\\\"a1\\\",\\\"kind\\\":\\\"external\\\",\\\"name\\\":\\\"User\\\",\\\"boundary\\\":\\\"tb1\\\"}," +
+            "{\\\"alias\\\":\\\"p1\\\",\\\"kind\\\":\\\"process\\\",\\\"name\\\":\\\"Gateway\\\",\\\"boundary\\\":\\\"tb1\\\"}]," +
+            "\\\"flows\\\":[{\\\"from\\\":\\\"a1\\\",\\\"to\\\":\\\"p1\\\",\\\"name\\\":\\\"Sign in\\\"}]" +
+            "}\"}";
 
         /// <summary>
         /// The in-memory host. <c>Program</c> is a static class and cannot be a type argument, so the
@@ -253,6 +270,58 @@ namespace ThreatModelForge.Api.Tests
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
             using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             Assert.AreEqual("tmforge-json", body.RootElement.GetProperty("id").GetString());
+        }
+
+        /// <summary>
+        /// Verifies an authoring manifest is materialized into a model. A manifest is a threat model's
+        /// reviewable source rather than a registered format, so it is unreachable through
+        /// <c>/v1/detect</c> and <c>/v1/model/read</c> — this route is the only way a client can open
+        /// one without shelling out to the CLI.
+        /// </summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task Manifest_BuildsAModelFromAnAuthoringManifest()
+        {
+            using HttpResponseMessage response = await PostJson("/v1/model/manifest", ManifestRequest);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.IsTrue(body.RootElement.GetProperty("success").GetBoolean());
+            Assert.AreEqual(1, body.RootElement.GetProperty("boundaries").GetInt32());
+            Assert.AreEqual(2, body.RootElement.GetProperty("elements").GetInt32());
+            Assert.AreEqual(1, body.RootElement.GetProperty("flows").GetInt32());
+
+            List<string?> names = body.RootElement
+                .GetProperty("model")
+                .GetProperty("elements")
+                .EnumerateArray()
+                .Select(element => element.GetProperty("name").GetString())
+                .ToList();
+            CollectionAssert.Contains(names, "Gateway");
+            CollectionAssert.Contains(names, "User");
+            Assert.AreEqual(
+                "Sign in",
+                body.RootElement.GetProperty("model").GetProperty("flows")[0].GetProperty("name").GetString());
+        }
+
+        /// <summary>
+        /// Verifies a manifest that cannot be built answers 200 carrying the reason, not a 500. The
+        /// manifest is the caller's document, so a refusal is a result the client renders — the
+        /// endpoint only fails when the host does.
+        /// </summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task Manifest_ReportsARefusedManifestAsAResult()
+        {
+            const string Body =
+                "{\"manifest\":\"{\\\"schema\\\":\\\"tmforge-json\\\",\\\"elements\\\":[]}\"}";
+
+            using HttpResponseMessage response = await PostJson("/v1/model/manifest", Body);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.IsFalse(body.RootElement.GetProperty("success").GetBoolean());
+            StringAssert.Contains(body.RootElement.GetProperty("error").GetString(), "tmforge-manifest");
         }
 
         /// <summary>

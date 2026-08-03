@@ -40,6 +40,7 @@ and `/openapi` are matched first.
 | `POST /v1/model/threats` | Model | Generate the STRIDE threat register (rule threats plus the model's author overlay). |
 | `POST /v1/model/threat-register` | Model | Split the register by origin and standing: manual, current-generated, stale-generated, and entries whose rule was not part of the run. |
 | `POST /v1/model/read` | Model | Parse uploaded bytes (base64) into the canonical model. |
+| `POST /v1/model/manifest` | Model | Materialize a declarative authoring manifest into a model (the `tmforge apply` build). |
 | `POST /v1/model/convert?to=<format>` | Model | Convert a model to another format. |
 | `POST /v1/model/export/tm7` | Model | Export a model as a `.tm7` file. |
 | `POST /v1/model/report?format=<html\|svg>` | Report | Render a model to an HTML or SVG report. |

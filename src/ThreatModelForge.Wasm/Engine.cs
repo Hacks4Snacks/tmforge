@@ -174,6 +174,17 @@ namespace ThreatModelForge.Wasm
             return Serialize(model);
         }
 
+        /// <summary>
+        /// Materializes a declarative authoring manifest into a model. A manifest is a threat model's
+        /// reviewable source rather than one of the registered model formats, so <see cref="Detect"/>
+        /// cannot claim it and <see cref="ReadFile"/> cannot parse it.
+        /// </summary>
+        /// <param name="manifestJson">The manifest document text.</param>
+        /// <returns>The built model and counts, or a blocking error, as JSON (the /v1 ApplyResultDto shape).</returns>
+        [JSExport]
+        public static string ApplyManifest(string manifestJson)
+            => Serialize(AuthoringService.ApplyManifestJson(manifestJson, force: false));
+
         /// <summary>Serializes a tmforge-json model to lossless <c>.tm7</c> bytes, returned as base64.</summary>
         /// <param name="tmforgeJson">The canonical tmforge-json model.</param>
         /// <returns>The <c>.tm7</c> document bytes, base64-encoded.</returns>

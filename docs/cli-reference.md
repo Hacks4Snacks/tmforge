@@ -1003,6 +1003,11 @@ tmforge apply model.json --out model.tm7
 tmforge apply model.json --dry-run
 ```
 
+A manifest is a model's *source*, not a model. The read-only verbs (`open`, `list`, `show`,
+`analyze`, …) take a model file, so pointing one at a manifest reports that and names the `apply`
+command to run first. The same recognition lets **Studio** open a manifest directly — see
+[Importing and exporting](studio-guide.md#opening-an-authoring-manifest).
+
 ### `export`
 
 Emit a manifest from an existing model (round-trips with `apply`). Geometry is dropped unless you ask

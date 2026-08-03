@@ -127,6 +127,16 @@ namespace ThreatModelForge.Api
                     EngineService.ReadModel(Convert.FromBase64String(file.ContentBase64), file.FormatId)))
                 .WithName("ReadModel")
                 .WithTags("Model");
+
+            // A declarative authoring manifest is a threat model's reviewable source, not one of the
+            // registered model formats, so /v1/detect cannot claim it and /v1/model/read cannot parse
+            // it. Materializing it here lets a client open a manifest without shelling out to the CLI.
+            app.MapPost(
+                "/v1/model/manifest",
+                (ManifestRequestDto request) => TypedResults.Ok(
+                    AuthoringService.ApplyManifestJson(request.Manifest, request.Force)))
+                .WithName("ApplyManifest")
+                .WithTags("Model");
             app.MapPost("/v1/model/report", (TmForgeModelDto model, string format) =>
                 {
                     bool svg = string.Equals(format, "svg", StringComparison.OrdinalIgnoreCase);

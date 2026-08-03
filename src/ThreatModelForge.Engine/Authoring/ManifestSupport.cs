@@ -40,6 +40,42 @@ namespace ThreatModelForge.Engine
         }
 
         /// <summary>
+        /// Reports whether document text positively declares itself an authoring manifest, so a caller
+        /// holding an unidentified file can route it here instead of reporting it unreadable.
+        /// <para>
+        /// Recognition deliberately requires an explicit <c>schema</c>, where <see cref="TryRead"/>
+        /// accepts the concise pre-envelope form. The two differ because they answer different
+        /// questions: <c>TryRead</c> is told the document is a manifest, while this decides. Every
+        /// member of the manifest DTO is optional, so accepting an absent envelope here would claim
+        /// any JSON document — and then build it into an empty model.
+        /// </para>
+        /// </summary>
+        /// <param name="json">The candidate document text.</param>
+        /// <returns><see langword="true"/> when the document declares the manifest schema.</returns>
+        public static bool LooksLikeManifest(string? json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return false;
+            }
+
+            try
+            {
+                using (JsonDocument probe = JsonDocument.Parse(json))
+                {
+                    return probe.RootElement.ValueKind == JsonValueKind.Object
+                        && TryFindProperty(probe.RootElement, "schema", out JsonElement schema)
+                        && schema.ValueKind == JsonValueKind.String
+                        && string.Equals(schema.GetString(), Manifest.SchemaName, StringComparison.Ordinal);
+                }
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Reads a manifest and checks this build can interpret it. A manifest that declares no
         /// envelope is read as the current version: the shape predates the envelope and is still the
         /// documented concise form, so requiring one would break every manifest already written.

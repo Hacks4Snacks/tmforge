@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { offlineEngine, toModel } from './engineClient';
+import { looksLikeManifest, offlineEngine, toModel } from './engineClient';
 import type { components } from './engine/schema';
 import type { TmForgeModel } from './types';
 
@@ -47,6 +47,15 @@ describe('OfflineEngineClient — the honest fallback contract', () => {
     await expect(offlineEngine.exportTm7(emptyModel())).rejects.toThrow(/require[s]? the .NET engine/i);
   });
 
+  it('rejects opening an authoring manifest rather than re-implementing the builder', async () => {
+    // Building a manifest resolves aliases, derives stable ids, places elements inside their
+    // boundaries, and validates properties against the schema. A client-side approximation would be a
+    // second engine that disagrees with the real one.
+    await expect(offlineEngine.applyManifest('{"schema":"tmforge-manifest"}')).rejects.toThrow(
+      /require[s]? the .NET engine/i,
+    );
+  });
+
   it('converts to tmforge-json client-side but rejects engine-only target formats', async () => {
     const blob = await offlineEngine.convert(emptyModel(), 'tmforge-json');
     expect(blob).toBeInstanceOf(Blob);
@@ -74,6 +83,33 @@ describe('OfflineEngineClient — the honest fallback contract', () => {
 
     const fromBytes = await offlineEngine.readFile(new TextEncoder().encode(json));
     expect(fromBytes.schema).toBe('tmforge-json');
+  });
+});
+
+describe('looksLikeManifest — routing an unidentified document', () => {
+  it('recognizes a document that declares the manifest schema', () => {
+    expect(looksLikeManifest('{"schema":"tmforge-manifest","version":1,"elements":[]}')).toBe(true);
+  });
+
+  it('does not claim other tmforge documents', () => {
+    expect(looksLikeManifest('{"schema":"tmforge-json","version":"0.1","elements":[]}')).toBe(false);
+    expect(looksLikeManifest('{"schema":"tmforge-rules","version":2}')).toBe(false);
+    expect(looksLikeManifest('{"schema":"tmforge-analysis","version":1}')).toBe(false);
+  });
+
+  it('does not claim a manifest that declares no envelope', () => {
+    // The deliberate asymmetry with the engine's reader, which does accept the concise pre-envelope
+    // form once told the document is a manifest. Every manifest field is optional, so a recognizer
+    // that accepted an absent envelope would claim any JSON object.
+    expect(looksLikeManifest('{"name":"concise","elements":[]}')).toBe(false);
+  });
+
+  it('does not throw on documents that are not JSON at all', () => {
+    expect(looksLikeManifest('<ThreatModel xmlns="..."/>')).toBe(false);
+    expect(looksLikeManifest('PK\u0003\u0004binary')).toBe(false);
+    expect(looksLikeManifest('')).toBe(false);
+    expect(looksLikeManifest('null')).toBe(false);
+    expect(looksLikeManifest('42')).toBe(false);
   });
 });
 
