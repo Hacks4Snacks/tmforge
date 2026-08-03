@@ -455,6 +455,36 @@
         }
       }
     },
+    "/v1/model/manifest": {
+      "post": {
+        "tags": [
+          "Model"
+        ],
+        "operationId": "ApplyManifest",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManifestRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/model/report": {
       "post": {
         "tags": [
@@ -687,6 +717,54 @@
           }
         }
       },
+      "ApplyResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "model": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TmForgeModelDto"
+              }
+            ]
+          },
+          "boundaries": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "elements": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "flows": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "ExpectedRulePackDto": {
         "type": "object",
         "properties": {
@@ -772,6 +850,20 @@
         "properties": {
           "status": {
             "type": "string"
+          }
+        }
+      },
+      "ManifestRequestDto": {
+        "type": "object",
+        "properties": {
+          "manifest": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "force": {
+            "type": "boolean"
           }
         }
       },

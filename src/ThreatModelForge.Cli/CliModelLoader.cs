@@ -1,6 +1,8 @@
 namespace ThreatModelForge.Cli
 {
+    using System;
     using System.IO;
+    using ThreatModelForge.Engine;
     using ThreatModelForge.Formats;
     using ThreatModelForge.Model;
 
@@ -27,8 +29,40 @@ namespace ThreatModelForge.Cli
                 format = registry.Sniff(stream);
             }
 
+            // An authoring manifest is a threat model's reviewable source, not a model document, so no
+            // provider claims it. Saying so beats the registry's generic "specify a format id", which
+            // sends the reader looking for a format that does not exist.
+            if (format == null && IsManifest(path))
+            {
+                throw new NotSupportedException(
+                    "'" + path + "' is a tmforge authoring manifest, not a threat model. Build a model " +
+                    "from it first: tmforge apply \"" + path + "\" --out model.tm7");
+            }
+
             ThreatModel model = registry.Load(path, format?.Id);
             return (model, format);
+        }
+
+        /// <summary>
+        /// Reports whether the file is a declarative authoring manifest. Only reached once no provider
+        /// has claimed the content, so reading the file a second time costs nothing on the success path.
+        /// </summary>
+        /// <param name="path">The file to inspect.</param>
+        /// <returns><see langword="true"/> when the file declares the manifest schema.</returns>
+        private static bool IsManifest(string path)
+        {
+            try
+            {
+                return ManifestSupport.LooksLikeManifest(File.ReadAllText(path));
+            }
+            catch (IOException)
+            {
+                return false;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return false;
+            }
         }
     }
 }

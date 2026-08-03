@@ -157,6 +157,34 @@ namespace ThreatModelForge.Engine
         }
 
         /// <summary>
+        /// Materializes a declarative manifest supplied as JSON text into a model, so a host holding an
+        /// unidentified document (a browser file picker, an HTTP body) can open a manifest the same way
+        /// <c>tmforge apply</c> does. The envelope is checked against the raw text rather than a bound
+        /// object, so a model or a rule pack is refused instead of coerced into an empty manifest.
+        /// <para>
+        /// A blocking problem is returned on the result rather than thrown, matching the rest of this
+        /// facade: a manifest that will not build is the caller's document, not a server fault.
+        /// </para>
+        /// </summary>
+        /// <param name="manifestJson">The manifest document text.</param>
+        /// <param name="force">Whether to store unknown/invalid property values instead of rejecting them.</param>
+        /// <returns>The built model and the counts of what was created, or a blocking error.</returns>
+        public static ApplyResultDto ApplyManifestJson(string? manifestJson, bool force)
+        {
+            if (string.IsNullOrWhiteSpace(manifestJson))
+            {
+                return new ApplyResultDto { Success = false, Error = "The manifest is empty." };
+            }
+
+            if (!ManifestSupport.TryRead(manifestJson, out Manifest? manifest, out string? error))
+            {
+                return new ApplyResultDto { Success = false, Error = error };
+            }
+
+            return Apply(manifest, force);
+        }
+
+        /// <summary>
         /// Extracts a declarative manifest from a model, so an agent can round-trip a model authored any
         /// way back into a review-friendly source.
         /// </summary>

@@ -1,7 +1,11 @@
 namespace ThreatModelForge.Cli
 {
     using System;
+    using System.IO;
     using System.Reflection;
+    using System.Runtime.Serialization;
+    using System.Text.Json;
+    using System.Xml;
 
     /// <summary>
     /// The <c>tmforge</c> command-line tool. Dispatches to a verb-specific command.
@@ -40,12 +44,63 @@ namespace ThreatModelForge.Cli
             CommandInfo? command = CommandCatalog.Find(verb);
             if (command != null)
             {
-                return command.Run(rest);
+                try
+                {
+                    return command.Run(rest);
+                }
+                catch (Exception ex) when (IsInputError(ex))
+                {
+                    Console.Error.WriteLine(ex.Message);
+                    return 1;
+                }
             }
 
             Console.Error.WriteLine("Unknown command: " + verb);
             PrintUsage();
             return 1;
+        }
+
+        /// <summary>
+        /// Reports whether a failure was caused by what the user pointed the tool at rather than by a
+        /// defect in the tool. These become a one-line message and exit 1; everything else is left to
+        /// crash, because an unexpected failure should stay loud and keep its stack trace.
+        /// <para>
+        /// Classification mirrors the API's request-error handler, extended with the file-system and
+        /// document-parsing failures a command-line tool meets that an HTTP body cannot produce.
+        /// </para>
+        /// </summary>
+        /// <param name="exception">The unhandled exception.</param>
+        /// <returns><see langword="true"/> when the user's input caused it.</returns>
+        internal static bool IsInputError(Exception exception)
+        {
+            switch (exception)
+            {
+                // A null argument is this tool calling itself wrongly, not the user's doing. Checked
+                // first because it derives from ArgumentException, which is accepted below.
+                case ArgumentNullException:
+                    return false;
+
+                // No registered format can read the named file, or an unknown format id was requested.
+                case NotSupportedException:
+
+                // A missing or empty required value that reached the engine.
+                case ArgumentException:
+
+                // A missing file or directory, an unreadable path, a corrupt container. InvalidDataException
+                // is listed separately because it derives from SystemException, not IOException.
+                case IOException:
+                case InvalidDataException:
+                case UnauthorizedAccessException:
+
+                // The named file is not the document it claims to be.
+                case JsonException:
+                case XmlException:
+                case SerializationException:
+                case FormatException:
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         private static void PrintUsage()

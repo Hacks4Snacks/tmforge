@@ -30,7 +30,7 @@ import { Toolbar } from './Toolbar';
 import { Inspector } from './Inspector';
 import { AnalysisSettings } from './AnalysisSettings';
 import { FALLBACK_PACKS, FALLBACK_STENCILS } from './stencils';
-import { createHttpEngine, loadWasmEngine, offlineEngine, probeEngine, type AnalysisReportFormat, type Finding, type FormatInfo, type IEngineClient, type PackInfo, type PropertyDescriptorInfo, type RuleBundle, type RuleInfo, type RulePackInfo, type StencilInfo, type Threat } from './engineClient';
+import { createHttpEngine, loadWasmEngine, looksLikeManifest, offlineEngine, probeEngine, type AnalysisReportFormat, type Finding, type FormatInfo, type IEngineClient, type PackInfo, type PropertyDescriptorInfo, type RuleBundle, type RuleInfo, type RulePackInfo, type StencilInfo, type Threat } from './engineClient';
 import { ThreatsPanel, type NewThreatDraft, type ThreatEdit, type ThreatScopeOption } from './ThreatsPanel';
 import { CanvasSearch, type SearchItem } from './CanvasSearch';
 import { DEFAULT_NODE_SIZE, modelFromPages, pagesFromModel, type PageGraph } from './mapping';
@@ -219,6 +219,33 @@ export function buildFileAccept(formats: FormatInfo[]): string {
 /** True when a file-picker promise rejected because the user cancelled the dialog. */
 export function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError';
+}
+
+/** Suffixes stripped from a manifest's file name before the model extension is appended. */
+const MANIFEST_NAME_SUFFIXES = [/\.json$/i, /\.(manifest|tm)$/i];
+
+/** A document resolved by the Open/Import path, and how the resulting model may be saved. */
+interface OpenedDocument {
+  model: TmForgeModel;
+  /** The format Save writes in: the source format when it is writable, else tmforge-json. */
+  saveFormat: string;
+  /** The name to bind, which is not the source name when the source was a manifest. */
+  fileName: string;
+  /** Whether Save may overwrite the file this came from. False for an authoring manifest. */
+  bindable: boolean;
+}
+
+/**
+ * The name to bind after opening an authoring manifest. The manifest's own name is deliberately not
+ * reused: Save falls back to Save As, which offers the bound name, and accepting that would replace
+ * the reviewable manifest source with the model built from it.
+ */
+export function modelNameForManifest(sourceName: string): string {
+  let base = sourceName;
+  for (const suffix of MANIFEST_NAME_SUFFIXES) {
+    base = base.replace(suffix, '');
+  }
+  return `${base || sourceName}.tmforge.json`;
 }
 
 function downloadBlob(blob: Blob, filename: string): void {
@@ -1477,22 +1504,60 @@ export function Editor() {
     [engine],
   );
 
+  // Resolves a picked document to a model, and to how the result may be saved. A file that no
+  // registered format claims may still be a declarative authoring manifest — the reviewable source
+  // `tmforge apply` builds a model from — so it is materialized through the engine instead of being
+  // reported as an unreadable model.
+  const readDocument = useCallback(
+    async (bytes: Uint8Array, name: string): Promise<OpenedDocument> => {
+      const detected = await engine.detect(bytes).catch(() => null);
+      if (detected) {
+        return {
+          model: await readModelFromBytes(bytes, detected.id),
+          saveFormat: detected.canWrite ? detected.id : 'tmforge-json',
+          fileName: name,
+          bindable: true,
+        };
+      }
+
+      const text = new TextDecoder().decode(bytes);
+      if (looksLikeManifest(text)) {
+        return {
+          model: await engine.applyManifest(text),
+          saveFormat: 'tmforge-json',
+          fileName: modelNameForManifest(name),
+          // A manifest is an authoring source, not a model file. Binding a writable handle to it
+          // would let Save overwrite the reviewable source with the model built from it.
+          bindable: false,
+        };
+      }
+
+      // Nothing claimed it and it is not a manifest: fall back to tmforge-json so the reader reports
+      // what is actually wrong with the document.
+      return {
+        model: await readModelFromBytes(bytes, 'tmforge-json'),
+        saveFormat: 'tmforge-json',
+        fileName: name,
+        bindable: true,
+      };
+    },
+    [engine, readModelFromBytes],
+  );
+
   const onImportFile = useCallback(
     async (file: File) => {
       try {
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const detected = await engine.detect(bytes).catch(() => null);
-        const formatId = detected?.id ?? 'tmforge-json';
-        loadModel(await readModelFromBytes(bytes, formatId));
+        const opened = await readDocument(new Uint8Array(await file.arrayBuffer()), file.name);
+        loadModel(opened.model);
         // A hidden <input> gives no writable handle, so Save falls back to Save As / download.
         fileHandleRef.current = null;
-        fileFormatRef.current = detected?.canWrite ? formatId : 'tmforge-json';
-        setFileName(file.name);
+        fileFormatRef.current = opened.saveFormat;
+        setFileName(opened.fileName);
       } catch (err) {
         toast(err instanceof Error ? err.message : 'Could not open that file.', 'error');
       }
     },
-    [engine, loadModel, readModelFromBytes],
+    [loadModel, readDocument],
   );
 
   // Prefer the File System Access API so Open retains a writable handle (Save can then overwrite the
@@ -1506,19 +1571,17 @@ export function Editor() {
     try {
       const [handle] = await picker.showOpenFilePicker();
       const file = await handle.getFile();
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const detected = await engine.detect(bytes).catch(() => null);
-      const formatId = detected?.id ?? 'tmforge-json';
-      loadModel(await readModelFromBytes(bytes, formatId));
-      fileHandleRef.current = handle;
-      fileFormatRef.current = detected?.canWrite ? formatId : 'tmforge-json';
-      setFileName(handle.name);
+      const opened = await readDocument(new Uint8Array(await file.arrayBuffer()), handle.name);
+      loadModel(opened.model);
+      fileHandleRef.current = opened.bindable ? handle : null;
+      fileFormatRef.current = opened.saveFormat;
+      setFileName(opened.fileName);
     } catch (err) {
       if (!isAbortError(err)) {
         toast(err instanceof Error ? err.message : 'Could not open that file.', 'error');
       }
     }
-  }, [engine, loadModel, readModelFromBytes]);
+  }, [loadModel, readDocument]);
 
   const clearAll = useCallback(() => {
     const id = crypto.randomUUID();

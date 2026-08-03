@@ -276,6 +276,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/model/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["ApplyManifest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/model/report": {
         parameters: {
             query?: never;
@@ -360,6 +376,17 @@ export interface components {
             rulePacks?: components["schemas"]["RulePackInfoDto"][];
             diagnostics?: string[];
         };
+        ApplyResultDto: {
+            success?: boolean;
+            error?: null | string;
+            model?: null | components["schemas"]["TmForgeModelDto"];
+            /** Format: int32 */
+            boundaries?: number | string;
+            /** Format: int32 */
+            elements?: number | string;
+            /** Format: int32 */
+            flows?: number | string;
+        };
         ExpectedRulePackDto: {
             id?: null | string;
             fingerprint?: null | string;
@@ -384,6 +411,10 @@ export interface components {
         };
         HealthStatusDto: {
             status?: string;
+        };
+        ManifestRequestDto: {
+            manifest?: null | string;
+            force?: boolean;
         };
         MergeConflictDto: {
             elementId?: null | string;
@@ -970,6 +1001,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TmForgeModelDto"];
+                };
+            };
+        };
+    };
+    ApplyManifest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManifestRequestDto"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyResultDto"];
                 };
             };
         };

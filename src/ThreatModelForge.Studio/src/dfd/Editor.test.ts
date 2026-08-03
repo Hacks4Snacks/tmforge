@@ -7,6 +7,7 @@ import {
   persistStringList,
   buildFileAccept,
   isAbortError,
+  modelNameForManifest,
   buildAnalysis,
   applyCanvasEdgeChanges,
   applyFlags,
@@ -228,6 +229,25 @@ describe('Editor — file picker filter', () => {
 
   it('uses the startup fallback before format metadata is available', () => {
     expect(buildFileAccept([])).toBe('.json,.tm7,.drawio,.vsdx');
+  });
+});
+
+describe('Editor — naming a model opened from an authoring manifest', () => {
+  // Save falls back to Save As, which offers the bound file name. Keeping the manifest's own name
+  // would invite the author to overwrite their reviewable source with the model built from it.
+  it('replaces the manifest extension with the model extension', () => {
+    expect(modelNameForManifest('threat-model.tm.json')).toBe('threat-model.tmforge.json');
+    expect(modelNameForManifest('webshop.manifest.json')).toBe('webshop.tmforge.json');
+    expect(modelNameForManifest('model.json')).toBe('model.tmforge.json');
+    expect(modelNameForManifest('MODEL.JSON')).toBe('MODEL.tmforge.json');
+  });
+
+  it('never produces an empty or extension-less name, whatever the source was called', () => {
+    for (const source of ['.json', 'manifest', 'a.b.c.json', '  ']) {
+      const named = modelNameForManifest(source);
+      expect(named.endsWith('.tmforge.json')).toBe(true);
+      expect(named.length).toBeGreaterThan('.tmforge.json'.length);
+    }
   });
 });
 

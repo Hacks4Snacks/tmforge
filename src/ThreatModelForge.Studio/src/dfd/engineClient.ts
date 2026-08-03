@@ -242,6 +242,12 @@ export interface IEngineClient {
   detect(bytes: Uint8Array): Promise<FormatInfo | null>;
   /** Reads a document in any registered format into the canonical tmforge-json model. */
   readFile(bytes: Uint8Array, formatId?: string): Promise<TmForgeModel>;
+  /**
+   * Materializes a declarative authoring manifest into a model. A manifest is a threat model's
+   * reviewable source rather than a model document, so it has no registered format and cannot go
+   * through `readFile`; the engine builds it exactly as the CLI's `apply` verb does.
+   */
+  applyManifest(manifestJson: string): Promise<TmForgeModel>;
   /** Serializes the model to another registered format (for example tm7, drawio, vsdx). */
   convert(model: TmForgeModel, toFormatId: string): Promise<Blob>;
   /** Renders an HTML or SVG report for the model. */
@@ -277,6 +283,37 @@ async function readJson(text: string): Promise<TmForgeModel> {
     throw new Error('Not a tmforge-json document.');
   }
   return parsed;
+}
+
+/** The schema a declarative authoring manifest declares. */
+export const MANIFEST_SCHEMA = 'tmforge-manifest';
+
+/**
+ * Reports whether document text positively declares itself a tmforge authoring manifest — the
+ * reviewable source `tmforge apply` builds a model from. A manifest is not one of the engine's
+ * registered model formats, so `detect` cannot claim it and reading it as a model fails; recognizing
+ * it here lets the caller route it to `applyManifest` instead of reporting an unreadable file.
+ *
+ * Recognition requires the explicit `schema`, mirroring the engine's own recognizer: every field of
+ * a manifest is optional, so accepting an absent envelope would claim any JSON document.
+ */
+export function looksLikeManifest(text: string): boolean {
+  try {
+    return (JSON.parse(text) as { schema?: unknown } | null)?.schema === MANIFEST_SCHEMA;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Normalizes an engine manifest-apply result onto the UI model, turning a refused manifest into a
+ * thrown error carrying the engine's own explanation (which names the offending alias or property).
+ */
+function modelFromApplyResult(dto: components['schemas']['ApplyResultDto'] | undefined): TmForgeModel {
+  if (!dto?.success || !dto.model) {
+    throw new Error(dto?.error ?? 'The manifest could not be applied.');
+  }
+  return toModel(dto.model);
 }
 
 /** Encodes bytes as base64 for the engine's read/detect payloads. */
@@ -636,6 +673,15 @@ class OfflineEngineClient implements IEngineClient {
     return readJson(new TextDecoder().decode(bytes));
   }
 
+  public applyManifest(): Promise<TmForgeModel> {
+    // Building a manifest resolves aliases, derives stable ids, places elements inside their
+    // boundaries, and validates every property against the schema. Re-implementing that here would
+    // be a second engine that disagrees with the real one, so refuse instead.
+    return Promise.reject(
+      new Error('Opening an authoring manifest requires the .NET engine. Start the API (or use the hosted app), then reload.'),
+    );
+  }
+
   public convert(model: TmForgeModel, toFormatId: string): Promise<Blob> {
     if (toFormatId === 'tmforge-json') {
       return writeJson(model).then((text) => new Blob([text], { type: 'application/json' }));
@@ -809,6 +855,16 @@ class HttpEngineClient implements IEngineClient {
     return toModel(data);
   }
 
+  public async applyManifest(manifestJson: string): Promise<TmForgeModel> {
+    const { data, response } = await this.client.POST('/v1/model/manifest', {
+      body: { manifest: manifestJson },
+    });
+    if (!response.ok) {
+      throw new Error(`Engine manifest apply failed (${response.status}).`);
+    }
+    return modelFromApplyResult(data);
+  }
+
   public async convert(model: TmForgeModel, toFormatId: string): Promise<Blob> {
     const { response } = await this.client.POST('/v1/model/convert', {
       params: { query: { to: toFormatId } },
@@ -869,6 +925,7 @@ interface WasmEngineExports {
   Threats(tmforgeJson: string): string;
   Detect(contentBase64: string): string;
   ReadFile(contentBase64: string, formatId: string): string;
+  ApplyManifest(manifestJson: string): string;
   ExportTm7(tmforgeJson: string): string;
   ConvertModel(tmforgeJson: string, toFormatId: string): string;
   Report(tmforgeJson: string, format: string): string;
@@ -963,6 +1020,12 @@ class WasmEngineClient implements IEngineClient {
   public async readFile(bytes: Uint8Array, formatId?: string): Promise<TmForgeModel> {
     const dto = JSON.parse(this.wasm.ReadFile(toBase64(bytes), formatId ?? '')) as components['schemas']['TmForgeModelDto'];
     return toModel(dto);
+  }
+
+  public async applyManifest(manifestJson: string): Promise<TmForgeModel> {
+    return modelFromApplyResult(
+      JSON.parse(this.wasm.ApplyManifest(manifestJson)) as components['schemas']['ApplyResultDto'],
+    );
   }
 
   public async convert(model: TmForgeModel, toFormatId: string): Promise<Blob> {

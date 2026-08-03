@@ -207,6 +207,22 @@ then `tmforge analyze` / `tmforge report` / `tmforge convert` in a pipeline, or 
 > or `.drawio` itself. Use the API's `convert` / `read` endpoints or the CLI for those. Studio
 > speaks `tmforge-json`; the engine handles every other format behind `/v1`.
 
+### Opening an authoring manifest
+
+**Open File** also accepts a declarative [authoring manifest](cli-reference.md#apply) — the
+review-friendly source `tmforge apply` builds a model from. A manifest is not a model document, so it
+has no registered format; Studio recognizes the `"schema": "tmforge-manifest"` declaration and asks
+the engine to build it, exactly as the CLI does. A manifest that will not build is refused with the
+engine's own reason (the unresolved alias, the rejected property value).
+
+The model that opens is **not** bound back to the manifest file. Saving offers a `.tmforge.json` name
+derived from the manifest's, so the reviewable source is never overwritten by the model built from
+it. To change the model, edit the manifest and re-apply, or save the model as its own file.
+
+> A manifest that declares no `schema` (the concise pre-envelope form) is still accepted by
+> `tmforge apply`, but Studio cannot recognize it: every manifest field is optional, so a recognizer
+> that accepted an absent envelope would claim any JSON file. Add the envelope to open it here.
+
 ## Merging edits from two branches
 
 When two people edit the same model on different branches, click **Merge** in the toolbar to
