@@ -56,6 +56,7 @@ connection, not the geometry.
 | Resize a trust boundary | Drag its handles (it's a resizable region). |
 | Tidy the diagram | Click **Tidy** to fit labels, separate overlapping shapes and peer trust boundaries, route flows, and deconflict flow labels. Nested boundaries remain nested, and each boundary moves with its members. |
 | Pan / zoom | Drag the canvas / scroll; use the minimap and **fit** control to navigate. |
+| Step through the flows | `Alt+↓` / `Alt+↑` selects the next / previous flow in the outline's order. |
 | Undo / redo | `Cmd+Z` / `Shift+Cmd+Z` (covers every edit). |
 
 ### Pages
@@ -73,6 +74,39 @@ A model can hold several diagrams. The **page tab strip** below the canvas lets 
 Each page is an independent canvas with its own undo history; the active page and every page's
 contents persist across reloads. Opening a multi-page `.tm7`, `.drawio`, or Visio model (imported via
 the CLI or API into `tmforge-json`) shows each source diagram on its own page.
+
+### Reviewing a large model
+
+A big diagram is drawn wherever the shapes fit, so on the canvas alone there is no reliable reading
+order: trust boundaries sit where they were placed rather than in sequence, and working out which
+flow follows which means tracing lines by eye. Two controls at the top-left of the canvas turn the
+same model into something you can read in order.
+
+**Find element** searches every element and flow across all pages by name or kind. Picking a result
+switches to its page, selects it, and frames it in view.
+
+**Outline** lists the page itself:
+
+| Part | What it gives you |
+| --- | --- |
+| Flows | Every flow, numbered in the review order, with `source -> target` and the trust boundaries it crosses. |
+| Objects | Every process, data store, and external entity grouped under the trust boundary it sits in, with its kind and how many flows touch it — so an unconnected object or an empty boundary is obvious. |
+| Order | **Model order** lists things as the file stores them; **Name order** sorts by name with numbers compared as numbers, so `F2` comes before `F10`. Your choice is remembered. |
+| Boundary-crossing only | Hides the flows that stay inside one boundary. Positions do not renumber, so a flow keeps the same number whether or not the filter is on. |
+
+Click any row to select it on the canvas, frame it, and highlight it the same way a picked finding is
+highlighted. A flow lights up together with both of its endpoints, so what it connects is obvious at
+a glance; clicking empty canvas clears the highlight. The selection runs both ways: selecting
+something on the canvas marks its row in the outline and scrolls the list to it.
+
+The **◂ ▸** stepper (or `Alt+↓` / `Alt+↑` anywhere on the canvas) walks the flows one at a time in
+the listed order, wrapping at either end, so a review can be worked through flow by flow instead of
+hunted for. Each step also opens that flow in the inspector, so its properties are right there while
+you read it.
+
+An object is placed in a boundary by its authored `Boundary` property when it has one, and otherwise
+by the smallest boundary region it sits inside — the same rule **Tidy** uses, so the list and the
+drawing always agree.
 
 ### The inspector
 

@@ -11,6 +11,7 @@ import {
   buildAnalysis,
   applyCanvasEdgeChanges,
   applyFlags,
+  highlightForFocus,
   deleteFromGraph,
   sameIds,
   initialTheme,
@@ -305,6 +306,20 @@ describe('Editor — applyFlags', () => {
     expect(focused.nodes[0].className).toBeUndefined();
     expect(focused.nodes[1].className).toBe('flagged');
     expect(focused.edges[0].className).toBeUndefined();
+  });
+});
+
+describe('Editor — highlightForFocus', () => {
+  it('lights up a flow together with both of its endpoints', () => {
+    expect(highlightForFocus('e1', { source: 'n1', target: 'n2' })).toEqual(new Set(['e1', 'n1', 'n2']));
+  });
+
+  it('lights up an object on its own', () => {
+    expect(highlightForFocus('n1')).toEqual(new Set(['n1']));
+  });
+
+  it('collapses a self-flow to the two ids involved', () => {
+    expect(highlightForFocus('e1', { source: 'n1', target: 'n1' })).toEqual(new Set(['e1', 'n1']));
   });
 });
 
