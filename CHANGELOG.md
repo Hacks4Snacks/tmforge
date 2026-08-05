@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.8.0...v0.9.0) (2026-08-05)
+
+
+### Features
+
+* **authoring:** versioned manifest with pages, geometry, and stable flow identity ([#83](https://github.com/Hacks4Snacks/tmforge/issues/83)) ([e454416](https://github.com/Hacks4Snacks/tmforge/commit/e454416de9242c26d26621f64b17435ee9550ac1))
+* **studio:** add a review outline for large threat models ([#90](https://github.com/Hacks4Snacks/tmforge/issues/90)) ([4cf174b](https://github.com/Hacks4Snacks/tmforge/commit/4cf174ba70151977f568c1a5e5bd2ddf7b87d082))
+
+
+### Bug Fixes
+
+* Studio declarative authoring manifest ([#89](https://github.com/Hacks4Snacks/tmforge/issues/89)) ([77256cf](https://github.com/Hacks4Snacks/tmforge/commit/77256cfd7887d770211bc9e6beb9721bfb734f16))
+
 ## [0.8.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.7.0...v0.8.0) (2026-07-28)
 
 
