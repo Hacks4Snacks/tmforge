@@ -33,6 +33,8 @@ import { FALLBACK_PACKS, FALLBACK_STENCILS } from './stencils';
 import { createHttpEngine, loadWasmEngine, looksLikeManifest, offlineEngine, probeEngine, type AnalysisReportFormat, type Finding, type FormatInfo, type IEngineClient, type PackInfo, type PropertyDescriptorInfo, type RuleBundle, type RuleInfo, type RulePackInfo, type StencilInfo, type Threat } from './engineClient';
 import { ThreatsPanel, type NewThreatDraft, type ThreatEdit, type ThreatScopeOption } from './ThreatsPanel';
 import { CanvasSearch, type SearchItem } from './CanvasSearch';
+import { ModelOutline } from './ModelOutline';
+import { buildOutline, type OutlineOrder } from './outline';
 import { DEFAULT_NODE_SIZE, modelFromPages, pagesFromModel, type PageGraph } from './mapping';
 import { tidyGraph } from './autosize';
 import { cloneGraph, type Clipboard } from './clipboard';
@@ -79,6 +81,16 @@ const GRID_SIZE = 16;
 const PASTE_OFFSET = { x: GRID_SIZE * 2, y: GRID_SIZE * 2 };
 const PACKS_DISABLED_KEY = 'tmforge.studio.disabledPacks.v1';
 const FAVORITES_KEY = 'tmforge.studio.favoriteStencils.v1';
+export const OUTLINE_ORDER_KEY = 'tmforge.studio.outlineOrder.v1';
+
+/** The saved outline order, defaulting to the order the model stores. */
+export function loadOutlineOrder(): OutlineOrder {
+  try {
+    return window.localStorage.getItem(OUTLINE_ORDER_KEY) === 'name' ? 'name' : 'model';
+  } catch {
+    return 'model';
+  }
+}
 
 type Theme = 'light' | 'dark';
 
@@ -337,6 +349,15 @@ export function applyFlags(
 }
 
 /**
+ * The ids to light up when one object or flow is picked (from the outline, or the search box). A
+ * flow highlights with both of its endpoints, so picking it answers what it connects — the same set
+ * a finding about that flow highlights.
+ */
+export function highlightForFocus(id: string, endpoints?: { source: string; target: string }): Set<string> {
+  return endpoints ? new Set([id, endpoints.source, endpoints.target]) : new Set([id]);
+}
+
+/**
  * Applies React Flow edge changes without letting controlled-prop synchronization discard Tidy's
  * geometry. React Flow can emit `replace` copies after an unrelated canvas edit; those copies do
  * not carry Studio-only handles, routes, or label offsets. Preserve that state when the endpoints
@@ -424,6 +445,9 @@ export function Editor() {
   const [ruleCatalogToken, setRuleCatalogToken] = useState(0);
   const [showRules, setShowRules] = useState(false);
   const [showMerge, setShowMerge] = useState(false);
+  const [showOutline, setShowOutline] = useState(false);
+  const [outlineOrder, setOutlineOrder] = useState<OutlineOrder>(loadOutlineOrder);
+  const [outlineCrossingOnly, setOutlineCrossingOnly] = useState(false);
   const analysisActiveRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const fileHandleRef = useRef<WritableFileHandle | null>(null);
@@ -861,6 +885,9 @@ export function Editor() {
   const clipboardActionsRef = useRef({ copy: copySelection, paste: pasteClipboard, duplicate: duplicateSelection });
   clipboardActionsRef.current = { copy: copySelection, paste: pasteClipboard, duplicate: duplicateSelection };
 
+  // Same, for walking the outline's flow order — assigned once the outline has been built below.
+  const stepFlowRef = useRef<(delta: number) => void>(() => {});
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       // Cmd/Ctrl+S saves — even while typing in a field — and never opens the browser's save dialog.
@@ -872,6 +899,17 @@ export function Editor() {
       const target = event.target as HTMLElement | null;
       const tag = target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) {
+        return;
+      }
+      // Alt+Arrow steps through the flows in the outline's order, for reviewing one flow at a time.
+      if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowRight')) {
+        event.preventDefault();
+        stepFlowRef.current(1);
+        return;
+      }
+      if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowLeft')) {
+        event.preventDefault();
+        stepFlowRef.current(-1);
         return;
       }
       if (!(event.metaKey || event.ctrlKey)) {
@@ -1190,6 +1228,9 @@ export function Editor() {
   );
 
   const clearFlags = useCallback(() => {
+    if (flaggedIdsRef.current.size === 0 && !analysisActiveRef.current) {
+      return;
+    }
     setNodes((nds) => nds.map((n) => (n.className ? { ...n, className: undefined } : n)));
     setEdges((eds) => eds.map((e) => (e.className ? { ...e, className: undefined } : e)));
     setFindings([]);
@@ -1390,28 +1431,31 @@ export function Editor() {
     [scopeOptions],
   );
 
-  // Jump to a searched element: switch to its page if needed, select it, and frame it in view.
-  const jumpToSearchItem = useCallback(
-    (item: SearchItem) => {
+  // Selects one element or flow, highlights it on the canvas the way a picked finding is highlighted,
+  // and frames it in view, switching to its page first when it is off-page.
+  const focusOnCanvas = useCallback(
+    (id: string, kind: string, pageId: string) => {
       const focus = () => {
-        if (item.kind === 'flow') {
-          setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)));
-          setEdges((eds) => eds.map((e) => (e.selected !== (e.id === item.id) ? { ...e, selected: e.id === item.id } : e)));
-          setSelection({ nodes: [], edges: [item.id] });
-          const edge = allPages.find((p) => p.id === item.pageId)?.edges.find((e) => e.id === item.id);
-          const ends = [edge?.source, edge?.target].filter((id): id is string => Boolean(id)).map((id) => ({ id }));
-          if (ends.length > 0) {
-            fitView({ nodes: ends, padding: 0.5, duration: 400, maxZoom: 1.4 });
-          }
-        } else {
-          setEdges((eds) => eds.map((e) => (e.selected ? { ...e, selected: false } : e)));
-          setNodes((nds) => nds.map((n) => (n.selected !== (n.id === item.id) ? { ...n, selected: n.id === item.id } : n)));
-          setSelection({ nodes: [item.id], edges: [] });
-          fitView({ nodes: [{ id: item.id }], padding: 0.6, duration: 400, maxZoom: 1.4 });
+        const isFlow = kind === 'flow';
+        const edge = isFlow ? allPages.find((p) => p.id === pageId)?.edges.find((e) => e.id === id) : undefined;
+        const highlight = highlightForFocus(id, edge ? { source: edge.source, target: edge.target } : undefined);
+        flaggedIdsRef.current = highlight;
+        setNodes((nds) =>
+          nds.map((n) => ({ ...n, selected: !isFlow && n.id === id, className: highlight.has(n.id) ? 'flagged' : undefined })),
+        );
+        setEdges((eds) =>
+          eds.map((e) => ({ ...e, selected: isFlow && e.id === id, className: highlight.has(e.id) ? 'flagged' : undefined })),
+        );
+        setSelection(isFlow ? { nodes: [], edges: [id] } : { nodes: [id], edges: [] });
+        const framed = isFlow
+          ? [edge?.source, edge?.target].filter((end): end is string => Boolean(end)).map((end) => ({ id: end }))
+          : [{ id }];
+        if (framed.length > 0) {
+          fitView({ nodes: framed, padding: isFlow ? 0.5 : 0.6, duration: 400, maxZoom: 1.4 });
         }
       };
-      if (item.pageId !== activePageId) {
-        switchPage(item.pageId);
+      if (pageId !== activePageId) {
+        switchPage(pageId);
         window.setTimeout(focus, 80);
       } else {
         focus();
@@ -1419,6 +1463,43 @@ export function Editor() {
     },
     [allPages, activePageId, switchPage, setNodes, setEdges, fitView],
   );
+
+  // Jump to a searched element: switch to its page if needed, select it, and frame it in view.
+  const jumpToSearchItem = useCallback(
+    (item: SearchItem) => focusOnCanvas(item.id, item.kind, item.pageId),
+    [focusOnCanvas],
+  );
+
+  // The active page indexed for review: flows in an explicit order, objects grouped by boundary.
+  const outline = useMemo(() => buildOutline(nodes, edges, outlineOrder), [nodes, edges, outlineOrder]);
+  const outlineFlows = useMemo(
+    () => (outlineCrossingOnly ? outline.flows.filter((flow) => flow.crossings.length > 0) : outline.flows),
+    [outline, outlineCrossingOnly],
+  );
+
+  const chooseOutlineOrder = useCallback((order: OutlineOrder) => {
+    setOutlineOrder(order);
+    try {
+      window.localStorage.setItem(OUTLINE_ORDER_KEY, order);
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
+
+  // Walks the listed flows one at a time, wrapping at either end, so a review can be worked through
+  // in order. Stepping from nothing selected starts at the first flow (or the last, going backwards).
+  const stepFlow = useCallback(
+    (delta: number) => {
+      if (outlineFlows.length === 0) {
+        return;
+      }
+      const current = outlineFlows.findIndex((flow) => flow.id === selection.edges[0]);
+      const next = current < 0 ? (delta > 0 ? 0 : outlineFlows.length - 1) : (current + delta + outlineFlows.length) % outlineFlows.length;
+      focusOnCanvas(outlineFlows[next].id, 'flow', activePageId);
+    },
+    [outlineFlows, selection.edges, focusOnCanvas, activePageId],
+  );
+  stepFlowRef.current = stepFlow;
 
   const exportAs = useCallback(
     async (formatId: string) => {
@@ -1675,7 +1756,7 @@ export function Editor() {
             onNodeDragStart={takeSnapshot}
             onBeforeDelete={beforeDelete}
             onSelectionChange={onSelectionChange}
-            onPaneClick={findings.length || threats.length ? clearFlags : undefined}
+            onPaneClick={clearFlags}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             defaultEdgeOptions={defaultEdgeOptions}
@@ -1703,7 +1784,37 @@ export function Editor() {
             />
             <Controls />
             <Panel position="top-left">
-              <CanvasSearch items={searchItems} onJump={jumpToSearchItem} />
+              <div className="outline-panel">
+                <CanvasSearch items={searchItems} onJump={jumpToSearchItem} />
+                <button
+                  type="button"
+                  className="val-panel-toggle"
+                  onClick={() => setShowOutline((v) => !v)}
+                  aria-expanded={showOutline}
+                  title="List this page's flows in order and its objects by trust boundary"
+                >
+                  <span className={`val-caret${showOutline ? ' open' : ''}`} aria-hidden>
+                    ▸
+                  </span>
+                  Outline
+                  <span className="val-off-count">{outline.flows.length} flows</span>
+                </button>
+                {showOutline && (
+                  <ModelOutline
+                    outline={outline}
+                    flows={outlineFlows}
+                    order={outlineOrder}
+                    onOrderChange={chooseOutlineOrder}
+                    crossingOnly={outlineCrossingOnly}
+                    onCrossingOnlyChange={setOutlineCrossingOnly}
+                    selectedFlowId={selection.edges[0] ?? null}
+                    selectedObjectId={selection.nodes[0] ?? null}
+                    onSelectFlow={(id) => focusOnCanvas(id, 'flow', activePageId)}
+                    onSelectObject={(id) => focusOnCanvas(id, 'object', activePageId)}
+                    onStep={stepFlow}
+                  />
+                )}
+              </div>
             </Panel>
             <Panel position="top-right">
                 <div className="val-panel">

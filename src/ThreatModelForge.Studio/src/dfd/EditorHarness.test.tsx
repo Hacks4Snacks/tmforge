@@ -325,6 +325,69 @@ describe('Editor — editing a selection', () => {
   });
 });
 
+describe('Editor — the outline highlights what it picks', () => {
+  /** Opens the review outline panel. */
+  function openOutline(): void {
+    fireEvent.click(screen.getByRole('button', { name: /^Outline/ }));
+  }
+
+  /** The outline row carrying the given label (the canvas shows the same names). */
+  function outlineRow(label: string): HTMLElement {
+    const panel = document.querySelector('.outline') as HTMLElement;
+    return within(panel).getByText(label).closest('button') as HTMLElement;
+  }
+
+  it('lights up a picked flow with both of its endpoints, the way a finding does', async () => {
+    await mountEditor(chain());
+    openOutline();
+
+    fireEvent.click(outlineRow('a to b'));
+
+    await waitFor(() => expect(nodeEl('a')).toHaveClass('flagged'));
+    expect(nodeEl('b')).toHaveClass('flagged');
+    expect(nodeEl('c')).not.toHaveClass('flagged');
+  });
+
+  it('lights up a picked object on its own, replacing the previous highlight', async () => {
+    await mountEditor(chain());
+    openOutline();
+
+    fireEvent.click(outlineRow('a to b'));
+    await waitFor(() => expect(nodeEl('a')).toHaveClass('flagged'));
+
+    fireEvent.click(outlineRow('Charlie'));
+
+    await waitFor(() => expect(nodeEl('c')).toHaveClass('flagged'));
+    expect(nodeEl('a')).not.toHaveClass('flagged');
+    expect(nodeEl('b')).not.toHaveClass('flagged');
+  });
+
+  it('marks the picked row so the list and the canvas agree', async () => {
+    await mountEditor(chain());
+    openOutline();
+
+    fireEvent.click(outlineRow('Bravo'));
+
+    await waitFor(() => expect(outlineRow('Bravo')).toHaveClass('selected'));
+    expect(outlineRow('Charlie')).not.toHaveClass('selected');
+  });
+
+  it('steps to the next flow and moves the highlight with it', async () => {
+    await mountEditor(chain());
+    openOutline();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next flow' }));
+    await waitFor(() => expect(nodeEl('a')).toHaveClass('flagged'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next flow' }));
+
+    // Flow 2 is b -> c, so the highlight leaves 'a' behind.
+    await waitFor(() => expect(nodeEl('c')).toHaveClass('flagged'));
+    expect(nodeEl('b')).toHaveClass('flagged');
+    expect(nodeEl('a')).not.toHaveClass('flagged');
+  });
+});
+
 describe('Editor — undo history', () => {
   it('charges one step per edit and redoes what it undid', async () => {
     await mountEditor(chain());

@@ -605,7 +605,7 @@ const BOUNDARY_PAD = 20;
 /** Iteration cap for overlap relaxation — diagrams are small, so this converges well before it. */
 const SEPARATE_ITERS = 100;
 
-interface Rect {
+export interface Rect {
   x: number;
   y: number;
   w: number;
@@ -613,7 +613,7 @@ interface Rect {
 }
 
 /** The bounding rectangle of a node, from its position and (possibly stringified) size. */
-function rectOf(n: DfdNode): Rect {
+export function rectOf(n: DfdNode): Rect {
   const fallback = DEFAULT_NODE_SIZE[(n.type as DfdKind) ?? 'process'] ?? DEFAULT_NODE_SIZE.process;
   return {
     x: n.position.x,
@@ -632,7 +632,7 @@ function containsRect(outer: Rect, inner: Rect): boolean {
 }
 
 /** Resolves a model Boundary reference against a boundary's id, alias, or label. */
-function resolveBoundary(boundaries: DfdNode[], reference: string | undefined): DfdNode | undefined {
+export function resolveBoundary(boundaries: DfdNode[], reference: string | undefined): DfdNode | undefined {
   const expected = reference?.trim().toLowerCase();
   if (!expected) {
     return undefined;
@@ -646,7 +646,7 @@ function resolveBoundary(boundaries: DfdNode[], reference: string | undefined): 
 }
 
 /** Returns an element's explicit Boundary property, when one was authored. */
-function declaredBoundary(node: DfdNode): string | undefined {
+export function declaredBoundary(node: DfdNode): string | undefined {
   const reference = node.data.properties?.Boundary;
   return typeof reference === 'string' ? reference : undefined;
 }

@@ -480,6 +480,276 @@
   color: rgba(255, 255, 255, 0.85);
 }
 
+/* Review outline (top-left, under the search box): the page's flows in order and its objects by boundary. */
+.outline-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.outline {
+  width: 300px;
+  max-height: min(62vh, 560px);
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 32px var(--shadow);
+}
+
+.outline-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.outline-order {
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.outline-filter {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.outline-section + .outline-section {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.outline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 4px;
+}
+
+.outline-head-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.outline-count {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--surface-3);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.outline-step {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.outline-step button {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.outline-step button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.outline-step button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.outline-step-count {
+  min-width: 42px;
+  text-align: center;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.outline-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.outline-row {
+  font: inherit;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 5px 6px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--ink);
+  background: transparent;
+}
+
+.outline-row:hover {
+  background: var(--surface-3);
+}
+
+.outline-row.selected {
+  background: var(--accent);
+  color: #fff;
+}
+
+.outline-row.selected .outline-meta,
+.outline-row.selected .outline-crossing {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.outline-row.selected .outline-pos {
+  color: var(--accent);
+  background: #fff;
+}
+
+.outline-pos {
+  flex: none;
+  min-width: 20px;
+  margin-top: 1px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  background: var(--surface-3);
+  border-radius: 999px;
+  padding: 2px 4px;
+}
+
+.outline-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 3px;
+  background: var(--muted);
+}
+
+.outline-dot.kind-process {
+  border-radius: 999px;
+  background: var(--process);
+}
+
+.outline-dot.kind-datastore {
+  background: var(--datastore);
+}
+
+.outline-dot.kind-external {
+  background: var(--external);
+}
+
+.outline-dot.kind-boundary {
+  background: transparent;
+  border: 1px dashed var(--boundary);
+}
+
+.outline-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.outline-name {
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.outline-meta {
+  font-size: 11px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.outline-crossing {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+.outline-group + .outline-group {
+  margin-top: 6px;
+}
+
+.outline-group-head {
+  font: inherit;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--ink);
+  background: transparent;
+}
+
+.outline-group-head:disabled {
+  cursor: default;
+}
+
+.outline-group-head:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.outline-group-head.selected {
+  background: var(--surface-3);
+}
+
+.outline-group-head .outline-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.outline-group .outline-list {
+  padding-left: 14px;
+}
+
+.outline-empty {
+  margin: 2px 0 2px 20px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .val-caret {
   display: inline-block;
   transition: transform 0.15s;
@@ -954,6 +1224,16 @@
   padding: 1px 7px;
   border-radius: 6px;
   cursor: move;
+}
+
+/* A boundary picked from the outline gets the same amber highlight as a flagged shape. */
+.react-flow__node.flagged .dfd-boundary {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.react-flow__node.flagged .dfd-boundary-label {
+  color: #f59e0b;
 }
 
 .dfd-resize-handle {
