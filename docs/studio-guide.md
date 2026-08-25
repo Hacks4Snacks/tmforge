@@ -54,7 +54,7 @@ connection, not the geometry.
 | Select several objects | Hold `Cmd` (`Ctrl` on Windows/Linux) and click, or drag a selection box with `Shift`. |
 | Delete the selection | `Delete` key. Deleting an element takes its flows with it, and the whole deletion is a single undo step. |
 | Resize a trust boundary | Drag its handles (it's a resizable region). |
-| Tidy the diagram | Click **Tidy** to fit labels, separate overlapping shapes and peer trust boundaries, route flows, and deconflict flow labels. Nested boundaries remain nested, and each boundary moves with its members. |
+| Tidy the diagram | Click **Tidy** to fit labels, separate overlapping shapes and peer trust boundaries, route flows, and deconflict flow labels. Each boundary also keeps a clear strip at its top so nothing covers its own name. Nested boundaries remain nested, and each boundary moves with its members. |
 | Pan / zoom | Drag the canvas / scroll; use the minimap and **fit** control to navigate. |
 | Step through the flows | `Alt+↓` / `Alt+↑` selects the next / previous flow in the outline's order. |
 | Undo / redo | `Cmd+Z` / `Shift+Cmd+Z` (covers every edit). |
