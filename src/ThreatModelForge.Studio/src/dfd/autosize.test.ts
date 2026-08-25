@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
+  boundaryTitleRect,
   deconflictEdgeLabels,
+  edgeLabelBox,
+  findBoundaryTitleOverlaps,
   findEdgeLabelObjectOverlaps,
   fitNodeSize,
   resizeNodesToFit,
@@ -61,6 +64,41 @@ describe('fitNodeSize', () => {
 
   it('does not resize a trust boundary', () => {
     expect(fitNodeSize('boundary', 'Control-plane node')).toEqual(DEFAULT_NODE_SIZE.boundary);
+  });
+});
+
+describe('boundaryTitleRect', () => {
+  it('pins the title inside the region top-left corner', () => {
+    const title = boundaryTitleRect({ x: 100, y: 50, w: 300, h: 200 }, 'TB1');
+    expect(title.x).toBe(112);
+    expect(title.y).toBe(58);
+    expect(title.h).toBe(17); // one 15px line plus the pill's padding
+  });
+
+  it('reaches further down a narrow region because the name wraps', () => {
+    const wide = boundaryTitleRect({ x: 0, y: 0, w: 400, h: 200 }, 'Undercloud Kubernetes cluster');
+    const narrow = boundaryTitleRect({ x: 0, y: 0, w: 130, h: 200 }, 'Undercloud Kubernetes cluster');
+    expect(narrow.h).toBeGreaterThan(wide.h);
+    // The pill never runs past the region it is drawn in.
+    expect(narrow.x + narrow.w).toBeLessThanOrEqual(130);
+  });
+
+  it('fills the remaining width once the name wraps, matching how the pill is laid out', () => {
+    const long = 'Ironic pod network namespace (dual-homed) [network namespace]';
+    const title = boundaryTitleRect({ x: 0, y: 0, w: 300, h: 400 }, long);
+    expect(title.h).toBeGreaterThan(17); // it wraps...
+    expect(title.w).toBe(300 - 14); // ...so it is laid out at the full remaining width
+    // A name that fits on one line only takes the width it needs.
+    expect(boundaryTitleRect({ x: 0, y: 0, w: 300, h: 400 }, 'TB5').w).toBeLessThan(80);
+  });
+});
+
+describe('edgeLabelBox', () => {
+  it('is laid out at the pill clamp once the text wraps, not at its longest wrapped line', () => {
+    const long = edgeLabelBox('F16: Fetch OS image over the PXE network and verify its checksum');
+    expect(long.h).toBeGreaterThan(24); // it wraps...
+    expect(long.w).toBe(240); // ...so it renders at `.edge-label`'s max-width
+    expect(edgeLabelBox('sync').w).toBeLessThan(80);
   });
 });
 
@@ -229,6 +267,51 @@ describe('separateNodes', () => {
       expect(member.position.x + member.width!).toBeLessThanOrEqual(boundary.position.x + boundary.width!);
       expect(member.position.y + member.height!).toBeLessThanOrEqual(boundary.position.y + boundary.height!);
     }
+  });
+
+  it('opens a strip at the top of a boundary so its own title is not covered', () => {
+    const boundary = node('tb', 'boundary', 'Undercloud Kubernetes cluster', 0, 0, 300, 200);
+    const member = node('m', 'datastore', 'Secret', 20, 10, 120, 64);
+    expect(findBoundaryTitleOverlaps([boundary, member])).toEqual([{ boundaryId: 'tb', nodeId: 'm' }]);
+
+    const out = separateNodes([boundary, member]);
+    const movedBoundary = out.find((n) => n.id === 'tb')!;
+    const movedMember = out.find((n) => n.id === 'm')!;
+
+    expect(findBoundaryTitleOverlaps(out)).toEqual([]);
+    // The region grew upwards; the author's shape did not move.
+    expect(movedBoundary.position.y).toBeLessThan(boundary.position.y);
+    expect(movedMember.position).toEqual(member.position);
+    expect(movedMember.position.y + movedMember.height!).toBeLessThanOrEqual(
+      movedBoundary.position.y + movedBoundary.height!,
+    );
+  });
+
+  it('does not reserve a title strip a boundary already has', () => {
+    const boundary = node('tb', 'boundary', 'Undercloud Kubernetes cluster', 0, 0, 300, 200);
+    const member = node('m', 'datastore', 'Secret', 20, 100, 120, 64);
+    expect(findBoundaryTitleOverlaps([boundary, member])).toEqual([]);
+    expect(separateNodes([boundary, member]).find((n) => n.id === 'tb')).toBe(boundary);
+  });
+
+  it('reserves the same strip on a second run', () => {
+    const nodes = [
+      node('tb', 'boundary', 'Undercloud Kubernetes cluster', 0, 0, 300, 200),
+      node('m', 'datastore', 'Secret', 20, 10, 120, 64),
+    ];
+    const once = separateNodes(nodes);
+    const twice = separateNodes(once);
+    expect(twice.find((n) => n.id === 'tb')).toBe(once.find((n) => n.id === 'tb'));
+  });
+
+  it('clears a nested region out of its parent title', () => {
+    const outer = node('outer', 'boundary', 'Outer region', 0, 0, 600, 500);
+    const inner = node('inner', 'boundary', 'Inner', 40, 5, 200, 150);
+    expect(findBoundaryTitleOverlaps([outer, inner])).toEqual([{ boundaryId: 'outer', nodeId: 'inner' }]);
+
+    const out = separateNodes([outer, inner]);
+    expect(findBoundaryTitleOverlaps(out)).toEqual([]);
+    expect(out.find((n) => n.id === 'inner')!.position).toEqual(inner.position);
   });
 });
 
@@ -407,5 +490,20 @@ describe('tidyGraph', () => {
     expect(out.edges.some((e) => (e.data?.labelOffset?.y ?? 0) !== 0)).toBe(true);
     // Every component-to-component flow is routed through a pair of facing ports.
     expect(out.edges.every((e) => Boolean(e.sourceHandle) && Boolean(e.targetHandle))).toBe(true);
+  });
+
+  it('clears both shapes and flow labels off every trust-boundary title', () => {
+    const nodes: DfdNode[] = [
+      node('tb', 'boundary', 'Undercloud Kubernetes cluster (nc-system namespace)', 0, 0, 320, 400),
+      node('a', 'process', 'IPA host-image reverse proxy', 24, 12, 140, 132),
+      node('b', 'datastore', 'ironic-api TLS certificate', 24, 240, 160, 80),
+    ];
+    const edges = [edge('req', 'a', 'b')];
+    expect(findBoundaryTitleOverlaps(nodes).length).toBeGreaterThan(0);
+
+    const out = tidyGraph(nodes, edges, 'exact');
+
+    expect(findBoundaryTitleOverlaps(out.nodes)).toEqual([]);
+    expect(findEdgeLabelObjectOverlaps(out.nodes, out.edges)).toEqual([]);
   });
 });

@@ -116,8 +116,40 @@ export function edgeLabelWidth(text: string): number {
   return text.length * 6;
 }
 
+/** Boundary-title font — mirrors `.dfd-boundary-label` (12px / 700). */
+const BOUNDARY_LABEL_FONT =
+  "700 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+
+let boundaryMeasureCtx: CanvasRenderingContext2D | null | undefined;
+
+/** A cached 2D context for boundary-title measurement at 12px, or null where canvas is unavailable. */
+function boundaryContext(): CanvasRenderingContext2D | null {
+  if (boundaryMeasureCtx === undefined) {
+    try {
+      boundaryMeasureCtx = document.createElement('canvas').getContext('2d') ?? null;
+      if (boundaryMeasureCtx) {
+        boundaryMeasureCtx.font = BOUNDARY_LABEL_FONT;
+      }
+    } catch {
+      boundaryMeasureCtx = null;
+    }
+  }
+  return boundaryMeasureCtx;
+}
+
+/** Width (px) of one line of a trust-boundary title. Falls back to a per-character estimate. */
+export function boundaryLabelWidth(text: string): number {
+  const ctx = boundaryContext();
+  if (ctx) {
+    return ctx.measureText(text).width;
+  }
+  // ≈6.6px average glyph advance for 12px/700 in the system stack — deterministic for tests.
+  return text.length * 6.6;
+}
+
 /** Greedy word-wrap to a target pixel width; a single word wider than the target is hard-broken. */
-export function wrapLabel(label: string, maxWidth: number): string[] {
+/** Greedy word-wrap of `label` to `maxWidth`, measured with the caller's font-specific measurer. */
+function wrapWords(label: string, maxWidth: number, measure: (text: string) => number): string[] {
   const words = label.split(/\s+/).filter(Boolean);
   if (words.length === 0) {
     return [''];
@@ -126,7 +158,7 @@ export function wrapLabel(label: string, maxWidth: number): string[] {
   let line = '';
   for (const word of words) {
     const candidate = line ? `${line} ${word}` : word;
-    if (line && textWidth(candidate) > maxWidth) {
+    if (line && measure(candidate) > maxWidth) {
       lines.push(line);
       line = word;
     } else {
@@ -136,6 +168,11 @@ export function wrapLabel(label: string, maxWidth: number): string[] {
   if (line) {
     lines.push(line);
   }
+  return lines;
+}
+
+export function wrapLabel(label: string, maxWidth: number): string[] {
+  const lines = wrapWords(label, maxWidth, textWidth);
   // Hard-break any line still made of a single over-long token (for example, EncryptionConfiguration).
   return lines.flatMap((l) => (!l.includes(' ') && textWidth(l) > maxWidth ? hardBreak(l, maxWidth) : l));
 }
@@ -292,6 +329,8 @@ export function routeEdges(nodes: DfdNode[], edges: DfdEdge[]): DfdEdge[] {
 
 /** Text width (px) a long flow label wraps at, so verbose descriptions form a compact multi-line pill. */
 const EDGE_WRAP_TARGET = 224;
+/** `.edge-label`'s max-width — a pill whose text wraps is laid out at exactly this width. */
+const EDGE_MAX_WIDTH = 240;
 /** Rendered height (px) of one wrapped line of an 11px/600 flow label (line-height 1.25). */
 const EDGE_LINE_H = 14;
 /** Horizontal padding (px) added to a label's measured text to get the width of its pill. */
@@ -302,10 +341,37 @@ const LABEL_PAD_Y = 5;
 const LABEL_GAP = 6;
 /** Iteration cap for the label-overlap relaxation — small diagrams converge well before it. */
 const LABEL_ITERS = 60;
-/** Height (px) reserved for the title strip at the top of a trust boundary. */
-const BOUNDARY_TITLE_H = 28;
-/** Horizontal padding (px) around a trust-boundary title. */
-const BOUNDARY_TITLE_PAD_X = 17;
+
+/**
+ * Geometry of `.dfd-boundary-label`: the title pill is pinned inside the region's top-left corner
+ * (2px border + the 10px/6px offsets) and wraps within the width that leaves, at 12px/700 over a
+ * 15px line box with 7px/1px padding.
+ */
+const BOUNDARY_TITLE_LEFT = 12;
+const BOUNDARY_TITLE_TOP = 8;
+const BOUNDARY_TITLE_PAD_X = 7;
+const BOUNDARY_TITLE_PAD_Y = 1;
+const BOUNDARY_TITLE_LINE_H = 15;
+/** Clear space (px) kept between a boundary's title and the nearest shape below it. */
+const BOUNDARY_TITLE_GAP = 10;
+
+/**
+ * The on-canvas rectangle a trust boundary's title occupies. The title wraps within the region, so a
+ * long name takes several lines and reaches further down into it — which is why a shape parked at the
+ * top of a boundary ends up covering the boundary's own name.
+ */
+export function boundaryTitleRect(region: Rect, label: string): Rect {
+  const available = Math.max(1, region.w - BOUNDARY_TITLE_LEFT - 2);
+  const content = Math.max(1, available - BOUNDARY_TITLE_PAD_X * 2);
+  const lines = wrapWords(label || ' ', content, boundaryLabelWidth);
+  return {
+    x: region.x + BOUNDARY_TITLE_LEFT,
+    y: region.y + BOUNDARY_TITLE_TOP,
+    // Shrink-to-fit: the pill takes its one-line width, or the whole remaining width once it wraps.
+    w: Math.min(available, Math.ceil(boundaryLabelWidth(label)) + BOUNDARY_TITLE_PAD_X * 2),
+    h: lines.length * BOUNDARY_TITLE_LINE_H + BOUNDARY_TITLE_PAD_Y * 2,
+  };
+}
 
 /** A movable flow label as a box centred on its anchor and shifted to clear overlaps. */
 interface LabelBox {
@@ -342,33 +408,16 @@ function axisOverlap(aStart: number, aLen: number, bStart: number, bLen: number)
 
 /** Greedy word-wrap of a flow label at the edge font, matching the wrapping `.edge-label` renders. */
 function wrapEdgeLabel(label: string, maxWidth: number): string[] {
-  const words = label.split(/\s+/).filter(Boolean);
-  if (words.length === 0) {
-    return [''];
-  }
-  const lines: string[] = [];
-  let line = '';
-  for (const word of words) {
-    const candidate = line ? `${line} ${word}` : word;
-    if (line && edgeLabelWidth(candidate) > maxWidth) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = candidate;
-    }
-  }
-  if (line) {
-    lines.push(line);
-  }
-  return lines;
+  return wrapWords(label, maxWidth, edgeLabelWidth);
 }
 
 /** The on-canvas pill size of a flow label once wrapped, used to detect and clear label overlaps. */
-function edgeLabelBox(text: string): { w: number; h: number } {
+export function edgeLabelBox(text: string): { w: number; h: number } {
   const lines = wrapEdgeLabel(text, EDGE_WRAP_TARGET);
-  const longest = Math.max(1, ...lines.map(edgeLabelWidth));
   return {
-    w: Math.ceil(Math.min(longest, EDGE_WRAP_TARGET)) + LABEL_PAD_X * 2,
+    // Shrink-to-fit, as CSS lays the pill out: its one-line width, clamped to `.edge-label`'s
+    // max-width. A wrapped pill therefore renders at the clamp, not at its longest wrapped line.
+    w: Math.min(EDGE_MAX_WIDTH, Math.ceil(edgeLabelWidth(text)) + LABEL_PAD_X * 2),
     h: lines.length * EDGE_LINE_H + LABEL_PAD_Y * 2,
   };
 }
@@ -384,13 +433,7 @@ function labelObstacles(nodes: DfdNode[]): LabelObstacle[] {
       return { id: node.id, ...rect };
     }
     const label = typeof node.data.label === 'string' ? node.data.label : '';
-    return {
-      id: `title:${node.id}`,
-      x: rect.x,
-      y: rect.y,
-      w: Math.min(rect.w, Math.max(72, Math.ceil(textWidth(label)) + BOUNDARY_TITLE_PAD_X * 2)),
-      h: BOUNDARY_TITLE_H,
-    };
+    return { id: `title:${node.id}`, ...boundaryTitleRect(rect, label) };
   });
 }
 
@@ -596,6 +639,31 @@ export function findEdgeLabelObjectOverlaps(
   return overlaps;
 }
 
+/**
+ * Returns every shape or nested region that covers a trust boundary's title. Tidy clears these, so a
+ * non-empty result after a tidy is a regression.
+ */
+export function findBoundaryTitleOverlaps(nodes: DfdNode[]): { boundaryId: string; nodeId: string }[] {
+  const boundaries = nodes.filter((n) => n.type === 'boundary');
+  const overlaps: { boundaryId: string; nodeId: string }[] = [];
+  for (const boundary of boundaries) {
+    const region = rectOf(boundary);
+    const label = typeof boundary.data.label === 'string' ? boundary.data.label : '';
+    const title = boundaryTitleRect(region, label);
+    for (const node of nodes) {
+      const rect = rectOf(node);
+      // An enclosing region necessarily overlaps the titles of the regions nested inside it.
+      if (node.id === boundary.id || containsRect(rect, region)) {
+        continue;
+      }
+      if (rectsOverlap(rect, title)) {
+        overlaps.push({ boundaryId: boundary.id, nodeId: node.id });
+      }
+    }
+  }
+  return overlaps;
+}
+
 /** Desired minimum gap (px) kept between component nodes when they are pushed apart. */
 const NODE_GAP = 24;
 /** Desired minimum gap (px) inserted when overlapping peer trust boundaries are separated. */
@@ -661,6 +729,9 @@ export function declaredBoundary(node: DfdNode): string | undefined {
 export function separateNodes(nodes: DfdNode[]): DfdNode[] {
   const boundaries = nodes.filter((n) => n.type === 'boundary');
   const components = nodes.filter((n) => n.type !== 'boundary');
+  const labelOf = new Map(
+    boundaries.map((b) => [b.id, typeof b.data.label === 'string' ? b.data.label : ''] as const),
+  );
 
   // Mutable working rectangles for the components, keyed by id.
   const pos = new Map<string, Rect>();
@@ -861,6 +932,22 @@ export function separateNodes(nodes: DfdNode[]): DfdNode[] {
       maxX = Math.max(maxX, child.x + child.w + BOUNDARY_PAD);
       maxY = Math.max(maxY, child.y + child.h + BOUNDARY_PAD);
     }
+
+    // Reserve the title strip. A boundary's name is pinned inside its own top-left corner and wraps
+    // across the region, so anything parked at the top covers it. Open the strip by growing the
+    // region upwards rather than by moving shapes, which keeps the author's arrangement intact.
+    const title = boundaryTitleRect({ x: minX, y: minY, w: maxX - minX, h: maxY - minY }, labelOf.get(id) ?? '');
+    const clearance = BOUNDARY_TITLE_TOP + title.h + BOUNDARY_TITLE_GAP;
+    const beneath = [
+      ...(membersOf.get(id) ?? []).map((memberId) => pos.get(memberId)!),
+      ...children.map((childId) => boundaryPos.get(childId)!),
+    ];
+    for (const item of beneath) {
+      if (axisOverlap(item.x, item.w, title.x, title.w) > 0) {
+        minY = Math.min(minY, item.y - clearance);
+      }
+    }
+
     boundary.x = minX;
     boundary.y = minY;
     boundary.w = maxX - minX;
