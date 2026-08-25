@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.9.0...v0.10.0) (2026-08-25)
+
+
+### Features
+
+* deconflict trust boundary names ([#96](https://github.com/Hacks4Snacks/tmforge/issues/96)) ([cda6b21](https://github.com/Hacks4Snacks/tmforge/commit/cda6b21d686802e1664c9a7fab67602041bd0707))
+
 ## [0.9.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.8.0...v0.9.0) (2026-08-05)
 
 
