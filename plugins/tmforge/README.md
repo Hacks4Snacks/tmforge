@@ -16,7 +16,8 @@ analysis ledger rather than maintaining independent prose and diagrams.
 The package uses **Agent Plugins 1.0**: skills live in the standard skills directory,
 and the agent lives in the Copilot client namespace. Other compatible clients can
 use the skills without loading the Copilot-specific agent. There are no hooks,
-bundled MCP servers, installation scripts, or copied CLI binaries.
+bundled MCP servers, or copied CLI binaries. A small managed launcher can download
+the correct binary after approval when a `.tm7` workflow first needs it.
 
 ## Prerequisites
 
@@ -25,13 +26,61 @@ bundled MCP servers, installation scripts, or copied CLI binaries.
   the standard library; no Python packages need to be installed.
 - Git for automatic analyzed-worktree discovery. An explicit `--root` also supports
   a directory that is not a Git repository.
-- **tmforge on `PATH` for `.tm7` workflows**, or an explicitly supplied executable
-  or wrapper. Install the CLI separately using the
+- **tmforge for `.tm7` workflows**: use the managed launcher below or an explicitly
+  supplied executable or wrapper. No separate .NET runtime is required by the
+  self-contained release binary. Manual installation is also available through the
   [tmforge installation guide](https://github.com/Hacks4Snacks/tmforge/blob/main/docs/installation.md).
-  Markdown-only analysis does **not** require tmforge or .NET.
+  Markdown-only analysis does **not** require tmforge or a binary download.
 
 Missing tmforge blocks only operations that require it; it must not be reported as
-a successfully validated diagram. The plugin does not install dependencies itself.
+a successfully validated diagram. Installing the plugin does not itself download
+or execute the CLI; binary provisioning is an explicit, approved first-use step.
+
+## Managed CLI binary
+
+The [launcher](skills/threat-modeling-tmforge/scripts/tmforge.py) uses only Python's
+standard library. It selects Linux (glibc), macOS, or Windows on x64 or arm64 and
+downloads the **same version as the installed plugin**, never `latest`.
+
+From a source checkout, inspect the cache, approve the download, and then run the CLI:
+
+```bash
+python3 plugins/tmforge/skills/threat-modeling-tmforge/scripts/tmforge.py --status
+# Run only after approving this version's download:
+python3 plugins/tmforge/skills/threat-modeling-tmforge/scripts/tmforge.py --install
+python3 plugins/tmforge/skills/threat-modeling-tmforge/scripts/tmforge.py -- --version
+```
+
+For an installed plugin, use the launcher's discovered absolute path. On Windows,
+use the available Python 3.10+ interpreter (often `python` rather than `python3`).
+Strider follows this sequence when `.tm7` work is requested. `--status` and normal
+CLI invocations never make download requests; a missing or invalid cache entry
+produces an installation hint instead.
+
+Release metadata supplies the expected archive name, size, and SHA-256 checksum.
+The launcher validates them before extracting only the expected regular executable.
+A local receipt records the binary hash and is checked before reuse. This detects
+corruption; it is not independent code signing or protection against an attacker
+who controls the user's account and can replace both the binary and receipt.
+
+The versioned cache is outside the plugin and reviewed repository:
+
+- macOS: the user's Library/Caches/tmforge/copilot directory.
+- Windows: tmforge/copilot under `LOCALAPPDATA`.
+- Linux: tmforge/copilot under `XDG_CACHE_HOME`, or the user's default cache directory.
+
+Use `--cache-dir` to override it, before the `--` separator. A verified cached binary
+works offline; a new plugin version needs a new approved download. There are no
+global `PATH` changes, administrator privileges, or Python-package installations.
+For restricted hosts, supply an existing approved CLI instead.
+
+When running validators directly, pass the complete launcher command with their
+`--tmforge` option, for example:
+
+```bash
+python3 /path/to/core-skill/scripts/validate_package.py /path/to/model-package \
+  --tmforge 'python3 "/path/to/tmforge-skill/scripts/tmforge.py" --'
+```
 
 ## Try the local development copy
 
@@ -117,6 +166,10 @@ integrity. They cannot prove that cited evidence is true or replace human review
   and accepting residual risk require explicit user direction.
 - Validators run locally. There is no separate plugin telemetry or upload service;
   evidence included in a Copilot conversation follows that client's data policies.
+- Approved binary provisioning makes HTTPS requests to the public tmforge GitHub
+  release and asset hosts. It does not send source code, model contents, or secrets.
+  Downloads are rejected on checksum, size, or version mismatch; TLS verification
+  is not disabled. A missing release is an error, not a fallback to `latest`.
 - Rendering and rebuild commands write only the requested artifacts. The optional
   rebuild driver's `--manifest-command` executes a command chosen by the user;
   never source that command from an untrusted ledger or document.
@@ -132,9 +185,10 @@ python3 -B -m unittest discover -s test/plugin -v
 ```
 
 The tests cover packaging, resource links, the bundled example, deterministic
-rendering, and changed-package validation from a separate target worktree. They
-require Git but do not require tmforge. `.tm7` validation still needs a separate
-real-CLI smoke test before release.
+rendering, changed-package validation from a separate target worktree, and managed
+binary delivery using offline fixtures. They require Git but do not require tmforge,
+network access, or third-party Python packages. The dependency guard covers all
+bundled Python scripts. A real download and `.tm7` smoke test remain release checks.
 
 The plugin version follows tmforge. Release Please updates this manifest together
 with the product version. The development value currently matches the product;

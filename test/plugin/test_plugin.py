@@ -111,9 +111,9 @@ class PluginTests(unittest.TestCase):
         self.assertFalse((PLUGIN / "com.github.copilot" / "hooks").exists())
 
     def test_scripts_use_stdlib_and_python310_syntax(self):
-        siblings = {path.stem for path in SCRIPTS.glob("*.py")}
-        for path in SCRIPTS.glob("*.py"):
-            with self.subTest(path=path.name):
+        for path in PLUGIN.rglob("*.py"):
+            siblings = {sibling.stem for sibling in path.parent.glob("*.py")}
+            with self.subTest(path=path.relative_to(PLUGIN)):
                 tree = ast.parse(path.read_text(encoding="utf-8"), feature_version=(3, 10))
                 for node in ast.walk(tree):
                     modules: list[str] = []

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -111,8 +112,11 @@ def run_analyze(
 
 def resolve_invocation(raw: str | None) -> list[str] | None:
     """Return the tmforge invocation, or None when it cannot be located."""
-    if raw:
-        return raw.split()
+    if raw is not None:
+        command = shlex.split(raw)
+        if not command:
+            raise ValueError("--tmforge must not be empty")
+        return command
     found = shutil.which("tmforge")
     return [found] if found else None
 
@@ -197,7 +201,10 @@ def main() -> int:
         print("ERROR: justifications must be a JSON object", file=sys.stderr)
         return 2
 
-    invocation = resolve_invocation(args.tmforge)
+    try:
+        invocation = resolve_invocation(args.tmforge)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.analyzer_output is not None:
         text = args.analyzer_output.read_text(encoding="utf-8")
     elif invocation is None:

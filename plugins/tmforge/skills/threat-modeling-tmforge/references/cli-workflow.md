@@ -5,7 +5,10 @@ rather than guessing.
 
 ## Preflight and Discovery
 
-Resolve the invocation into a local wrapper such as `tmf`, then run:
+Follow this skill's managed-launcher or explicit-CLI selection first. In the examples below, `tmf` is shorthand for
+that chosen invocation, not another executable shipped by the plugin. For a managed binary, expand it to
+`python3 "<skill-directory>/scripts/tmforge.py" --`. Check its status and obtain approval before provisioning a missing
+binary; do not substitute a global CLI merely because the cache is empty. Then run:
 
 ```bash
 tmf --version
@@ -38,6 +41,10 @@ instances and `list threats --json` for the persisted register when supported.
 
 Typical exit codes are `0` for no finding at the selected gate, `1` for a tool error, and `2` for findings. Treat exit
 code `2` as valid analyzer output: retain and inspect the JSON rather than reporting a command failure.
+
+When a core validator accepts `--tmforge`, provide the complete command string, not the shorthand `tmf` or a shell
+function. For example: `--tmforge 'python3 "/absolute/installed-skill/scripts/tmforge.py" --'`. Quote paths containing
+spaces. The wrapper preserves the caller's working directory, output streams, and CLI exit code.
 
 ## Existing Model Baseline
 

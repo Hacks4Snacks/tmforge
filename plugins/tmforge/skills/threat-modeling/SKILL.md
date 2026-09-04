@@ -11,7 +11,7 @@ diagrams from that contract rather than reasoning independently in each artifact
 
 Resolve resources relative to this installed skill directory, never the analyzed repository's skills directory.
 The scripts require Python 3.10+ and only its standard library. Markdown analysis works without tmforge; load the
-`threat-modeling-tmforge` skill by name for `.tm7` work and require a separately available CLI. Select the skill
+`threat-modeling-tmforge` skill by name for `.tm7` work and its approved managed launcher or user-selected CLI. Select the skill
 provided by the `tmforge` plugin through the client's skill discovery, not a relative path outside this skill.
 
 Bundled resources:
@@ -356,19 +356,11 @@ Only the last class touches structure, and it is the one that cascades into the 
 Validate it with `validate_analysis.py --baseline` against the previous ledger, which refuses a rename, a renumber, or
 a dropped ID.
 
-Collect the comments while the pull request is still open, and record each one's durable thread reference in the
-triage entry. A merged pull request keeps the decision alive in the ledger but buries the argument behind it, so
-`disputed` becomes uncitable at exactly the moment someone wants to reopen it.
+Collect comments before the pull request merges and record each durable thread reference in the triage entry.
+Reply on the originating thread with the threat ID, triage decision, and any correcting commit.
 
-Answer on the thread that raised the point, naming the threat ID and the triage decision. A correction arrives as a
-further commit on the same pull request, which is invisible to a reviewer watching one thread; an unannounced
-correction reads as a comment nobody serviced, and the reviewer re-raises it.
-
-One person reconciles comments into the ledger; reviewers comment rather than edit. The ledger carries invariants a
-reviewer has no reason to know, and the validator, not the reviewer's diff, is what proves the reconciliation.
-
-Re-baseline immediately before circulating a draft rather than after review returns. A baseline older than the code
-spends reviewer attention on findings the team already fixed, and the `stale` lifecycle exists to say so.
+One person reconciles the ledger; reviewers comment rather than edit, and validation proves the reconciliation.
+Re-baseline before circulating a draft. Record material drift as `stale` rather than asking reviewers to assess old code.
 
 ## 8. Render the Selected Deliverables
 
@@ -434,7 +426,9 @@ python3 <skill-directory>/scripts/validate_package.py <package-directory>
 
 Use `--json` for stable machine-readable results. When a candidate artifact is promoted, also pass explicit
 `--candidate <path> --final <path>` arguments to verify byte equivalence. Use `--tmforge <command>` when tmforge is
-available through a wrapper rather than directly on `PATH`.
+available through a wrapper rather than directly on `PATH`, including the managed launcher selected by the tmforge
+skill. Pass the same complete command, with quoted paths, to the package verifier, changed-package `verify`, and
+rebuild driver so all checks use the same CLI version. Do not silently fall back to a different global executable.
 
 ### Validating every package changed in a session
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import shutil
 import subprocess
 import sys
@@ -64,26 +65,38 @@ def main() -> int:
     ledger = package / args.ledger
     model = package / args.model
     manifest = package / args.manifest
-    tmforge = args.tmforge.split() if args.tmforge else None
+    try:
+        tmforge = shlex.split(args.tmforge) if args.tmforge is not None else None
+        manifest_command = shlex.split(args.manifest_command) if args.manifest_command is not None else None
+    except ValueError as exc:
+        parser.error(str(exc))
+    if tmforge == [] or manifest_command == []:
+        parser.error("--tmforge and --manifest-command must not be empty when supplied")
     if tmforge is None:
         found = shutil.which("tmforge")
         tmforge = [found] if found else None
 
     steps: list[tuple[str, list[str] | None, Path | None]] = []
 
-    if args.manifest_command:
-        steps.append(("manifest", args.manifest_command.split(), package))
+    has_manifest = manifest.is_file() or manifest_command is not None
+    if has_manifest and tmforge is None:
+        print("ERROR: tmforge not found; pass the approved launcher command with --tmforge", file=sys.stderr)
+        return 2
+    if manifest_command is not None:
+        steps.append(("manifest", manifest_command, package))
 
     validate = [sys.executable, str(SCRIPTS / "validate_analysis.py"), str(ledger)]
     if args.baseline is not None:
         validate += ["--baseline", str(args.baseline)]
     steps.append(("ledger", validate, None))
 
-    if manifest.is_file() and tmforge is not None:
+    if has_manifest and tmforge is not None:
         steps.append(
             ("apply", [*tmforge, "apply", manifest.name, "--out", model.name], package)
         )
-    if model.is_file():
+    # Plan checks for outputs created by earlier steps, not just pre-existing files.
+    has_model = model.is_file() or has_manifest
+    if has_model:
         steps.append(
             (
                 "layout",
@@ -97,7 +110,7 @@ def main() -> int:
                 None,
             )
         )
-    if model.is_file() and args.justifications is not None:
+    if has_model and args.justifications is not None:
         steps.append(
             (
                 "suppressions",
@@ -109,6 +122,7 @@ def main() -> int:
                     "--out",
                     f"{model.stem}.tm.suppressions.json",
                     "--verify",
+                    *(["--tmforge", shlex.join(tmforge)] if tmforge is not None else []),
                 ],
                 package,
             )
@@ -133,7 +147,7 @@ def main() -> int:
         "--json",
     ]
     if tmforge is not None:
-        verify += ["--tmforge", " ".join(tmforge)]
+        verify += ["--tmforge", shlex.join(tmforge)]
     steps.append(("package", verify, None))
 
     results: list[dict[str, object]] = []
