@@ -117,21 +117,54 @@ replace code signing or notarization; Developer ID signing and notarization of
 release artifacts are the long-term distribution fix. See
 [Apple's guidance on opening downloaded software](https://support.apple.com/en-us/102445).
 
-## Try the local development copy
+## Install from a marketplace
 
-From the tmforge checkout, install this **nested directory**, not the repository root:
+After the repository marketplace catalog is merged to `main`, register it once and
+install through the supported `plugin@marketplace` route:
 
 ```bash
-copilot plugin install ./plugins/tmforge
+copilot plugin marketplace add Hacks4Snacks/tmforge
+copilot plugin install tmforge@tmforge
 copilot plugin list
 ```
 
-Some CLI versions warn that direct installs are deprecated. This remains a local
-development check; the intended public installation is the reviewed marketplace entry.
-Noninteractive CLI inventories may report skills but omit custom agents. Confirm
-Strider in a new chat's agent picker; the install summary alone does not prove agent discovery.
+The first `tmforge` is the plugin name; the second is the marketplace name. Adding a
+GitHub repository as a marketplace is supported; directly installing a plugin from
+a repository, URL, or local path is the deprecated operation.
 
-Alternatively, register the absolute path to this directory with VS Code's
+The project catalog follows the repository's default branch and loads the nested
+plugin from the same catalog checkout. It can therefore contain changes ahead of
+the next release. Plugin and catalog versions move together through Release Please.
+For the managed CLI, the release matching the manifest version must already exist.
+
+If you previously installed tmforge directly, inspect that installation and remove
+the direct entry before installing the marketplace copy to avoid duplicate agents
+and skills. Do not remove an unrelated marketplace or its plugins.
+
+```bash
+copilot plugin list
+copilot plugin uninstall tmforge
+copilot plugin install tmforge@tmforge
+```
+
+Reload VS Code or start a fresh Copilot session after installation. VS Code discovers
+CLI-installed plugins. Noninteractive inventories can omit custom agents, so check
+**Strider** in the agent picker and both skills in the customization view.
+
+## Try the local development copy
+
+Use the local repository as a marketplace to test the same installation route before merge:
+
+```bash
+copilot plugin marketplace add /absolute/path/to/tmforge
+copilot plugin install tmforge@tmforge
+```
+
+Use an isolated `COPILOT_HOME` and `COPILOT_CACHE_HOME` when smoke-testing so the local
+catalog does not replace your normal `tmforge` marketplace registration. Refresh or
+reinstall after source changes; do not assume an installed cache is a live copy.
+
+Alternatively, register the absolute path to the **nested plugin directory** with VS Code's
 `chat.pluginLocations` setting:
 
 ```json
@@ -147,14 +180,6 @@ appearing as user-invoked slash commands. Existing personal or repository agents
 with the same ID can take precedence over an installed plugin; test in a workspace
 without another Strider installation. Strider links directly to its bundled skills
 so their version and validator contract stay together.
-
-After a release containing this directory is public, a direct source installation
-can use `copilot plugin install Hacks4Snacks/tmforge:plugins/tmforge`. That form
-tracks the source; use a marketplace entry pinned to a release and commit for a
-reproducible reviewed installation.
-
-**This plugin is not yet listed in Awesome Copilot.** Do not advertise a marketplace
-install command until the external-plugin review has been approved.
 
 ## Example requests
 
@@ -225,11 +250,11 @@ binary delivery using offline fixtures. They require Git but do not require tmfo
 network access, or third-party Python packages. The dependency guard covers all
 bundled Python scripts. A real download and `.tm7` smoke test remain release checks.
 
-The plugin version follows tmforge. Release Please updates this manifest together
-with the product version. The development value currently matches the product;
-**the existing `v0.10.0` release does not contain this plugin**. The first submission
-must use a **new release tag containing the plugin** and the full 40-character
-commit SHA to which that tag resolves.
+The plugin version follows tmforge. Release Please updates the plugin manifest,
+project marketplace catalog, and product version together. **`v0.11.0` is the first
+release containing the plugin**; `v0.10.0` predates it. External submissions use an
+immutable release tag containing the plugin and the full 40-character commit SHA
+to which that tag resolves.
 
 See the [external submission checklist](https://github.com/Hacks4Snacks/tmforge/blob/main/docs/copilot-plugin.md) in the source
 checkout for release and Awesome Copilot intake steps. That document is maintainer

@@ -42,6 +42,23 @@ class PluginTests(unittest.TestCase):
             "type": "json", "path": "plugins/tmforge/plugin.json", "jsonpath": "$.version",
         }, release["packages"]["."]["extra-files"])
 
+    def test_repository_marketplace_matches_plugin_and_release_updater(self):
+        catalog = json.loads((ROOT / ".github/plugin/marketplace.json").read_text(encoding="utf-8"))
+        manifest = json.loads((PLUGIN / "plugin.json").read_text(encoding="utf-8"))
+        self.assertEqual(catalog["name"], "tmforge")
+        self.assertEqual(catalog["owner"]["name"], manifest["author"]["name"])
+        self.assertEqual(len(catalog["plugins"]), 1)
+        entry = catalog["plugins"][0]
+        for field in ("name", "description", "version"):
+            self.assertEqual(entry[field], manifest[field])
+        self.assertEqual(entry["source"], "./plugins/tmforge")
+        self.assertEqual((ROOT / entry["source"]).resolve(), PLUGIN.resolve())
+        release = json.loads((ROOT / "release-please-config.json").read_text(encoding="utf-8"))
+        self.assertIn({
+            "type": "json", "path": ".github/plugin/marketplace.json",
+            "jsonpath": "$.plugins[0].version",
+        }, release["packages"]["."]["extra-files"])
+
     def test_plugin_license_matches_repository(self):
         self.assertEqual((PLUGIN / "LICENSE.md").read_bytes(),
                          (ROOT / "LICENSE.md").read_bytes())
