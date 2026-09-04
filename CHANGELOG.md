@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.11.0...v0.12.0) (2026-09-04)
+
+
+### Features
+
+* copilot plugin marketplace publication ([#106](https://github.com/Hacks4Snacks/tmforge/issues/106)) ([af16a44](https://github.com/Hacks4Snacks/tmforge/commit/af16a445ce416255e87a5ff2e6cc656ff35450a1))
+
 ## [0.11.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.10.0...v0.11.0) (2026-09-04)
 
 
