@@ -82,6 +82,41 @@ python3 /path/to/core-skill/scripts/validate_package.py /path/to/model-package \
   --tmforge 'python3 "/path/to/tmforge-skill/scripts/tmforge.py" --'
 ```
 
+### macOS quarantine and Gatekeeper
+
+The macOS releases are not Developer ID signed or notarized. That does **not** mean
+every copy has `com.apple.quarantine`: quarantine is separate download/provenance
+metadata. The managed launcher's Python download and byte-only extraction did not
+add quarantine in the macOS ARM64 smoke test, and the binary ran without removing
+any attributes. Browser downloads, copied files, or local security policy can differ.
+
+The launcher does not remove quarantine or change Gatekeeper settings. If macOS
+blocks execution, inspect the exact binary path reported by `--status`:
+
+```bash
+/usr/bin/xattr -p com.apple.quarantine "/absolute/path/to/cached/tmforge"
+```
+
+If the attribute is absent, do not run a deletion command or assume quarantine is
+the cause. `com.apple.provenance` is a different attribute and must not be removed
+as a substitute. A killed process alone does not establish a Gatekeeper problem.
+
+If quarantine is present, verify the release source and cached checksum and review
+the macOS alert. Prefer Apple's per-app **Open Anyway** flow in Privacy & Security
+when available. If you explicitly trust this release and local policy permits a
+manual exception, the targeted command is:
+
+```bash
+/usr/bin/xattr -d com.apple.quarantine "/absolute/path/to/cached/tmforge"
+```
+
+This is a user-approved exception, never an automatic install or retry step. Do not
+use recursive removal, clear unrelated attributes, disable Gatekeeper globally, or
+bypass a malware alert or an organization-managed restriction. Checksums do not
+replace code signing or notarization; Developer ID signing and notarization of
+release artifacts are the long-term distribution fix. See
+[Apple's guidance on opening downloaded software](https://support.apple.com/en-us/102445).
+
 ## Try the local development copy
 
 From the tmforge checkout, install this **nested directory**, not the repository root:
