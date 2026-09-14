@@ -161,6 +161,13 @@ namespace ThreatModelForge.Wasm
             return format is null ? string.Empty : Serialize(format);
         }
 
+        /// <summary>Arranges geometry while preserving boundary membership and actual flow crossings.</summary>
+        /// <param name="requestJson">The LayoutRequestDto JSON: original model, optional proposed positions and metrics.</param>
+        /// <returns>Geometry updates or an explicit refusal, as LayoutResultDto JSON.</returns>
+        [JSExport]
+        public static string Layout(string requestJson)
+            => Serialize(EngineService.Layout(JsonSerializer.Deserialize<LayoutRequestDto>(requestJson, JsonOptions) ?? new LayoutRequestDto()));
+
         /// <summary>Reads a document in any registered format into the canonical tmforge-json model.</summary>
         /// <param name="contentBase64">The raw document bytes, base64-encoded.</param>
         /// <param name="formatId">An explicit format id, or an empty string to content-sniff.</param>

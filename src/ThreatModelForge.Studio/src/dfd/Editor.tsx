@@ -35,8 +35,8 @@ import { ThreatsPanel, type NewThreatDraft, type ThreatEdit, type ThreatScopeOpt
 import { CanvasSearch, type SearchItem } from './CanvasSearch';
 import { ModelOutline } from './ModelOutline';
 import { buildOutline, type OutlineOrder } from './outline';
-import { DEFAULT_NODE_SIZE, modelFromPages, pagesFromModel, type PageGraph } from './mapping';
-import { tidyGraph } from './autosize';
+import { DEFAULT_NODE_SIZE, modelFromPages, pagesFromModel, toModel, type PageGraph } from './mapping';
+import { applyLayoutGeometry, tidyGraph, tidyLabels } from './autosize';
 import { cloneGraph, type Clipboard } from './clipboard';
 import { useUndoRedo } from './useUndoRedo';
 import { FlowEdge } from './edges/FlowEdge';
@@ -654,6 +654,12 @@ export function Editor() {
     () => JSON.stringify({ v: 2, activePageId, model: currentModel }),
     [activePageId, currentModel],
   );
+  const layoutStateRef = useRef({ workspaceJson, nodes, edges });
+  layoutStateRef.current = { workspaceJson, nodes, edges };
+  const layoutRequestRef = useRef(0);
+  const layoutPendingRef = useRef(false);
+  const [tidying, setTidying] = useState(false);
+  useEffect(() => () => { layoutRequestRef.current += 1; }, []);
   useEffect(() => {
     const id = window.setTimeout(() => {
       try {
@@ -1538,12 +1544,10 @@ export function Editor() {
 
   const loadModel = useCallback(
     (model: TmForgeModel) => {
-      // Auto-fit each page as it loads: grow shapes so a name never overruns its boundary, route
-      // flows through the ports that face their endpoints, and pull apart overlapping flow labels, so
-      // an imported (for example, CLI-authored) model is readable without manual clean-up. `grow`
-      // never shrinks a hand-tuned size, and labels already dragged aside are left as they are.
+      // Import never changes trust claims. Routing and label offsets are presentation-only; shape
+      // sizing and arrangement require an explicit Tidy action and the engine's preservation guard.
       const nextPages = pagesFromModel(model).map((p) => {
-        const tidied = tidyGraph(p.nodes, p.edges, 'grow');
+        const tidied = tidyLabels(p.nodes, p.edges);
         return { ...p, nodes: tidied.nodes, edges: tidied.edges };
       });
       const nextPacks = model.analysis?.disabledPacks ?? [];
@@ -1679,20 +1683,49 @@ export function Editor() {
     reset();
   }, [setNodes, setEdges, reset]);
 
-  // Auto-layout the active page: fit every shape to its label (so a name can't overrun its boundary),
-  // route each flow through the ports that face its endpoints, and separate flow labels that overlap.
-  // One undo snapshot covers the whole tidy, then the view is re-framed. This is the on-demand form
-  // of the grow-only pass that runs when a model is loaded.
-  const tidyActivePage = useCallback(() => {
-    if (nodes.length === 0) {
+  // Preserve the author's arrangement and validate the cleanup before creating an undoable edit.
+  const tidyActivePage = useCallback(async (mode: 'tidy' | 'labels' = 'tidy') => {
+    if (nodes.length === 0 || layoutPendingRef.current) {
       return;
     }
-    takeSnapshot();
-    const tidied = tidyGraph(nodes, edges, 'exact');
-    setNodes(tidied.nodes);
-    setEdges(tidied.edges);
-    window.setTimeout(() => fitView({ padding: 0.25, maxZoom: 1.15, duration: 300 }), 0);
-  }, [nodes, edges, setNodes, setEdges, takeSnapshot, fitView]);
+    const version = ++layoutRequestRef.current;
+    const baseline = layoutStateRef.current.workspaceJson;
+    layoutPendingRef.current = true;
+    setTidying(true);
+    try {
+      let positioned = nodes;
+      if (mode !== 'labels') {
+        const original = toModel(nodes, edges);
+        const candidate = tidyGraph(nodes, edges, 'exact');
+        const positions = toModel(candidate.nodes, candidate.edges).elements.map((element) => ({
+          id: element.id, x: element.x, y: element.y, width: element.width!, height: element.height!,
+        }));
+        const geometry = await engine.layout(original, positions);
+        if (version !== layoutRequestRef.current) return;
+        if (layoutStateRef.current.workspaceJson !== baseline) {
+          toast('The model changed while tidying. The cleanup was not applied.', 'info');
+          return;
+        }
+        positioned = applyLayoutGeometry(layoutStateRef.current.nodes, geometry);
+      }
+      const tidied = tidyLabels(positioned, layoutStateRef.current.edges);
+      if (tidied.nodes.every((node, index) => node === layoutStateRef.current.nodes[index])
+        && tidied.edges.every((edge, index) => edge === layoutStateRef.current.edges[index])) return;
+      takeSnapshot();
+      setNodes(tidied.nodes);
+      setEdges(tidied.edges);
+      window.setTimeout(() => fitView({ padding: 0.25, maxZoom: 1.15, duration: 300 }), 0);
+    } catch (err) {
+      if (version === layoutRequestRef.current) {
+        toast(err instanceof Error ? err.message : 'Could not tidy this page. Nothing was changed.', 'error');
+      }
+    } finally {
+      if (version === layoutRequestRef.current) {
+        layoutPendingRef.current = false;
+        setTidying(false);
+      }
+    }
+  }, [engine, nodes, edges, setNodes, setEdges, takeSnapshot, fitView]);
 
   const actions = useMemo<DfdActions>(
     () => ({ beginEdit: takeSnapshot, renameNode, renameEdge, setEdgeLabelOffset }),
@@ -1727,6 +1760,7 @@ export function Editor() {
         onClear={clearAll}
         onFit={() => fitView({ padding: 0.25, maxZoom: 1.15, duration: 300 })}
         onTidy={tidyActivePage}
+        tidying={tidying}
         onUndo={undo}
         onRedo={redo}
         canUndo={canUndo}

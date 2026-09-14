@@ -686,6 +686,225 @@ namespace ThreatModelForge.Engine
         }
 
         /// <summary>
+        /// Arranges a model's pages without changing trust-boundary membership or connector
+        /// crossings. Returns only geometry keyed by original author ids; never rewrites author
+        /// state or evaluates detection rules. Unsafe candidates are refused without partial output.
+        /// </summary>
+        /// <param name="request">The original model, optional proposed positions and layout metrics.</param>
+        /// <returns>Geometry updates on success, or a reason with no updates on refusal.</returns>
+        public static LayoutResultDto Layout(LayoutRequestDto request)
+        {
+            if (request == null)
+            {
+                throw new ArgumentNullException(nameof(request));
+            }
+
+            string? error = ValidateLayoutInput(request);
+            if (error != null)
+            {
+                return new LayoutResultDto { Error = error };
+            }
+
+            // Properties and triage cannot influence placement. Do not build them only to discard
+            // them: the canonical reader types properties and hydrates the register, which can be
+            // expensive for untrusted property bags and is unrelated to a geometry-only operation.
+            ThreatModel model = BuildModel(LayoutStructure(request.Model!), out _, out Dictionary<Guid, string> originalIds);
+            IReadOnlyList<DrawingSurfaceModel> targets = model.DrawingSurfaceList;
+            if (!string.IsNullOrEmpty(request.Page))
+            {
+                if (!AuthoringSupport.TryResolveDiagram(model, request.Page, out DrawingSurfaceModel? selected, out error))
+                {
+                    return new LayoutResultDto { Error = error };
+                }
+
+                targets = new[] { selected! };
+            }
+
+            Dictionary<string, Guid> internalIds = targets
+                .SelectMany(diagram => diagram.Borders.Values.OfType<DrawingElement>())
+                .ToDictionary(element => originalIds[element.Guid], element => element.Guid, StringComparer.Ordinal);
+            Dictionary<Guid, LayoutElementDto>? positions = null;
+            if (request.Positions != null)
+            {
+                positions = new Dictionary<Guid, LayoutElementDto>();
+                foreach (LayoutElementDto position in request.Positions)
+                {
+                    if (!internalIds.TryGetValue(position.Id, out Guid id) || !positions.TryAdd(id, position))
+                    {
+                        return new LayoutResultDto { Error = "Proposed positions must name each selected element exactly once." };
+                    }
+                }
+            }
+
+            if (!LayoutOperations.TryApply(targets, request.Options, out _, out error, positions))
+            {
+                return new LayoutResultDto { Error = error };
+            }
+
+            List<LayoutElementDto> elements = targets
+                .SelectMany(diagram => diagram.Borders.Values.OfType<DrawingElement>())
+                .Select(element => new LayoutElementDto
+                {
+                    Id = originalIds[element.Guid],
+                    X = element.Left,
+                    Y = element.Top,
+                    Width = element.Width,
+                    Height = element.Height,
+                })
+                .ToList();
+            return new LayoutResultDto
+            {
+                Success = true,
+                Elements = elements,
+                Pages = targets.Count,
+                Components = targets.Sum(diagram => diagram.Borders.Values.OfType<DrawingElement>().Count(element => element is not BorderBoundary)),
+                LabelOverlaps = targets.Sum(diagram => DiagramLabels.Inspect(diagram, request.Options).Count),
+            };
+        }
+
+        private static TmForgeModelDto LayoutStructure(TmForgeModelDto model)
+        {
+            IReadOnlyList<TmForgeElementDto>? Elements(IReadOnlyList<TmForgeElementDto>? elements) => elements?.Select(element => new TmForgeElementDto
+            {
+                Id = element.Id, Kind = element.Kind, Name = element.Name,
+                X = element.X, Y = element.Y, Width = element.Width, Height = element.Height,
+            }).ToArray();
+            IReadOnlyList<TmForgeFlowDto>? Flows(IReadOnlyList<TmForgeFlowDto>? flows) => flows?.Select(flow => new TmForgeFlowDto
+            {
+                Id = flow.Id, Source = flow.Source, Target = flow.Target, Name = flow.Name,
+            }).ToArray();
+            bool paged = model.Diagrams is { Count: > 0 };
+            return new TmForgeModelDto
+            {
+                Elements = paged ? null : Elements(model.Elements),
+                Flows = paged ? null : Flows(model.Flows),
+                Diagrams = paged ? model.Diagrams!.Select(page => new TmForgeDiagramDto
+                {
+                    Id = page.Id, Name = page.Name, Elements = Elements(page.Elements), Flows = Flows(page.Flows),
+                }).ToArray() : null,
+            };
+        }
+
+        private static string? ValidateLayoutInput(LayoutRequestDto request)
+        {
+            if (request.Model == null)
+            {
+                return "A model is required for arrangement.";
+            }
+
+            TmForgeModelDto model = request.Model;
+            IReadOnlyList<TmForgeDiagramDto> pages = model.Diagrams is { Count: > 0 }
+                ? model.Diagrams
+                : new[] { new TmForgeDiagramDto { Elements = model.Elements, Flows = model.Flows } };
+            if (pages.Count > LayoutOperations.MaximumPages
+                || pages.Sum(page => (long)(page?.Elements?.Count ?? 0)) > LayoutOperations.MaximumElements
+                || pages.Sum(page => (long)(page?.Flows?.Count ?? 0)) > LayoutOperations.MaximumLines)
+            {
+                return $"Arrangement is limited to {LayoutOperations.MaximumPages} pages, {LayoutOperations.MaximumElements} shapes and {LayoutOperations.MaximumLines} lines per request.";
+            }
+
+            HashSet<string> ids = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<string> pageIds = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<Guid> elementKeys = new HashSet<Guid>();
+            HashSet<Guid> pageKeys = new HashSet<Guid>();
+            foreach (TmForgeDiagramDto page in pages)
+            {
+                if (page == null || (model.Diagrams is { Count: > 0 }
+                    && (string.IsNullOrWhiteSpace(page.Id) || page.Id.Length > 256 || page.Name?.Length > 4096 || !pageIds.Add(page.Id)
+                        || !pageKeys.Add(Guid.TryParse(page.Id, out Guid pageId) ? pageId : DeterministicGuid.FromPageId(page.Id)))))
+                {
+                    return "Arrangement requires unique non-empty page ids.";
+                }
+
+                HashSet<string> endpoints = new HashSet<string>(StringComparer.Ordinal);
+                foreach (TmForgeElementDto element in page.Elements ?? Array.Empty<TmForgeElementDto>())
+                {
+                    if (element == null || string.IsNullOrWhiteSpace(element.Id) || element.Id.Length > 256 || !ids.Add(element.Id)
+                        || !elementKeys.Add(Guid.TryParse(element.Id, out Guid id) ? id : DeterministicGuid.FromElementId(element.Id)))
+                    {
+                        return "Arrangement requires unique non-empty element and flow ids.";
+                    }
+
+                    if ((element.Kind != "process" && element.Kind != "external" && element.Kind != "datastore" && element.Kind != "boundary")
+                        || element.Width.HasValue != element.Height.HasValue
+                        || element.Width < 20 || element.Height < 20 || element.Name?.Length > 4096)
+                    {
+                        return "Arrangement requires supported element kinds and either omitted sizes or width and height of at least 20.";
+                    }
+
+                    endpoints.Add(element.Id);
+                }
+
+                foreach (TmForgeFlowDto flow in page.Flows ?? Array.Empty<TmForgeFlowDto>())
+                {
+                    if (flow == null)
+                    {
+                        return "Arrangement found a null flow entry. No pages were changed.";
+                    }
+
+                    if (string.IsNullOrWhiteSpace(flow.Id) || flow.Id.Length > 256)
+                    {
+                        return "Arrangement requires a non-empty id of at most 256 characters for every flow. No pages were changed.";
+                    }
+
+                    if (flow.Name?.Length > 4096)
+                    {
+                        return $"Flow '{flow.Id}' has a label longer than 4096 characters. No pages were changed.";
+                    }
+
+                    string description = string.IsNullOrWhiteSpace(flow.Name) ? $"Flow '{flow.Id}'" : $"Flow '{flow.Name}' ({flow.Id})";
+                    if (!ids.Add(flow.Id))
+                    {
+                        return description + " has a duplicate id shared with another element or flow. No pages were changed.";
+                    }
+
+                    if (!elementKeys.Add(Guid.TryParse(flow.Id, out Guid id) ? id : DeterministicGuid.FromElementId(flow.Id)))
+                    {
+                        return description + " resolves to the same internal GUID as another element or flow. No pages were changed.";
+                    }
+
+                    if (!endpoints.Contains(flow.Source))
+                    {
+                        return LayoutEndpointError(description, "source", flow.Source);
+                    }
+
+                    if (!endpoints.Contains(flow.Target))
+                    {
+                        return LayoutEndpointError(description, "target", flow.Target);
+                    }
+                }
+            }
+
+            if (pageKeys.Overlaps(elementKeys))
+            {
+                return "A page and an element cannot use the same internal GUID for arrangement.";
+            }
+
+            if (request.Positions != null && (request.Positions.Count > LayoutOperations.MaximumElements
+                || request.Positions.Any(position => position == null || string.IsNullOrWhiteSpace(position.Id)
+                    || position.Id.Length > 256 || position.Width < 20 || position.Height < 20)))
+            {
+                return "Proposed positions require valid element ids and sizes of at least 20.";
+            }
+
+            return null;
+        }
+
+        private static string LayoutEndpointError(string flow, string endpoint, string? id)
+        {
+            if (id?.Length > 256)
+            {
+                return flow + $" has a {endpoint} endpoint id longer than 256 characters. No pages were changed.";
+            }
+
+            bool unattached = string.IsNullOrWhiteSpace(id) || (Guid.TryParse(id, out Guid parsed) && parsed == Guid.Empty);
+            string problem = unattached
+                ? $" has an unattached {endpoint} endpoint ('{id}')."
+                : $" references {endpoint} element '{id}', which is not present on this page.";
+            return flow + problem + " Reconnect that endpoint to an element before arranging. No pages were changed.";
+        }
+
+        /// <summary>
         /// The one place the effective rule set is evaluated for an analysis action. It builds the model
         /// once, loads the effective bundle once, evaluates every enabled rule once, and then projects
         /// only what the caller asked for from the collected messages — so requesting findings and
