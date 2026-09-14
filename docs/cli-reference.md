@@ -521,6 +521,24 @@ arrangement that moved a component out of its boundary would change what the mod
 how it looks. Columns wrap onto a new row instead of running past the right-hand edge, because the
 Microsoft Threat Modeling Tool's drawing surface is bounded and taller than it is wide.
 
+Arrangement is **validated before it is committed**. Every component keeps its complete set of
+boundary memberships, each connector endpoint stays on the same side of every boundary, and actual
+crossing sets (including line trust boundaries) must be unchanged. If any selected page fails, the
+command exits `1` and writes nothing. Partially overlapping claims are not discarded, and flows
+attached to a boundary rather than a component are refused. Use `--labels` to keep such geometry,
+or resolve the placement explicitly; there is no force flag that silently changes trust claims.
+
+Spacing arguments must be integers from `1` to `4096`. An arrangement request is limited to 32 pages,
+512 shapes and 1,024 lines, with a separate 25-million-work-unit bound for dense graphs and label
+placement. Shape sizes must be positive and at most 100,000 units, and input/output coordinates must
+be within ±1,000,000. These are computation limits, not a promise that an oversized diagram fits
+the MTMT drawing surface.
+
+On canonical JSON, layout patches only the selected rectangles and retains author ids, flow
+aliases, properties, analysis settings, triage, and unknown extension/view fields. JSON does not
+persist the engine's connector handles: `--labels` leaves it unchanged, and `labelsPersisted: false`
+in JSON output distinguishes that from a persisted label edit. Studio handles its own label offsets.
+
 ```text
 tmforge layout [--page <name|index>] [--node-spacing <n>] [--layer-spacing <n>] [--labels] [--check] [--json] <model>
 ```
@@ -529,6 +547,7 @@ tmforge layout [--page <name|index>] [--node-spacing <n>] [--layer-spacing <n>] 
 | --- | --- |
 | `--labels` | Place only the flow labels and leave every shape exactly where it is. Use this when the geometry is hand-placed or comes from a manifest and only the labels need sorting out. |
 | `--check` | Report obstructed flow labels and write nothing. Exits `1` when any remain, so a publishing gate can require a legible diagram. |
+| `--page` | Arrange one page by name or one-based index. Omitted means every page; refusal is atomic across the selected pages. |
 
 ```bash
 tmforge layout payments.tm7

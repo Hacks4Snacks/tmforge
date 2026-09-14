@@ -3,6 +3,17 @@ import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import { ReactFlowProvider, useReactFlow, type ReactFlowInstance } from '@xyflow/react';
 import { STORAGE_KEY } from './Editor';
+import type { IEngineClient, LayoutElement } from './engineClient';
+
+const engineState = vi.hoisted(() => ({ current: undefined as IEngineClient | undefined }));
+vi.mock('./engineClient', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./engineClient')>();
+  return {
+    ...original,
+    probeEngine: async () => false,
+    loadWasmEngine: async () => engineState.current ?? null,
+  };
+});
 
 /**
  * Drives the whole editor — React Flow canvas, Inspector, toolbar, page strip — the way a person
@@ -182,6 +193,118 @@ function addCustomProperty(key: string, value: string): void {
 
 beforeEach(() => {
   window.localStorage.clear();
+  engineState.current = undefined;
+});
+
+describe('Editor — guarded Tidy', () => {
+  const geometry: LayoutElement[] = ['a', 'b', 'c'].map((id, index) => ({
+    id, x: 40 + index * 300, y: 100, width: 160, height: 96,
+  }));
+
+  async function useLayout(layout: IEngineClient['layout']): Promise<void> {
+    const { offlineEngine } = await import('./engineClient');
+    engineState.current = Object.assign(Object.create(offlineEngine) as IEngineClient, { label: 'layout test engine', layout });
+  }
+
+  async function tidy(): Promise<void> {
+    await waitFor(() => expect(document.querySelector('.engine-pill')).toHaveTextContent('layout test engine'));
+    fireEvent.click(screen.getByRole('button', { name: 'Tidy' }));
+  }
+
+  it('applies a successful response with the original ids and exactly one undo step', async () => {
+    const layout = vi.fn(async () => geometry);
+    await useLayout(layout);
+    await mountEditor(chain());
+
+    await tidy();
+
+    await waitFor(() => expect(flow!.getNode('a')?.position).toEqual({ x: 40, y: 100 }));
+    expect(layout).toHaveBeenCalledTimes(1);
+    expect(canvasNodeIds()).toEqual(['a', 'b', 'c']);
+    expect(await undoToExhaustion()).toBe(1);
+    await waitFor(() => expect(flow!.getNode('a')?.position).toEqual({ x: 0, y: 0 }));
+    await expectPersisted({ elements: ['a', 'b', 'c'], flows: ['ab', 'bc'] });
+  });
+
+  it('tidies the existing horizontal arrangement instead of replacing it with graph layers', async () => {
+    const layout = vi.fn(async (...args: unknown[]) => args[1] as LayoutElement[]);
+    await useLayout(layout);
+    await mountEditor(chain());
+    await waitFor(() => expect(document.querySelector('.engine-pill')).toHaveTextContent('layout test engine'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tidy' }));
+
+    await waitFor(() => expect(layout).toHaveBeenCalledTimes(1));
+    const candidate = layout.mock.calls[0][1] as LayoutElement[];
+    expect(candidate).toHaveLength(3);
+    for (const [index, id] of ['a', 'b', 'c'].entries()) {
+      const placed = candidate.find((element) => element.id === id)!;
+      expect(Math.abs(placed.x + placed.width / 2 - (index * 200 + 60))).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(placed.y + placed.height / 2 - 30)).toBeLessThanOrEqual(0.5);
+    }
+    await waitFor(() => expect(flow!.getNode('a')?.position.x).toBe(candidate[0].x));
+    expect(await undoToExhaustion()).toBe(1);
+  });
+
+  it('leaves geometry and undo history untouched after a refusal', async () => {
+    await useLayout(vi.fn(async () => { throw new Error('Unsafe crossing; no pages were changed.'); }));
+    await mountEditor(chain());
+
+    await tidy();
+
+    await waitFor(() => expect(screen.getByText(/Unsafe crossing/)).toBeInTheDocument());
+    expect(flow!.getNode('a')?.position).toEqual({ x: 0, y: 0 });
+    expect(undoButton()).toBeDisabled();
+  });
+
+  it('discards a late response instead of overwriting a newer property edit', async () => {
+    let finish!: (elements: LayoutElement[]) => void;
+    const layout = vi.fn(() => new Promise<LayoutElement[]>((resolve) => { finish = resolve; }));
+    await useLayout(layout);
+    await mountEditor(chain());
+    await tidy();
+    await waitFor(() => expect(layout).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('button', { name: /Tidying/ })).toBeDisabled();
+
+    selectNodes('a');
+    addCustomProperty('Owner', 'newer-edit');
+    await act(async () => { finish(geometry); });
+
+    await waitFor(() => expect(screen.getByText(/model changed while tidying/i)).toBeInTheDocument());
+    expect(flow!.getNode('a')?.position).toEqual({ x: 0, y: 0 });
+    expect(flow!.getNode('a')?.data.properties).toMatchObject({ Owner: 'newer-edit' });
+    expect(await undoToExhaustion()).toBe(1);
+  });
+
+  it('does not apply a late response to a different active page', async () => {
+    let finish!: (elements: LayoutElement[]) => void;
+    const layout = vi.fn(() => new Promise<LayoutElement[]>((resolve) => { finish = resolve; }));
+    await useLayout(layout);
+    const first = chain();
+    const second = seedModel([{ id: 'other', kind: 'process', name: 'Other', x: 900, y: 500, width: 120, height: 60 }], []);
+    const model = { ...first, diagrams: [{ ...first, id: 'one', name: 'First' }, { ...second, id: 'two', name: 'Second' }] };
+    await mountEditor(model);
+    await tidy();
+    await waitFor(() => expect(layout).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole('tab', { name: /^Second/ }));
+    await act(async () => { finish(geometry); });
+
+    await waitFor(() => expect(canvasNodeIds()).toEqual(['other']));
+    expect(flow!.getNode('other')?.position).toEqual({ x: 900, y: 500 });
+    expect(undoButton()).toBeDisabled();
+  });
+
+  it('keeps labels-only cleanup available without invoking an offline layout engine', async () => {
+    await mountEditor(chain());
+    expect(screen.getByRole('button', { name: 'Tidy' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Tidy options' }));
+    expect(screen.queryByRole('menuitem', { name: /Arrange/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitem', { name: /Labels only/ }));
+
+    expect(flow!.getNode('a')?.position).toEqual({ x: 0, y: 0 });
+    expect(flow!.getNode('b')?.position).toEqual({ x: 200, y: 0 });
+  });
 });
 
 describe('Editor — deleting from the canvas', () => {

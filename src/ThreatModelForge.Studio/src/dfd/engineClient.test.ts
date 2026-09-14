@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { looksLikeManifest, offlineEngine, toModel } from './engineClient';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { createHttpEngine, looksLikeManifest, offlineEngine, toModel, WasmEngineClient } from './engineClient';
 import type { components } from './engine/schema';
 import type { TmForgeModel } from './types';
 
@@ -54,6 +54,10 @@ describe('OfflineEngineClient — the honest fallback contract', () => {
     await expect(offlineEngine.applyManifest('{"schema":"tmforge-manifest"}')).rejects.toThrow(
       /require[s]? the .NET engine/i,
     );
+  });
+
+  it('refuses unvalidated offline arrangement while directing the user to labels-only cleanup', async () => {
+    await expect(offlineEngine.layout(emptyModel(), [])).rejects.toThrow(/requires the .NET engine.*Labels only/i);
   });
 
   it('converts to tmforge-json client-side but rejects engine-only target formats', async () => {
@@ -114,6 +118,22 @@ describe('looksLikeManifest — routing an unidentified document', () => {
 });
 
 describe('engine model normalization', () => {
+  it('preserves every imported page and the expected rule fingerprints before layout', () => {
+    const dto: components['schemas']['TmForgeModelDto'] = {
+      diagrams: [
+        { id: 'first', name: 'First', elements: [{ id: 'a', kind: 'process', x: 170, y: 130 }], flows: [] },
+        { id: 'second', name: 'Second', elements: [{ id: 'b', kind: 'boundary', x: 280, y: 190, width: 700, height: 400 }], flows: [] },
+      ],
+      analysis: { expectedPacks: [{ id: 'policy', fingerprint: 'sha256:unchanged' }] },
+    };
+
+    const model = toModel(dto);
+
+    expect(model.diagrams?.map((page) => page.id)).toEqual(['first', 'second']);
+    expect(model.diagrams?.[1].elements[0]).toMatchObject({ id: 'b', x: 280, y: 190, width: 700, height: 400 });
+    expect(model.analysis?.expectedPacks).toEqual(dto.analysis?.expectedPacks);
+  });
+
   it('preserves accepted, priority-edited, and manual threat overlays returned by the engine', () => {
     const dto: components['schemas']['TmForgeModelDto'] = {
       threats: [
@@ -163,5 +183,60 @@ describe('engine model normalization', () => {
         elementIds: ['source', 'target', 'flow'],
       },
     ]);
+  });
+});
+
+describe('layout transports', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const geometry = [{ id: 'author-id', x: 40, y: 64, width: 140, height: 100 }];
+
+  it('requests only validation of proposed geometry through HTTP and WASM, never automatic placement', async () => {
+    let httpBody: unknown;
+    vi.stubGlobal('fetch', vi.fn(async (request: Request) => {
+      expect(request.url).toBe('http://localhost/v1/model/layout');
+      httpBody = await request.json();
+      return new Response(JSON.stringify({ success: true, elements: geometry }), { headers: { 'Content-Type': 'application/json' } });
+    }));
+    let wasmBody: unknown;
+    const wasm = new WasmEngineClient({
+      Layout: (json: string) => {
+        wasmBody = JSON.parse(json);
+        return JSON.stringify({ success: true, elements: geometry });
+      },
+    } as unknown as ConstructorParameters<typeof WasmEngineClient>[0]);
+    const model = emptyModel();
+    expect(await createHttpEngine('http://localhost').layout(model, geometry)).toEqual(geometry);
+    expect(await wasm.layout(model, geometry)).toEqual(geometry);
+    expect(httpBody).toEqual({ model, positions: geometry });
+    expect(wasmBody).toEqual(httpBody);
+  });
+
+  it.each([
+    { success: false, error: 'Layout would change trust-boundary crossings.', elements: geometry },
+    { success: true, elements: [{ id: 'a', x: 40, y: 40 }] },
+    { success: true, elements: [{ id: 'a', x: 40, y: 40, width: -1, height: 50 }] },
+    {},
+  ])('rejects refused or incomplete layout results on both transports: %j', async (result) => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } })));
+    const wasm = new WasmEngineClient({ Layout: () => JSON.stringify(result) } as unknown as ConstructorParameters<typeof WasmEngineClient>[0]);
+
+    await expect(createHttpEngine('http://localhost').layout(emptyModel(), geometry)).rejects.toThrow();
+    await expect(wasm.layout(emptyModel(), geometry)).rejects.toThrow();
+  });
+
+  it('refuses an older engine that ignores Tidy positions and rearranges the model', async () => {
+    const rearranged = geometry.map((element) => ({ ...element, x: element.x + 100 }));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ success: true, elements: rearranged }), { headers: { 'Content-Type': 'application/json' } })));
+    const wasm = new WasmEngineClient({ Layout: () => JSON.stringify({ success: true, elements: rearranged }) } as unknown as ConstructorParameters<typeof WasmEngineClient>[0]);
+
+    await expect(createHttpEngine('http://localhost').layout(emptyModel(), geometry)).rejects.toThrow(/did not preserve/);
+    await expect(wasm.layout(emptyModel(), geometry)).rejects.toThrow(/did not preserve/);
+  });
+
+  it('reports an HTTP failure instead of substituting a client arrangement', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 503, headers: { 'Content-Type': 'application/json' } })));
+
+    await expect(createHttpEngine('http://localhost').layout(emptyModel(), geometry)).rejects.toThrow(/503.*Nothing was changed/);
   });
 });

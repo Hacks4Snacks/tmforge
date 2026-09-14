@@ -10,6 +10,7 @@ namespace ThreatModelForge.Api.Tests
     using System.Threading.Tasks;
     using Microsoft.AspNetCore.Mvc.Testing;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
+    using ThreatModelForge.Engine;
 
     /// <summary>
     /// Tests the hosted <c>/v1</c> surface over real HTTP. The rest of this project drives
@@ -157,6 +158,54 @@ namespace ThreatModelForge.Api.Tests
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
             using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             Assert.AreEqual(JsonValueKind.Object, body.RootElement.ValueKind);
+        }
+
+        /// <summary>The HTTP layout route returns exactly the shared facade's author-id geometry.</summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task Layout_MatchesTheSharedEngine()
+        {
+            string request = "{\"model\":" + Model + ",\"positions\":[{\"id\":\"a\",\"x\":100,\"y\":150,\"width\":240,\"height\":120}]}";
+            JsonSerializerOptions options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            LayoutRequestDto input = JsonSerializer.Deserialize<LayoutRequestDto>(request, options) ?? new LayoutRequestDto();
+            string expected = JsonSerializer.Serialize(EngineService.Layout(input), options);
+
+            using HttpResponseMessage response = await PostJson("/v1/model/layout", request);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            Assert.AreEqual(expected, await response.Content.ReadAsStringAsync());
+        }
+
+        /// <summary>The HTTP route validates a Tidy candidate without moving it into new layers.</summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task Layout_PreservesProposedTidyPositions()
+        {
+            string request = "{\"model\":" + Model + ",\"positions\":[{\"id\":\"a\",\"x\":345,\"y\":678,\"width\":200,\"height\":120}]}";
+
+            using HttpResponseMessage response = await PostJson("/v1/model/layout", request);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.IsTrue(body.RootElement.GetProperty("success").GetBoolean());
+            JsonElement element = body.RootElement.GetProperty("elements")[0];
+            Assert.AreEqual("a", element.GetProperty("id").GetString());
+            Assert.AreEqual(345, element.GetProperty("x").GetInt32());
+            Assert.AreEqual(678, element.GetProperty("y").GetInt32());
+        }
+
+        /// <summary>A refusal is explicit and carries no partial geometry.</summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task Layout_ReportsInvalidInputWithoutPatches()
+        {
+            using HttpResponseMessage response = await PostJson("/v1/model/layout", "{}");
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.IsFalse(body.RootElement.GetProperty("success").GetBoolean());
+            Assert.AreEqual(0, body.RootElement.GetProperty("elements").GetArrayLength());
+            Assert.IsFalse(string.IsNullOrWhiteSpace(body.RootElement.GetProperty("error").GetString()));
         }
 
         /// <summary>Verifies the .tm7 export is delivered as a downloadable XML document.</summary>

@@ -228,6 +228,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/model/layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["LayoutModel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/model/export/tm7": {
         parameters: {
             query?: never;
@@ -411,6 +427,102 @@ export interface components {
         };
         HealthStatusDto: {
             status?: string;
+        };
+        LayoutElementDto: {
+            id?: string;
+            /** Format: int32 */
+            x?: number | string;
+            /** Format: int32 */
+            y?: number | string;
+            /** Format: int32 */
+            width?: number | string;
+            /** Format: int32 */
+            height?: number | string;
+        };
+        /**
+         * @description Tunable spacing parameters for DiagramLayout. Defaults produce a readable
+         *     layered diagram; callers may widen the gaps for larger stencils.
+         */
+        LayoutOptions: {
+            /**
+             * Format: int32
+             * @description Gets or sets the x coordinate of the top-left origin of the laid-out region.
+             */
+            originX?: number | string;
+            /**
+             * Format: int32
+             * @description Gets or sets the y coordinate of the top-left origin of the laid-out region.
+             */
+            originY?: number | string;
+            /**
+             * Format: int32
+             * @description Gets or sets the horizontal gap between adjacent layers (columns).
+             */
+            layerSpacing?: number | string;
+            /**
+             * Format: int32
+             * @description Gets or sets the vertical gap between adjacent nodes within a layer.
+             */
+            nodeSpacing?: number | string;
+            /**
+             * Format: int32
+             * @description Gets or sets the width a row of columns may occupy before the next column wraps onto a new
+             *     row. The Microsoft Threat Modeling Tool's drawing surface is bounded and taller than it is
+             *     wide, so a wide model has to grow downwards; anything drawn past the right-hand limit is
+             *     clamped by the tool on load, which would pile elements on top of each other.
+             */
+            maxWidth?: number | string;
+            /**
+             * Format: int32
+             * @description Gets or sets the padding between a trust boundary's edge and the members inside it.
+             */
+            boundaryPadding?: number | string;
+            /**
+             * Format: int32
+             * @description Gets or sets the extra headroom reserved at the top of a trust boundary for its title,
+             *     which is drawn inside the box and would otherwise print over the topmost member.
+             */
+            boundaryHeaderHeight?: number | string;
+            /**
+             * Format: int32
+             * @description Gets or sets the width one character of a data-flow label occupies. Labels are drawn as a
+             *     single unwrapped line, so this is what converts a flow's name into the space it needs.
+             */
+            labelCharacterWidth?: number | string;
+            /**
+             * Format: int32
+             * @description Gets or sets the height of a data-flow label.
+             */
+            labelHeight?: number | string;
+            /**
+             * Format: int32
+             * @description Gets or sets the perpendicular distance between adjacent label lanes.
+             */
+            labelLaneSpacing?: number | string;
+            /**
+             * Format: int32
+             * @description Gets or sets how many lanes either side of a connector a label may be pushed into before
+             *     the least-covered position is accepted. Larger values clear more labels at the cost of
+             *     bowing connectors further from a straight line.
+             */
+            labelLanes?: number | string;
+        };
+        LayoutRequestDto: {
+            model?: null | components["schemas"]["TmForgeModelDto"];
+            page?: null | string;
+            options?: null | components["schemas"]["LayoutOptions"];
+            positions?: null | components["schemas"]["LayoutElementDto"][];
+        };
+        LayoutResultDto: {
+            success?: boolean;
+            error?: null | string;
+            elements?: components["schemas"]["LayoutElementDto"][];
+            /** Format: int32 */
+            pages?: number | string;
+            /** Format: int32 */
+            components?: number | string;
+            /** Format: int32 */
+            labelOverlaps?: number | string;
         };
         ManifestRequestDto: {
             manifest?: null | string;
@@ -931,6 +1043,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MergeResultDto"];
+                };
+            };
+        };
+    };
+    LayoutModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LayoutRequestDto"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LayoutResultDto"];
                 };
             };
         };

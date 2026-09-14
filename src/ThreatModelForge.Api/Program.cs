@@ -109,6 +109,11 @@ namespace ThreatModelForge.Api
                 .WithName("MergeModels")
                 .WithTags("Model");
             app.MapPost(
+                "/v1/model/layout",
+                (LayoutRequestDto request) => TypedResults.Ok(EngineService.Layout(request)))
+                .WithName("LayoutModel")
+                .WithTags("Model");
+            app.MapPost(
                 "/v1/model/export/tm7",
                 (TmForgeModelDto model) => TypedResults.File(EngineService.ExportTm7(model, rules), "application/xml", "model.tm7"))
                 .WithName("ExportModelTm7")

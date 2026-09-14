@@ -84,6 +84,15 @@ export interface MergeResult {
   conflicts: MergeConflict[];
 }
 
+/** An engine-validated rectangle update. All semantic and author-owned data remains client-owned. */
+export interface LayoutElement {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 /** A file format the engine can read and/or write. */
 export interface FormatInfo {
   id: string;
@@ -263,6 +272,8 @@ export interface IEngineClient {
    * is unavailable for a two-way merge, where any overlapping difference is reported as a conflict.
    */
   merge(base: TmForgeModel | null, ours: TmForgeModel, theirs: TmForgeModel): Promise<MergeResult>;
+  /** Validates proposed Tidy geometry without rearranging it or changing trust claims. */
+  layout(model: TmForgeModel, positions: LayoutElement[]): Promise<LayoutElement[]>;
 }
 
 /**
@@ -314,6 +325,30 @@ function modelFromApplyResult(dto: components['schemas']['ApplyResultDto'] | und
     throw new Error(dto?.error ?? 'The manifest could not be applied.');
   }
   return toModel(dto.model);
+}
+
+/** A refused layout never falls back to an unvalidated client-side arrangement. */
+function layoutElements(dto: components['schemas']['LayoutResultDto'] | undefined, positions: LayoutElement[]): LayoutElement[] {
+  if (!dto?.success || !dto.elements) {
+    throw new Error(dto?.error ?? 'The engine did not return a validated arrangement.');
+  }
+  const elements = dto.elements.map((element) => {
+    if (!element.id || ![element.x, element.y, element.width, element.height].every((value) => typeof value === 'number' && Number.isSafeInteger(value))
+      || Number(element.width) < 20 || Number(element.height) < 20) {
+      throw new Error('The engine returned incomplete layout geometry. Nothing was changed.');
+    }
+    return { id: element.id, x: Number(element.x), y: Number(element.y), width: Number(element.width), height: Number(element.height) };
+  });
+  const proposed = new Map(positions.map((element) => [element.id, element]));
+  if (elements.length !== positions.length || new Set(elements.map((element) => element.id)).size !== elements.length
+    || elements.some((element) => {
+      const expected = proposed.get(element.id);
+      return !expected || element.x !== expected.x || element.y !== expected.y
+        || element.width !== expected.width || element.height !== expected.height;
+    })) {
+    throw new Error('The engine did not preserve the proposed Tidy layout. Update the engine; nothing was changed.');
+  }
+  return elements;
 }
 
 /** Encodes bytes as base64 for the engine's read/detect payloads. */
@@ -457,30 +492,39 @@ function toPropertyDescriptor(dto: components['schemas']['PropertyDescriptor']):
 
 /** Normalizes a generated TmForgeModelDto (all fields optional/nullable) onto the UI model. */
 export function toModel(dto: components['schemas']['TmForgeModelDto']): TmForgeModel {
+  const elements = (items: components['schemas']['TmForgeModelDto']['elements']) => (items ?? []).map((e) => ({
+    id: e.id ?? '',
+    kind: (e.kind ?? 'process') as DfdKind,
+    name: e.name ?? '',
+    x: Number(e.x ?? 0),
+    y: Number(e.y ?? 0),
+    width: e.width == null ? undefined : Number(e.width),
+    height: e.height == null ? undefined : Number(e.height),
+    properties: e.properties ?? {},
+  }));
+  const flows = (items: components['schemas']['TmForgeModelDto']['flows']) => (items ?? []).map((f) => ({
+    id: f.id ?? '',
+    source: f.source ?? '',
+    target: f.target ?? '',
+    name: f.name ?? '',
+    properties: f.properties ?? {},
+  }));
   return {
     schema: 'tmforge-json',
     version: '0.1',
-    elements: (dto.elements ?? []).map((e) => ({
-      id: e.id ?? '',
-      kind: (e.kind ?? 'process') as DfdKind,
-      name: e.name ?? '',
-      x: Number(e.x ?? 0),
-      y: Number(e.y ?? 0),
-      width: e.width == null ? undefined : Number(e.width),
-      height: e.height == null ? undefined : Number(e.height),
-      properties: e.properties ?? {},
-    })),
-    flows: (dto.flows ?? []).map((f) => ({
-      id: f.id ?? '',
-      source: f.source ?? '',
-      target: f.target ?? '',
-      name: f.name ?? '',
-      properties: f.properties ?? {},
+    elements: elements(dto.elements),
+    flows: flows(dto.flows),
+    diagrams: dto.diagrams?.map((page) => ({
+      id: page.id ?? '',
+      name: page.name ?? '',
+      elements: elements(page.elements),
+      flows: flows(page.flows),
     })),
     analysis: dto.analysis
       ? {
           disabledPacks: dto.analysis.disabledPacks ?? undefined,
           disabledRuleIds: dto.analysis.disabledRuleIds ?? undefined,
+          expectedPacks: dto.analysis.expectedPacks?.map((pack) => ({ id: pack.id ?? '', fingerprint: pack.fingerprint ?? '' })),
         }
       : undefined,
     threats: dto.threats?.map(toThreatTriage),
@@ -709,6 +753,10 @@ class OfflineEngineClient implements IEngineClient {
       new Error('Three-way merge requires the .NET engine. Start the API (or use the hosted app), then reload.'),
     );
   }
+
+  public layout(): Promise<LayoutElement[]> {
+    return Promise.reject(new Error('Tidy requires the .NET engine. Use Labels only until the engine is available.'));
+  }
 }
 
 class HttpEngineClient implements IEngineClient {
@@ -910,6 +958,16 @@ class HttpEngineClient implements IEngineClient {
     }
     return toMergeResult(data);
   }
+
+  public async layout(model: TmForgeModel, positions: LayoutElement[]): Promise<LayoutElement[]> {
+    const { data, response } = await this.client.POST('/v1/model/layout', {
+      body: { model, positions },
+    });
+    if (!response.ok) {
+      throw new Error(`Engine layout failed (${response.status}). Nothing was changed.`);
+    }
+    return layoutElements(data, positions);
+  }
 }
 
 /** The `[JSExport]` methods on the WASM `ThreatModelForge.Wasm.Engine` type (all string in/out). */
@@ -934,6 +992,7 @@ interface WasmEngineExports {
   RuleBundle(): string;
   Analysis(tmforgeJson: string): string;
   AnalysisReport(tmforgeJson: string, format: string): string;
+  Layout(requestJson: string): string;
 }
 
 /**
@@ -941,7 +1000,7 @@ interface WasmEngineExports {
  * engine the `/v1` API runs (both go through the shared `ThreatModelForge.Engine` facade); only the
  * transport differs. tmforge-json crosses the boundary as a string, binary documents as base64.
  */
-class WasmEngineClient implements IEngineClient {
+export class WasmEngineClient implements IEngineClient {
   public readonly label = 'engine (wasm)';
 
   private readonly wasm: WasmEngineExports;
@@ -1048,6 +1107,10 @@ class WasmEngineClient implements IEngineClient {
       this.wasm.Merge(base ? JSON.stringify(base) : '', JSON.stringify(ours), JSON.stringify(theirs)),
     ) as components['schemas']['MergeResultDto'];
     return toMergeResult(dto);
+  }
+
+  public async layout(model: TmForgeModel, positions: LayoutElement[]): Promise<LayoutElement[]> {
+    return layoutElements(JSON.parse(this.wasm.Layout(JSON.stringify({ model, positions }))), positions);
   }
 }
 
