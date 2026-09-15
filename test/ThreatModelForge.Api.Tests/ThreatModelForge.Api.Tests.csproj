@@ -21,4 +21,8 @@
     <ProjectReference Include="..\..\src\ThreatModelForge.Engine\ThreatModelForge.Engine.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\Fixtures\additional-matchers.json" Link="Fixtures\additional-matchers.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

@@ -4,12 +4,14 @@ namespace ThreatModelForge.Api.Tests
     using System.IO;
     using System.Net;
     using System.Net.Http;
+    using System.Net.Http.Json;
     using System.Text;
     using System.Text.Json;
     using System.Threading.Tasks;
     using Microsoft.AspNetCore.Hosting;
     using Microsoft.AspNetCore.Mvc.Testing;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
+    using ThreatModelForge.Engine;
 
     /// <summary>
     /// Tests the host's startup rule loading. Custom packs are deployment configuration read once at
@@ -146,6 +148,24 @@ namespace ThreatModelForge.Api.Tests
             Assert.AreEqual(2, packs.GetArrayLength(), "both packs in the separated list must load.");
             Assert.AreEqual("pack-one", packs[0].GetProperty("id").GetString());
             Assert.AreEqual("pack-two", packs[1].GetProperty("id").GetString());
+        }
+
+        /// <summary>The HTTP host evaluates added matchers identically to the shared engine.</summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task AdditionalMatchersMatchTheSharedEngine()
+        {
+            (TmForgeModelDto model, EngineRuleOptions rules) = EngineCustomRulesTest.AdditionalMatchers();
+            string path = Path.Join(this.WorkingDirectory, "additional-matchers.tmrules.json");
+            File.WriteAllText(path, rules.Sources![0].Json);
+            using WebApplicationFactory<HealthStatusDto> factory = HostWithRules(path);
+            using HttpClient client = factory.CreateClient();
+            using HttpResponseMessage response = await client.PostAsJsonAsync("/v1/model/analysis", model);
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            AnalysisResultDto? actual = await response.Content.ReadFromJsonAsync<AnalysisResultDto>();
+            Assert.IsNotNull(actual);
+            AnalysisResultDto expected = EngineService.RunAnalysis(model, rules);
+            Assert.AreEqual(JsonSerializer.Serialize(expected), JsonSerializer.Serialize(actual));
         }
 
         /// <summary>Builds a host that loads rule packs from the given paths.</summary>

@@ -6,6 +6,7 @@ namespace ThreatModelForge.Cli.Tests
     using System.Linq;
     using System.Text.Json;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
+    using ThreatModelForge.Engine;
 
     /// <summary>
     /// Tests that <c>analyze --reportFolder</c> writes the versioned analysis document.
@@ -141,7 +142,47 @@ namespace ThreatModelForge.Cli.Tests
                 "A suppressed finding must not also claim a place in the threat register.");
         }
 
-        private static void Run(string[] args)
+        /// <summary>CLI reports evaluate the same numeric, regex, and graph policy as the engine.</summary>
+        [TestMethod]
+        public void AdditionalMatchersAgreeWithTheEngine()
+        {
+            using JsonDocument fixture = JsonDocument.Parse(File.ReadAllText(Path.Join(AppContext.BaseDirectory, "Fixtures", "additional-matchers.json")));
+            string modelJson = fixture.RootElement.GetProperty("model").GetRawText();
+            string packJson = fixture.RootElement.GetProperty("pack").GetRawText();
+            string modelPath = Path.Join(this.WorkingDirectory, "model.json");
+            string rulesPath = Path.Join(this.WorkingDirectory, "matchers.tmrules.json");
+            File.WriteAllText(modelPath, modelJson);
+            File.WriteAllText(rulesPath, packJson);
+            string reports = Path.Join(this.WorkingDirectory, "reports");
+
+            int exit = Run(new[] { modelPath, "--rules", rulesPath, "--reportFolder", reports });
+
+            Assert.AreEqual(2, exit);
+            JsonElement[] actual = ReadDocument(reports).GetProperty("findings").EnumerateArray()
+                .Where(finding => finding.GetProperty("ruleId").GetString()?.StartsWith("rule005/", StringComparison.Ordinal) == true).ToArray();
+            TmForgeModelDto model = JsonSerializer.Deserialize<TmForgeModelDto>(modelJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                ?? throw new InvalidDataException("The matcher fixture requires a model.");
+            EngineRuleOptions rules = new EngineRuleOptions
+            {
+                Sources = new[] { new RuleSourceDto { Name = "matchers.tmrules.json", Json = packJson } },
+            };
+            AnalysisResultDto expected = EngineService.Analyze(model, rules);
+            Assert.AreEqual(3, actual.Length);
+            foreach (JsonElement finding in actual)
+            {
+                FindingDto engine = expected.Findings.Single(entry => entry.RuleId == finding.GetProperty("ruleId").GetString());
+                Assert.AreEqual(engine.Message, finding.GetProperty("message").GetString());
+                Assert.AreEqual(engine.Severity, finding.GetProperty("severity").GetString());
+                Assert.AreEqual("generated-threat", finding.GetProperty("disposition").GetString());
+            }
+
+            string repeated = Path.Join(this.WorkingDirectory, "repeated");
+            Assert.AreEqual(2, Run(new[] { modelPath, "--rules", rulesPath, "--reportFolder", repeated }));
+            Assert.AreEqual(ReadDocument(reports).GetRawText(), ReadDocument(repeated).GetRawText());
+            Assert.AreEqual(modelJson, File.ReadAllText(modelPath));
+        }
+
+        private static int Run(string[] args)
         {
             TextWriter originalOut = Console.Out;
             TextWriter originalError = Console.Error;
@@ -151,7 +192,7 @@ namespace ThreatModelForge.Cli.Tests
             Console.SetError(errorWriter);
             try
             {
-                AnalyzeCommand.Run(args);
+                return AnalyzeCommand.Run(args);
             }
             finally
             {

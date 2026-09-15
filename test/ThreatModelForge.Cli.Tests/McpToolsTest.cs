@@ -6,6 +6,7 @@ namespace ThreatModelForge.Cli.Tests
     using System.IO;
     using System.IO.Compression;
     using System.Linq;
+    using System.Text.Json;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
     using ThreatModelForge.Engine;
@@ -90,6 +91,28 @@ namespace ThreatModelForge.Cli.Tests
 
             IReadOnlyList<FindingDto> findings = McpModelTools.Analyze(applied.Model!, CreateServices(this.WorkingDirectory));
             Assert.IsFalse(findings.Any(finding => finding.Id == "engine-error"));
+        }
+
+        /// <summary>The sandboxed MCP rule path preserves results from all three added matcher families.</summary>
+        [TestMethod]
+        public void AdditionalMatchersAgreeWithTheEngine()
+        {
+            using JsonDocument fixture = JsonDocument.Parse(File.ReadAllText(Path.Join(AppContext.BaseDirectory, "Fixtures", "additional-matchers.json")));
+            TmForgeModelDto model = fixture.RootElement.GetProperty("model").Deserialize<TmForgeModelDto>(new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                ?? throw new InvalidDataException("The matcher fixture requires a model.");
+            string packJson = fixture.RootElement.GetProperty("pack").GetRawText();
+            File.WriteAllText(Path.Join(this.WorkingDirectory, "matchers.tmrules.json"), packJson);
+            using ServiceProvider services = CreateServices(this.WorkingDirectory);
+            EngineRuleOptions rules = new EngineRuleOptions
+            {
+                Sources = new[] { new RuleSourceDto { Name = "matchers.tmrules.json", Json = packJson } },
+            };
+
+            IReadOnlyList<FindingDto> actual = McpModelTools.Analyze(model, services, rulesPath: "matchers.tmrules.json");
+            IReadOnlyList<FindingDto> expected = EngineService.Analyze(model, rules).Findings;
+
+            Assert.AreEqual(3, actual.Count(finding => finding.RuleId?.StartsWith("rule005/", StringComparison.Ordinal) == true));
+            Assert.AreEqual(JsonSerializer.Serialize(expected), JsonSerializer.Serialize(actual));
         }
 
         /// <summary>
