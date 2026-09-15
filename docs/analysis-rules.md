@@ -201,6 +201,10 @@ tmforge analyze model.tm7 --rules ./rules.tmrules.json   # one spec file
 tmforge analyze model.tm7 --rules ./rules/               # a directory of specs (searched recursively)
 ```
 
+The [starter rule-pack library](../examples/README.md#starter-rule-packs) provides opt-in PCI-inspired,
+HIPAA-inspired, and internal-service examples, with a runnable synthetic model, source/control
+references, and tested command snippets. These examples do not certify compliance.
+
 To compile an existing MTMT template instead of hand-authoring JSON, use [`rules import`](cli-reference.md#rules):
 
 ```bash

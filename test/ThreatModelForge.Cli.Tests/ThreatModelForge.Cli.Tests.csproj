@@ -21,6 +21,8 @@
 
   <ItemGroup>
     <Content Include="..\Fixtures\additional-matchers.json" Link="Fixtures\additional-matchers.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\examples\rule-packs\*.json" Link="Fixtures\Examples\rule-packs\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\examples\README.md" Link="Fixtures\Examples\README.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
