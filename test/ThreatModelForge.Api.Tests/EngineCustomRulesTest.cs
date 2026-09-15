@@ -2,8 +2,10 @@ namespace ThreatModelForge.Api.Tests
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Linq;
     using System.Text;
+    using System.Text.Json;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
     using ThreatModelForge.Engine;
 
@@ -225,6 +227,111 @@ namespace ThreatModelForge.Api.Tests
 
             Assert.AreEqual(0, bundle.RulePacks.Count);
             Assert.IsTrue(bundle.Diagnostics.Any(message => message.Contains("broken.tmrules.json", StringComparison.Ordinal)));
+        }
+
+        /// <summary>New predicates preserve finding/threat identities, reports, and exported model semantics.</summary>
+        /// <param name="format">The round-trip format.</param>
+        [TestMethod]
+        [DataRow("tmforge-json")]
+        [DataRow("tm7")]
+        public void AdditionalMatchersPreserveResultsAcrossFormats(string format)
+        {
+            (TmForgeModelDto model, EngineRuleOptions rules) = AdditionalMatchers();
+            AnalysisResultDto original = EngineService.RunAnalysis(model, rules);
+            Assert.AreEqual(0, original.Diagnostics.Count);
+            FindingDto[] findings = original.Findings.Where(finding => finding.RuleId?.StartsWith("rule005/", StringComparison.Ordinal) == true).ToArray();
+            ThreatDto[] threats = original.Threats.Where(threat => threat.RuleId?.StartsWith("rule005/", StringComparison.Ordinal) == true).ToArray();
+            CollectionAssert.AreEquivalent(
+                new[] { "rule005/RETENTION", "rule005/SERVICE-NAME", "rule005/AUDIT-PATH" },
+                findings.Select(finding => finding.RuleId).ToArray());
+            Assert.AreEqual(3, threats.Length);
+            Assert.IsTrue(threats.All(threat => threat.CategoryId == "rule005/policy" && threat.Priority == "High"));
+
+            byte[] bytes = EngineService.Convert(model, format, rules);
+            TmForgeModelDto restored = EngineService.ReadModel(bytes, format);
+            AnalysisResultDto roundTrip = EngineService.RunAnalysis(restored, rules);
+            CollectionAssert.AreEquivalent(findings.Select(finding => finding.Id).ToArray(), roundTrip.Findings
+                .Where(finding => finding.RuleId?.StartsWith("rule005/", StringComparison.Ordinal) == true).Select(finding => finding.Id).ToArray());
+            CollectionAssert.AreEquivalent(threats.Select(threat => threat.Id).ToArray(), roundTrip.Threats
+                .Where(threat => threat.RuleId?.StartsWith("rule005/", StringComparison.Ordinal) == true).Select(threat => threat.Id).ToArray());
+            Assert.IsFalse(roundTrip.Findings.Any(finding => finding.Id == "engine-error"));
+            Assert.AreEqual(original.RulePacks.Single().Fingerprint, roundTrip.RulePacks.Single().Fingerprint);
+            string html = Encoding.UTF8.GetString(EngineService.Report(model, "html", rules));
+            StringAssert.Contains(html, "retention between 1 and 30 days");
+            StringAssert.Contains(html, "service name beginning with svc-");
+            StringAssert.Contains(html, "lacks a direct audit-store connection");
+        }
+
+        /// <summary>Existing per-rule and per-pack toggles apply to every new matcher.</summary>
+        /// <param name="disablePack">Whether to disable the whole pack.</param>
+        [TestMethod]
+        [DataRow(false)]
+        [DataRow(true)]
+        public void AdditionalMatchersHonorDisabledSelections(bool disablePack)
+        {
+            (TmForgeModelDto model, EngineRuleOptions rules) = AdditionalMatchers();
+            TmForgeModelDto selected = new TmForgeModelDto
+            {
+                Elements = model.Elements,
+                Flows = model.Flows,
+                Analysis = new TmForgeAnalysisDto
+                {
+                    DisabledPacks = disablePack ? new[] { "rule005" } : Array.Empty<string>(),
+                    DisabledRuleIds = disablePack ? Array.Empty<string>() : new[] { "rule005/RETENTION" },
+                },
+            };
+            AnalysisResultDto result = EngineService.RunAnalysis(selected, rules);
+            Assert.AreEqual(disablePack ? 0 : 2, result.Findings.Count(finding => finding.RuleId?.StartsWith("rule005/", StringComparison.Ordinal) == true));
+            Assert.IsFalse(result.Findings.Any(finding => finding.RuleId == "rule005/RETENTION" || finding.Id == "engine-error"));
+        }
+
+        /// <summary>A regex timeout is a visible failure in both projections, not an empty successful analysis.</summary>
+        [TestMethod]
+        public void RegexTimeoutIsVisibleOnTheEngineFacade()
+        {
+            EngineRuleOptions rules = new EngineRuleOptions
+            {
+                Sources = new[]
+                {
+                    new RuleSourceDto
+                    {
+                        Name = "timeout.tmrules.json",
+                        Json = "{\"rules\":[{\"id\":\"TIMEOUT\",\"appliesTo\":\"process\",\"message\":\"timeout\",\"assert\":{\"property\":\"Value\",\"matches\":\"^(a+)+$\"}}]}",
+                    },
+                },
+            };
+            TmForgeModelDto model = new TmForgeModelDto
+            {
+                Elements = new[]
+                {
+                    new TmForgeElementDto
+                    {
+                        Id = "timeout",
+                        Kind = "process",
+                        Properties = new Dictionary<string, string> { ["Value"] = new string('a', 4095) + "!" },
+                    },
+                },
+            };
+
+            AnalysisResultDto result = EngineService.RunAnalysis(model, rules);
+
+            StringAssert.Contains(result.Findings.Single(finding => finding.Id == "engine-error").Message, "TIMEOUT");
+            StringAssert.Contains(result.Threats.Single(threat => threat.Id == "engine-error").Title, "timeout");
+            Assert.IsFalse(result.Findings.Any(finding => finding.RuleId == "TIMEOUT"));
+        }
+
+        /// <summary>Reads identical rule content and model input for direct-engine and HTTP parity checks.</summary>
+        /// <returns>The fixture model and rule sources.</returns>
+        internal static (TmForgeModelDto Model, EngineRuleOptions Rules) AdditionalMatchers()
+        {
+            using JsonDocument fixture = JsonDocument.Parse(File.ReadAllText(Path.Join(AppContext.BaseDirectory, "Fixtures", "additional-matchers.json")));
+            TmForgeModelDto model = fixture.RootElement.GetProperty("model").Deserialize<TmForgeModelDto>(new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                ?? throw new InvalidDataException("The matcher fixture requires a model.");
+            EngineRuleOptions rules = new EngineRuleOptions
+            {
+                Sources = new[] { new RuleSourceDto { Name = "additional-matchers.tmrules.json", Json = fixture.RootElement.GetProperty("pack").GetRawText() } },
+            };
+            return (model, rules);
         }
 
         private static EngineRuleOptions Rules()
