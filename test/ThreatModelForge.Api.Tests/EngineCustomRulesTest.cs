@@ -230,6 +230,29 @@ namespace ThreatModelForge.Api.Tests
             Assert.IsTrue(bundle.Diagnostics.Any(message => message.Contains("broken.tmrules.json", StringComparison.Ordinal)));
         }
 
+        /// <summary>The combined metadata operation retains the existing catalog and diagnostics contracts.</summary>
+        /// <param name="selection">The rule source selection.</param>
+        [TestMethod]
+        [DataRow("built-in")]
+        [DataRow("custom")]
+        [DataRow("invalid")]
+        public void RulePackCatalogAndMetadataDescribeOneBundle(string selection)
+        {
+            EngineRuleOptions? rules = selection == "built-in" ? null : selection == "custom" ? Rules() : new EngineRuleOptions
+            {
+                Sources = new[] { new RuleSourceDto { Name = "invalid.tmrules.json", Json = "{ invalid json" } },
+            };
+            RuleBundleDto metadata = EngineService.DescribeRules(rules, out IReadOnlyList<RulePackDto> catalog);
+            Assert.AreEqual(JsonSerializer.Serialize(EngineService.GetRulePacks(rules)), JsonSerializer.Serialize(catalog));
+            Assert.AreEqual(JsonSerializer.Serialize(EngineService.DescribeRules(rules)), JsonSerializer.Serialize(metadata));
+            Assert.AreEqual(selection == "custom" ? 1 : 0, metadata.RulePacks.Count);
+            Assert.AreEqual(selection == "invalid", metadata.Diagnostics.Count > 0);
+            foreach (RulePackInfoDto pack in metadata.RulePacks)
+            {
+                Assert.AreEqual(pack.RuleCount, catalog.Single(entry => entry.Id == pack.Id).Count);
+            }
+        }
+
         /// <summary>New predicates preserve finding/threat identities, reports, and exported model semantics.</summary>
         /// <param name="format">The round-trip format.</param>
         [TestMethod]
