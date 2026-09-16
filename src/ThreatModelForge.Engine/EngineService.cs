@@ -143,43 +143,10 @@ namespace ThreatModelForge.Engine
         /// <returns>The available rule packs, in presentation order.</returns>
         public static IReadOnlyList<RulePackDto> GetRulePacks(EngineRuleOptions? rules)
         {
-            Dictionary<string, int> counts = new Dictionary<string, int>(StringComparer.Ordinal);
-            Dictionary<string, string> customNames = new Dictionary<string, string>(StringComparer.Ordinal);
             using (RuleSet ruleSet = LoadRuleSet(rules, null, out IReadOnlyList<RulePackDefinition> packs))
             {
-                foreach (Rule rule in ruleSet.Rules)
-                {
-                    counts[rule.Pack] = counts.TryGetValue(rule.Pack, out int existing) ? existing + 1 : 1;
-                }
-
-                foreach (RulePackDefinition pack in packs)
-                {
-                    customNames[pack.Id] = pack.Name;
-                }
+                return MapRulePackCatalog(packs, ruleSet);
             }
-
-            List<RulePackDto> result = new List<RulePackDto>();
-            foreach (KeyValuePair<string, string> pack in RulePackCatalog.Ordered)
-            {
-                bool found = counts.TryGetValue(pack.Key, out int known);
-                if (found)
-                {
-                    result.Add(new RulePackDto { Id = pack.Key, Name = pack.Value, Count = known });
-                    counts.Remove(pack.Key);
-                }
-            }
-
-            List<string> remaining = new List<string>(counts.Keys);
-            remaining.Sort(StringComparer.Ordinal);
-            foreach (string packId in remaining)
-            {
-                string name = customNames.TryGetValue(packId, out string? custom)
-                    ? custom
-                    : RulePackCatalog.DisplayName(packId);
-                result.Add(new RulePackDto { Id = packId, Name = name, Count = counts[packId] });
-            }
-
-            return result;
         }
 
         /// <summary>
@@ -189,13 +156,20 @@ namespace ThreatModelForge.Engine
         /// </summary>
         /// <param name="rules">The custom rule content to load, or <see langword="null"/> for built-in rules only.</param>
         /// <returns>The effective packs and load diagnostics.</returns>
-        public static RuleBundleDto DescribeRules(EngineRuleOptions? rules)
+        public static RuleBundleDto DescribeRules(EngineRuleOptions? rules) => DescribeRules(rules, out _);
+
+        /// <summary>Returns catalog counts and custom metadata from one effective rule-set load.</summary>
+        /// <param name="rules">The custom rule content, or <see langword="null"/> for built-ins only.</param>
+        /// <param name="catalog">The built-in and custom pack catalog in presentation order.</param>
+        /// <returns>The custom pack identities and diagnostics from the same load.</returns>
+        public static RuleBundleDto DescribeRules(EngineRuleOptions? rules, out IReadOnlyList<RulePackDto> catalog)
         {
             List<string> diagnostics = new List<string>();
             IReadOnlyList<RulePackInfoDto> effective;
             using (RuleSet ruleSet = LoadRuleSet(rules, diagnostics, out IReadOnlyList<RulePackDefinition> packs))
             {
                 effective = MapRulePacks(packs, ruleSet);
+                catalog = MapRulePackCatalog(packs, ruleSet);
             }
 
             return new RuleBundleDto { RulePacks = effective, Diagnostics = diagnostics };
@@ -1663,6 +1637,44 @@ namespace ThreatModelForge.Engine
             Action<string>? sink = diagnostics == null ? null : new Action<string>(diagnostics.Add);
             RuleSourceOptions options = new RuleSourceOptions(null, sink, contents);
             return AnalysisRuleSources.Create(options, out packs);
+        }
+
+        private static IReadOnlyList<RulePackDto> MapRulePackCatalog(IReadOnlyList<RulePackDefinition> packs, RuleSet ruleSet)
+        {
+            Dictionary<string, int> counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            Dictionary<string, string> customNames = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (Rule rule in ruleSet.Rules)
+            {
+                counts[rule.Pack] = counts.TryGetValue(rule.Pack, out int existing) ? existing + 1 : 1;
+            }
+
+            foreach (RulePackDefinition pack in packs)
+            {
+                customNames[pack.Id] = pack.Name;
+            }
+
+            List<RulePackDto> result = new List<RulePackDto>();
+            foreach (KeyValuePair<string, string> pack in RulePackCatalog.Ordered)
+            {
+                bool found = counts.TryGetValue(pack.Key, out int known);
+                if (found)
+                {
+                    result.Add(new RulePackDto { Id = pack.Key, Name = pack.Value, Count = known });
+                    counts.Remove(pack.Key);
+                }
+            }
+
+            List<string> remaining = new List<string>(counts.Keys);
+            remaining.Sort(StringComparer.Ordinal);
+            foreach (string packId in remaining)
+            {
+                string name = customNames.TryGetValue(packId, out string? custom)
+                    ? custom
+                    : RulePackCatalog.DisplayName(packId);
+                result.Add(new RulePackDto { Id = packId, Name = name, Count = counts[packId] });
+            }
+
+            return result;
         }
 
         /// <summary>

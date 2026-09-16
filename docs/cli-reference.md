@@ -1091,8 +1091,8 @@ tmforge mcp [--root <path>] [--max-read-bytes <n>] [--max-write-bytes <n>]
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--root <path>` | Process working directory | Workspace root for every MCP file read and write. Relative tool paths resolve beneath it; traversal and symbolic-link escapes are rejected. |
-| `--max-read-bytes <n>` | `67108864` (64 MiB) | Maximum size of one model file read by `read` or `detect`; for VSDX, the same budget also caps total expanded ZIP content. |
+| `--root <path>` | Process working directory | Workspace root for every MCP file read and write. Relative tool and resource paths resolve beneath it; traversal and symbolic-link escapes are rejected. |
+| `--max-read-bytes <n>` | `67108864` (64 MiB) | Maximum size of one model or rule file read; for VSDX, the same budget also caps total expanded ZIP content. Rule loading also applies the engine's pack-size limits. |
 | `--max-write-bytes <n>` | `67108864` (64 MiB) | Maximum serialized output accepted by `save`, enforced while the format writes. |
 
 Configure your MCP client to launch the tool:
@@ -1122,12 +1122,82 @@ an optional `rulesPath` naming a `*.tmrules.json` pack. It is resolved through t
 sandbox as
 every other file access, so an agent cannot load rules from outside `--root`.
 
+#### Grounding resources
+
+Clients with resource support can use `resources/list` and `resources/read` to obtain the same
+grounding without invoking a tool. Existing grounding tools keep their names and result shapes and
+remain supported for at least one release after this addition; resource support is optional.
+
+| Resource URI | Content |
+| --- | --- |
+| `tmforge://grounding/v1/formats` | Supported format catalog, matching the `formats` tool. |
+| `tmforge://grounding/v1/property-schema` | Typed property catalog, matching `property_schema`. |
+| `tmforge://grounding/v1/manifest-schema` | Manifest authoring guide, matching `manifest_schema`, including pages, optional geometry, and stable flow aliases. This is text guidance, not a JSON Schema validation document. |
+| `tmforge://grounding/v1/rule-packs` | Built-in pack catalog; no custom source is selected. |
+
+All resource responses contain one `TextResourceContents` entry with MIME type `application/json`.
+Parse its `text` as this versioned envelope:
+
+| Field | Meaning |
+| --- | --- |
+| `schema`, `version` | `tmforge-grounding`, `1`; reject unsupported versions. This is the resource-envelope version, not the manifest or rule-pack version. |
+| `kind` | The catalog identifier from the URI. |
+| `engineVersion` | The engine informational version, including available build identity. |
+| `contentType` | `application/json` for catalogs; `text/plain` for the manifest guide. |
+| `content` | The exact catalog JSON or guide text, encoded as a JSON string. Decode this string before processing it. |
+| `fingerprint` | `sha256:` followed by 64 lowercase hex digits, computed over the UTF-8 bytes of the decoded `content` string. Do not reformat the inner JSON before verifying it. |
+
+The fixed resources are immutable within the server process. Cache by server/workspace identity,
+URI, envelope version, engine version, and content fingerprint; a URI alone is not a permanent
+content identity across engine upgrades. These fingerprints identify grounding content, not an
+analysis result, and do not prove the currently selected model/rules have been analyzed.
+
+`resources/templates/list` also advertises:
+
+```text
+tmforge://grounding/v1/rule-packs/custom{?rulesPath,fingerprint}
+```
+
+`rulesPath` is required and names one custom rule file inside `--root`, just as on the compatibility
+tools. URI-encode the entire path value, including spaces, slashes, `+`, `#`, and `%`. For example,
+after the normal MCP initialization handshake:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"resources/list"}
+{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"tmforge://grounding/v1/formats"}}
+{"jsonrpc":"2.0","id":3,"method":"resources/read","params":{"uri":"tmforge://grounding/v1/rule-packs/custom?rulesPath=rules%2Fcorporate.tmrules.json"}}
+```
+
+The rule-pack `content` contains `rulePacks` (the effective catalog with counts), `customPacks`
+(v2 custom-pack identity, version, dialect, content fingerprint, and effective count), `diagnostics`,
+and `sources` (logical file name and selected-source fingerprint). Counts and diagnostics come from
+one rule-set load. Built-ins are represented in `rulePacks`, not mislabelled as custom content.
+Legacy unversioned sources have no v2 pack identity, but their source hash still changes when their
+rules change. Source hashes cover decoded rule text encoded as UTF-8, matching MCP rule loading;
+they are not necessarily hashes of original BOM/UTF-16 file bytes.
+
+To pin a subsequent read, append `&fingerprint=` followed by the URI-encoded envelope fingerprint
+from the first response. A stale pin returns an explicit MCP fingerprint-mismatch error with the
+current hash and refresh guidance; it never silently returns a different snapshot. Pins do not
+retain historical content, select analysis rules, or bypass access checks. Each custom read,
+including pinned reads, reopens the file through the existing workspace sandbox and byte limits.
+Malformed packs retain their diagnostics and source hash; a built-ins-only catalog with load
+diagnostics is not evidence that the requested custom policy is available.
+
+There is no file watching or file-change notification for custom packs. Re-read after policy edits
+or reconnecting; do not cache a successful read forever. Resource responses use the existing MCP
+structured-response size checks, and unexpected server errors remain masked. No file or model is
+written by a resource read.
+
+#### Model workflow and limits
+
 A typical agent loop is **apply -> analyze -> set -> analyze -> save**: build a model from a manifest
 (or incrementally with `add`/`connect`), analyze it, resolve findings by setting the properties the
 rules read (for example `Protocol=HTTPS`), then materialize a `.tm7` with `save`. The JSON-RPC
 protocol owns stdout; all diagnostics go to stderr.
 
-**Filesystem boundary.** `read`, `detect`, and `save` are the only tools that access local files.
+**Filesystem boundary.** Model file tools (`read`, `detect`, and `save`), tools selecting a
+`rulesPath`, and custom grounding resources use the same file sandbox.
 They accept paths inside `--root`; absolute paths are allowed only when they resolve inside that same
 root. The server canonicalizes every existing path component and follows symbolic links only when
 their final target remains inside the root. A missing intermediate directory is rejected rather than
