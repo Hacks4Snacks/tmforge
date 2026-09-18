@@ -246,17 +246,8 @@ namespace ThreatModelForge.Formats
                 throw new ArgumentNullException(nameof(stream));
             }
 
-            string text;
-            using (StreamReader reader = new StreamReader(
-                stream,
-                Encoding.UTF8,
-                detectEncodingFromByteOrderMarks: true,
-                bufferSize: 1024,
-                leaveOpen: true))
-            {
-                text = reader.ReadToEnd();
-            }
-
+            string text = JsonDocumentPreflight.ReadText(stream);
+            JsonModelPreflight.ThrowIfInvalid(JsonModelPreflight.Inspect(text));
             TmForgeJsonModel document = JsonSerializer.Deserialize<TmForgeJsonModel>(text, SerializerOptions)
                 ?? new TmForgeJsonModel();
 

@@ -485,6 +485,45 @@
         }
       }
     },
+    "/v1/model/preflight": {
+      "post": {
+        "tags": [
+          "Model"
+        ],
+        "operationId": "PreflightModel",
+        "parameters": [
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileContentDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreflightResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/model/manifest": {
       "post": {
         "tags": [
@@ -794,6 +833,28 @@
             "format": "int32"
           }
         }
+      },
+      "DocumentDiagnostic": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Gets the stable diagnostic code."
+          },
+          "severity": {
+            "type": "string",
+            "description": "Gets the severity: error, warning or info."
+          },
+          "path": {
+            "type": "string",
+            "description": "Gets the location in the source document, using JSONPath for JSON input."
+          },
+          "message": {
+            "type": "string",
+            "description": "Gets the actionable diagnostic text."
+          }
+        },
+        "description": "A structural input or conversion diagnostic, separate from security findings."
       },
       "ExpectedRulePackDto": {
         "type": "object",
@@ -1321,6 +1382,32 @@
           }
         },
         "description": "Describes a stencil pack: a named, togglable group of related stencils (for example, the\nAzure pack). The palette uses packs so the user can show or hide whole families at once."
+      },
+      "PreflightResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "format": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "targetFormat": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentDiagnostic"
+            }
+          }
+        }
       },
       "PropertyDescriptor": {
         "type": "object",

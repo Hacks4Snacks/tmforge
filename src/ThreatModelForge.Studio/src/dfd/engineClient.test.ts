@@ -199,6 +199,35 @@ describe('engine model normalization', () => {
   });
 });
 
+describe('preflight transports', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('returns identical structured diagnostics over HTTP and WASM', async () => {
+    const result = {
+      success: false, format: 'tmforge-json', targetFormat: 'drawio',
+      diagnostics: [{ code: 'model.unresolved-endpoint', severity: 'error', path: '$.flows[0].target', message: 'Missing target.' }],
+    };
+    const bytes = new TextEncoder().encode('{"schema":"tmforge-json"}');
+    const preflight = vi.fn(() => JSON.stringify(result));
+    vi.stubGlobal('fetch', vi.fn(async (request: Request) => {
+      expect(request.url).toBe('http://localhost/v1/model/preflight?to=drawio');
+      expect(await request.json()).toEqual({ contentBase64: btoa(new TextDecoder().decode(bytes)), formatId: 'tmforge-json' });
+      return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
+    }));
+    const wasm = new WasmEngineClient({ Preflight: preflight } as unknown as ConstructorParameters<typeof WasmEngineClient>[0]);
+
+    expect(await createHttpEngine('http://localhost').preflight(bytes, 'tmforge-json', 'drawio')).toEqual(result);
+    expect(await wasm.preflight(bytes, 'tmforge-json', 'drawio')).toEqual(result);
+    expect(preflight).toHaveBeenCalledWith(btoa(new TextDecoder().decode(bytes)), 'tmforge-json', 'drawio');
+  });
+
+  it('does not pretend offline or incomplete preflight succeeded', async () => {
+    await expect(offlineEngine.preflight(new Uint8Array())).rejects.toThrow(/requires the .NET engine/);
+    const wasm = new WasmEngineClient({ Preflight: () => '{}' } as unknown as ConstructorParameters<typeof WasmEngineClient>[0]);
+    await expect(wasm.preflight(new Uint8Array())).rejects.toThrow(/complete preflight/);
+  });
+});
+
 describe('layout transports', () => {
   afterEach(() => vi.unstubAllGlobals());
 

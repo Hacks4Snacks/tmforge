@@ -528,6 +528,7 @@ describe('Editor import-only formats', () => {
     const format = { id: 'threat-dragon', displayName: 'Threat Dragon', canRead: true, canWrite: false, roundTrips: false, extensions: [], fidelityNote: 'Import only' };
     engineState.current = Object.assign(Object.create(offlineEngine) as IEngineClient, {
       label: 'import test engine', detect: async () => format, readFile, write: writeModel,
+      preflight: async () => ({ success: true, format: 'threat-dragon', diagnostics: [] }),
     });
     Object.defineProperty(window, 'showOpenFilePicker', { configurable: true, value: open });
     Object.defineProperty(window, 'showSaveFilePicker', { configurable: true, value: save });
@@ -550,6 +551,93 @@ describe('Editor import-only formats', () => {
     } finally {
       Reflect.deleteProperty(window, 'showOpenFilePicker');
       Reflect.deleteProperty(window, 'showSaveFilePicker');
+    }
+  });
+});
+
+describe('Editor preflight review', () => {
+  async function prepare(result: Awaited<ReturnType<IEngineClient['preflight']>>) {
+    const { offlineEngine } = await import('./engineClient');
+    const model = await offlineEngine.read(JSON.stringify(chain()));
+    model.elements[0].name = 'Imported Alpha';
+    const readFile = vi.fn(async () => model);
+    const preflight = vi.fn(async () => result);
+    engineState.current = Object.assign(Object.create(offlineEngine) as IEngineClient, {
+      label: 'preflight test engine', preflight, readFile,
+      detect: async () => ({ id: 'threat-dragon', canRead: true, canWrite: false, extensions: [] }),
+    });
+    Object.defineProperty(window, 'showOpenFilePicker', {
+      configurable: true,
+      value: async () => [{ name: 'source.json', getFile: async () => ({ arrayBuffer: async () => new ArrayBuffer(0) }) }],
+    });
+    await mountEditor(chain());
+    await waitFor(() => expect(document.querySelector('.engine-pill')).toHaveTextContent('preflight test engine'));
+    fireEvent.click(screen.getByRole('button', { name: 'Open File' }));
+    return { readFile, preflight };
+  }
+
+  it('reports errors with paths and leaves the original workspace untouched', async () => {
+    try {
+      const { readFile } = await prepare({ success: false, diagnostics: [{ code: 'model.unresolved-endpoint', severity: 'error', path: '$.flows[0].target', message: 'Target missing.' }] });
+      const dialog = await screen.findByRole('dialog', { name: 'Import blocked' });
+      expect(within(dialog).getByText('$.flows[0].target')).toBeInTheDocument();
+      expect(within(dialog).queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument();
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+      expect(readFile).not.toHaveBeenCalled();
+      expect(canvasNodeIds()).toEqual(['a', 'b', 'c']);
+      expect(undoButton()).toBeDisabled();
+    } finally {
+      Reflect.deleteProperty(window, 'showOpenFilePicker');
+    }
+  });
+
+  it.each([false, true])('requires an explicit decision before a lossy import (continue=%s)', async (proceed) => {
+    try {
+      const { readFile } = await prepare({ success: true, diagnostics: [{ code: 'conversion.line-boundaries', severity: 'warning', path: '$.diagrams', message: 'Line boundaries are not represented.' }] });
+      const dialog = await screen.findByRole('dialog', { name: 'Review import' });
+      expect(readFile).not.toHaveBeenCalled();
+      fireEvent.click(within(dialog).getByRole('button', { name: proceed ? 'Continue' : 'Cancel' }));
+      if (proceed) {
+        await waitFor(() => expect(readFile).toHaveBeenCalledOnce());
+        await screen.findByText('Imported Alpha');
+      } else {
+        expect(readFile).not.toHaveBeenCalled();
+        expect(screen.queryByText('Imported Alpha')).not.toBeInTheDocument();
+      }
+    } finally {
+      Reflect.deleteProperty(window, 'showOpenFilePicker');
+    }
+  });
+
+  it('discards a delayed import after the workspace changes', async () => {
+    const { offlineEngine } = await import('./engineClient');
+    const imported = await offlineEngine.read(JSON.stringify(chain()));
+    imported.elements[0].name = 'Stale import';
+    let resolveRead!: (model: TmForgeModel) => void;
+    const readFile = vi.fn(() => new Promise<TmForgeModel>((resolve) => { resolveRead = resolve; }));
+    engineState.current = Object.assign(Object.create(offlineEngine) as IEngineClient, {
+      label: 'delayed import engine', readFile,
+      preflight: async () => ({ success: true, diagnostics: [] }),
+      detect: async () => ({ id: 'threat-dragon', canRead: true, canWrite: false, extensions: [] }),
+    });
+    Object.defineProperty(window, 'showOpenFilePicker', {
+      configurable: true,
+      value: async () => [{ name: 'source.json', getFile: async () => ({ arrayBuffer: async () => new ArrayBuffer(0) }) }],
+    });
+    try {
+      await mountEditor(chain());
+      await waitFor(() => expect(document.querySelector('.engine-pill')).toHaveTextContent('delayed import engine'));
+      fireEvent.click(screen.getByRole('button', { name: 'Open File' }));
+      await waitFor(() => expect(readFile).toHaveBeenCalledOnce());
+      selectNodes('a');
+      addCustomProperty('ChangedDuringImport', 'Yes');
+      await waitFor(() => expect(window.localStorage.getItem(STORAGE_KEY)).toContain('ChangedDuringImport'), { timeout: 3000 });
+      await act(async () => resolveRead(imported));
+
+      expect(screen.queryByText('Stale import')).not.toBeInTheDocument();
+      expect(window.localStorage.getItem(STORAGE_KEY)).toContain('ChangedDuringImport');
+    } finally {
+      Reflect.deleteProperty(window, 'showOpenFilePicker');
     }
   });
 });

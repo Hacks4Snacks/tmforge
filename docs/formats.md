@@ -134,6 +134,49 @@ output is refused without overwriting the destination. Schema/sample grounding u
 [Threat Dragon v2.6.2](https://github.com/OWASP/threat-dragon/tree/v2.6.2/ThreatDragonModels); tests use
 a synthetic fixture covering the supported subset, not a claim that every v2 model is importable.
 
+## Preflight and import diagnostics
+
+Run `tmforge preflight <file> [--to <format>]` before migrating a model. It inspects raw input before
+deserialization can hide misspelled fields, duplicate identities, or unresolved flows, then reports
+known losses for the selected destination. Preflight is **document validation, not security
+analysis**. A passing result does not claim that the design is secure or every foreign extension
+can round-trip.
+
+- Canonical JSON rejects duplicate JSON fields, empty or colliding page/element/flow identities,
+  unknown element kinds, invalid field types, incomplete component sizes, and dangling/cross-page
+  flows. References are checked before any connector can disappear during reconstruction.
+- Manifest JSON rejects unknown fields, including `properties` where `props` is required. Custom
+  keys inside `props` remain governed by existing property policy. `--force` does not bypass field
+  spelling or JSON integrity checks. Legacy unversioned manifests remain supported when explicitly
+  selected.
+- Canonical extension fields remain readable for compatibility, but receive path-specific warnings
+  that they are not represented by the engine and may be lost on conversion. Studio's existing
+  flow handles and label offsets, custom property bags, and expected rule-pack fingerprints are
+  recognized fields, not spelling errors.
+- Draw.io input with missing/compressed graph content is refused rather than imported as an empty
+  diagram. Use an uncompressed XML export. Duplicate cells and broken attached-flow endpoints are
+  refused; preflight names free-standing lines omitted by the reader and unfamiliar shapes whose
+  kinds are inferred.
+- Visio preflight names shapes treated as annotations rather than model objects. Invalid/duplicate
+  shape ids and broken connector attachments are refused; the existing bounded page-catalog and
+  archive checks remain in force.
+
+Conversion diagnostics identify known losses such as line boundaries and embedded knowledge bases
+when projecting into canonical JSON; threat-register, property, identity and metadata loss when
+exporting diagrams; rule settings not carried by a conversion; and TM7 coordinate translation.
+These are conservative checks of the supported mappings, not a complete semantic diff or an
+openability guarantee from another product. Retain the source document when warnings apply.
+
+The command, API, WASM and MCP return the same diagnostic codes, severities, paths and messages.
+Studio reviews warnings before **Open File**, **Save** with an engine, or **Export** continues;
+blocking errors cannot be accepted. Rejection and cancellation leave the current workspace
+unchanged. Native JSON saves retain the Studio wire model rather than performing a format
+conversion, so they do not warn about losing their own analysis settings.
+
+Preflight and CLI conversion accept at most 8 MiB of source content. Canonical JSON reads are strict
+UTF-8 with an optional BOM and a nesting limit of 64. At most 100 diagnostics are returned, with an
+explicit error if the diagnostic budget is exhausted. Correct the reported problems and rerun.
+
 ## Converting
 
 ### CLI
@@ -143,6 +186,11 @@ tmforge convert <input> --to <format> --out <path>
 ```
 
 The target is chosen by `--to`, or inferred from the `--out` extension.
+
+Errors found by preflight block conversion before the output file is opened. Warnings are emitted
+before writing and included in `--json` output. Use `--fail-on-loss` to refuse warnings as well, or
+the read-only `preflight --to` command to review them first. Existing source and output files are
+not changed by preflight or by a refused conversion.
 
 ```bash
 tmforge convert model.tm7 --to drawio --out model.drawio

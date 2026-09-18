@@ -132,6 +132,12 @@ namespace ThreatModelForge.Api
                     EngineService.ReadModel(Convert.FromBase64String(file.ContentBase64), file.FormatId)))
                 .WithName("ReadModel")
                 .WithTags("Model");
+            app.MapPost(
+                "/v1/model/preflight",
+                (FileContentDto file, string? to) => TypedResults.Ok(
+                    DocumentPreflight.Inspect(Convert.FromBase64String(file.ContentBase64), file.FormatId, to)))
+                .WithName("PreflightModel")
+                .WithTags("Model");
 
             // A declarative authoring manifest is a threat model's reviewable source, not one of the
             // registered model formats, so /v1/detect cannot claim it and /v1/model/read cannot parse

@@ -28,6 +28,7 @@ tmforge <command> [options] <file>
 | Command | Kind | Purpose |
 | --- | --- | --- |
 | [`open`](#open) | Inspect | Summarize a model (element / flow / threat counts). |
+| [`preflight`](#preflight) | Inspect | Check document integrity and preview conversion losses without writing. |
 | [`list`](#list) | Inspect | List components, flows, boundaries, threats, or diagrams. |
 | [`show`](#show) | Inspect | Show one element/flow's name, type, and properties. |
 | [`stencils`](#stencils) | Inspect | List the built-in authoring stencils. |
@@ -98,6 +99,43 @@ would invite deleting real findings after a mistyped `--rules` path or a disable
 
 The full register lives in `.tm7`. `tmforge-json` deliberately persists only author-owned state
 (triage and manual threats), so `persistedGenerated` is zero for a model held in that format.
+
+### `preflight`
+
+Check whether a model or authoring manifest can be interpreted, and optionally preview known losses
+for a conversion target. This operation does **not** evaluate security rules, write files, repair
+the source, or mark a threat mitigated.
+
+```text
+tmforge preflight <file> [--format <id>] [--to <id>] [--json]
+```
+
+```bash
+tmforge preflight examples/webshop.tm7 --to tmforge-json
+tmforge preflight examples/webshop.manifest.json --format tmforge-manifest --json
+```
+
+`--format` selects a registered reader or `tmforge-manifest`. Explicit selection is required for a
+legacy manifest without a schema; ambiguous JSON is not guessed into an empty model.
+Exit codes are **0** for no blocking diagnostics (warnings may remain), **2** for structural errors,
+and **1** for usage or file-access errors. The JSON envelope's `data` contains `success`, `format`,
+`targetFormat`, and `diagnostics`, each with `code`, `severity`, `path`, and `message`.
+
+Example diagnostic:
+
+```json
+{
+  "code": "model.unresolved-endpoint",
+  "severity": "error",
+  "path": "$.flows[0].target",
+  "message": "Flow 'request' refers to 'missing', which is not an element on this page. Correct the target reference; the flow will not be dropped."
+}
+```
+
+Preflight accepts at most 8 MiB of input and returns at most 100 diagnostics. JSON nesting is limited
+to 64 levels. A diagnostic-limit error means the assessment is incomplete; correct the reported
+problems and rerun it. See [preflight and fidelity](formats.md#preflight-and-import-diagnostics) for
+what the checks cover and what remains outside their scope.
 
 ### `list`
 
@@ -886,6 +924,15 @@ tmforge report payments.tm7 --rules ./corporate.tmrules.json --out payments.html
 ### `convert`
 
 Convert between formats. The target is chosen by `--to` or inferred from the `--out` extension.
+
+Conversion now performs preflight before opening the destination. Errors refuse the conversion;
+warnings are printed to stderr and included in `data.diagnostics` with `--json`. Add
+`--fail-on-loss` to refuse warnings too (exit **2**), leaving any existing destination untouched.
+Use `preflight --to <format>` to inspect the same diagnostics without producing output.
+
+```bash
+tmforge convert model.tm7 --to drawio --out model.drawio --fail-on-loss
+```
 
 OWASP Threat Dragon v2 JSON is an additional **input-only** format, detected from its content.
 Use `tmforge convert dragon.json --to tmforge-json --out imported.tmforge.json` or `--to tm7`.
