@@ -887,6 +887,11 @@ tmforge report payments.tm7 --rules ./corporate.tmrules.json --out payments.html
 
 Convert between formats. The target is chosen by `--to` or inferred from the `--out` extension.
 
+OWASP Threat Dragon v2 JSON is an additional **input-only** format, detected from its content.
+Use `tmforge convert dragon.json --to tmforge-json --out imported.tmforge.json` or `--to tm7`.
+The initial [supported subset and refusal rules](formats.md#threat-dragon-owasp-threat-dragon-v2-import)
+are deliberate: unsupported trust-boundary geometry and threat treatments are not silently changed.
+
 ```text
 tmforge convert [--to <format>] [--out <path>] [--knowledge-base <file.tb7>] [--json] <input>
 ```

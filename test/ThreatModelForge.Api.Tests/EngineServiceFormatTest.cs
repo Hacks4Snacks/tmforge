@@ -2,6 +2,7 @@ namespace ThreatModelForge.Api.Tests
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Linq;
     using System.Text;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -241,6 +242,51 @@ namespace ThreatModelForge.Api.Tests
             Assert.IsFalse(
                 report.TrimStart().StartsWith("<svg", StringComparison.OrdinalIgnoreCase),
                 "The fallback should not be SVG.");
+        }
+
+        /// <summary>Imported threats retain their source, scope and treatment across engine operations.</summary>
+        /// <param name="formatId">The destination format.</param>
+        [TestMethod]
+        [DataRow("tmforge-json")]
+        [DataRow("tm7")]
+        public void ThreatDragonImportSurvivesEngineOperations(string formatId)
+        {
+            byte[] bytes = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", "threat-dragon-v2.json"));
+            TmForgeModelDto model = EngineService.ReadModel(bytes, null);
+            Assert.AreEqual("threat-dragon", EngineService.Detect(bytes)?.Id);
+            Assert.AreEqual("Model owner", model.Metadata?.Owner);
+            Assert.IsNotNull(model.Diagrams);
+            Assert.IsNotNull(model.Threats);
+            Assert.HasCount(2, model.Diagrams);
+            Assert.HasCount(3, model.Threats);
+            ThreatStateDto imported = model.Threats!.Single(threat => threat.Id == "manual:threat-dragon.linkability");
+            Assert.AreEqual("LINDDUN", imported.Source?["modelType"]);
+
+            AnalysisResultDto result = EngineService.RunAnalysis(model, null);
+            Assert.HasCount(3, result.Threats.Where(threat => threat.Manual));
+            Assert.IsTrue(result.Threats.Any(threat => !threat.Manual));
+            Assert.AreEqual("threat-dragon", result.Threats.Single(threat => threat.Id == imported.Id).Source?["format"]);
+
+            AuthoringResultDto edited = AuthoringService.EditThreat(model, new EditThreatRequest
+            {
+                Id = imported.Id,
+                Title = "Reviewed linkability",
+            });
+            Assert.IsTrue(edited.Success, edited.Error);
+            Assert.IsNotNull(edited.Model);
+            TmForgeModelDto restored = EngineService.ReadModel(EngineService.Convert(edited.Model!, formatId), formatId);
+            ThreatStateDto threat = restored.Threats!.Single(threat => threat.Id == imported.Id);
+            Assert.AreEqual("Reviewed linkability", threat.Title);
+            Assert.AreEqual("Linkability", threat.Category);
+            Assert.AreEqual("Accepted", threat.State);
+            Assert.AreEqual("Use short-lived identifiers.", threat.Mitigation);
+            Assert.AreEqual("linkability", threat.Source?["id"]);
+            CollectionAssert.AreEqual(imported.ElementIds!.ToArray(), threat.ElementIds!.ToArray());
+            Assert.AreEqual(model.Diagrams![1].Id, restored.Diagrams![1].Id);
+            Assert.AreEqual("Model owner", restored.Metadata?.Owner);
+            string report = Encoding.UTF8.GetString(EngineService.Report(restored, "html"));
+            StringAssert.Contains(report, "Reviewed linkability");
+            StringAssert.Contains(report, "Linkability");
         }
 
         private static TmForgeModelDto SingleProcessModel()

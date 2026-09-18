@@ -6,6 +6,7 @@ namespace ThreatModelForge.Cli.Tests
     using System.Text.Json;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
     using ThreatModelForge.Analysis;
+    using ThreatModelForge.Formats;
     using ThreatModelForge.KnowledgeBase;
     using ThreatModelForge.Model;
 
@@ -177,6 +178,42 @@ namespace ThreatModelForge.Cli.Tests
             {
                 Assert.Contains(expected, merged.Values, expected + " must be declared.");
             }
+        }
+
+        /// <summary>The CLI imports a content-detected JSON file without changing its source bytes.</summary>
+        /// <param name="formatId">The destination format.</param>
+        [TestMethod]
+        [DataRow("tmforge-json")]
+        [DataRow("tm7")]
+        public void ImportsThreatDragonWithoutRewritingSource(string formatId)
+        {
+            string input = Path.Join(this.WorkingDirectory, "dragon.json");
+            File.Copy(Path.Join(AppContext.BaseDirectory, "Fixtures", "threat-dragon-v2.json"), input);
+            byte[] original = File.ReadAllBytes(input);
+            string output = Path.Join(this.WorkingDirectory, formatId == "tm7" ? "imported.tm7" : "imported.tmforge.json");
+
+            Assert.AreEqual(0, ConvertCommand.Run(new[] { input, "--to", formatId, "--out", output }));
+
+            ThreatModel model = ThreatModelFormatRegistry.CreateDefault().Load(output, formatId);
+            Assert.HasCount(2, model.DrawingSurfaceList);
+            Assert.HasCount(3, model.AllThreatsDictionary);
+            Assert.AreEqual("Model owner", model.MetaInformation?.Owner);
+            Threat threat = model.AllThreatsDictionary["manual:threat-dragon.linkability"];
+            Assert.AreEqual("LINDDUN", threat.Properties?["Source.modelType"]);
+            Assert.AreEqual(model.DrawingSurfaceList[1].Guid, threat.DrawingSurfaceGuid);
+            CollectionAssert.AreEqual(original, File.ReadAllBytes(input));
+        }
+
+        /// <summary>An import-only destination is refused without truncating the selected file.</summary>
+        [TestMethod]
+        public void ThreatDragonExportDoesNotOverwriteAnExistingFile()
+        {
+            string input = this.WriteInput();
+            byte[] original = File.ReadAllBytes(input);
+
+            Assert.AreEqual(1, Program.Main(new[] { "convert", input, "--to", "threat-dragon", "--out", input }));
+
+            CollectionAssert.AreEqual(original, File.ReadAllBytes(input));
         }
 
         private string WriteInput()

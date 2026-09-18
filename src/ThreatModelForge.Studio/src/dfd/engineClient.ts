@@ -52,6 +52,7 @@ export interface Threat {
   justification?: string;
   /** The author-set description, when set. */
   description?: string;
+  source?: Record<string, string>;
   /** True when the threat was authored by hand (not projected from a rule). */
   manual?: boolean;
 }
@@ -512,6 +513,7 @@ export function toModel(dto: components['schemas']['TmForgeModelDto']): TmForgeM
   return {
     schema: 'tmforge-json',
     version: '0.1',
+    metadata: dto.metadata ?? undefined,
     elements: elements(dto.elements),
     flows: flows(dto.flows),
     diagrams: dto.diagrams?.map((page) => ({
@@ -542,6 +544,7 @@ function toThreatTriage(dto: components['schemas']['ThreatStateDto']): ThreatTri
     title: dto.title ?? undefined,
     description: dto.description ?? undefined,
     mitigation: dto.mitigation ?? undefined,
+    source: dto.source ?? undefined,
     priority: dto.priority ?? undefined,
     elementIds: dto.elementIds ?? undefined,
   };
@@ -595,6 +598,7 @@ function toThreat(dto: components['schemas']['ThreatDto']): Threat {
     state: normalizeThreatState(dto.state),
     justification: dto.justification ?? undefined,
     description: dto.description ?? undefined,
+    source: dto.source ?? undefined,
     manual: dto.manual ?? false,
   };
 }

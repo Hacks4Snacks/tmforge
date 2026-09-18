@@ -112,6 +112,7 @@ interface StoredWorkspace {
   activePageId: string;
   analysis?: TmForgeAnalysis;
   threats?: ThreatTriage[];
+  metadata?: TmForgeModel['metadata'];
 }
 
 /** Reads the saved multi-page workspace (v2), migrating a legacy single-page model (v1) when present. */
@@ -123,7 +124,7 @@ export function loadStoredWorkspace(): StoredWorkspace | null {
       if (parsed?.model?.schema === 'tmforge-json') {
         const pages = pagesFromModel(parsed.model);
         const activePageId = pages.some((p) => p.id === parsed.activePageId) ? parsed.activePageId! : pages[0].id;
-        return { pages, activePageId, analysis: parsed.model.analysis, threats: parsed.model.threats };
+        return { pages, activePageId, analysis: parsed.model.analysis, threats: parsed.model.threats, metadata: parsed.model.metadata };
       }
     }
   } catch {
@@ -135,7 +136,7 @@ export function loadStoredWorkspace(): StoredWorkspace | null {
       const model = JSON.parse(raw) as TmForgeModel;
       if (model?.schema === 'tmforge-json') {
         const pages = pagesFromModel(model);
-        return { pages, activePageId: pages[0].id, analysis: model.analysis, threats: model.threats };
+        return { pages, activePageId: pages[0].id, analysis: model.analysis, threats: model.threats, metadata: model.metadata };
       }
     }
   } catch {
@@ -200,6 +201,8 @@ const INITIAL_SAVED_JSON = JSON.stringify(
   modelFromPages(
     INITIAL_WORKSPACE.pages,
     buildAnalysis(INITIAL_DISABLED_PACKS, INITIAL_DISABLED_RULE_IDS, INITIAL_EXPECTED_PACKS),
+    INITIAL_WORKSPACE.threats,
+    INITIAL_WORKSPACE.metadata,
   ),
 );
 
@@ -241,9 +244,9 @@ interface OpenedDocument {
   model: TmForgeModel;
   /** The format Save writes in: the source format when it is writable, else tmforge-json. */
   saveFormat: string;
-  /** The name to bind, which is not the source name when the source was a manifest. */
+  /** The name to bind, using a new name for manifests and read-only source formats. */
   fileName: string;
-  /** Whether Save may overwrite the file this came from. False for an authoring manifest. */
+  /** Whether Save may overwrite the source. False for manifests and read-only formats. */
   bindable: boolean;
 }
 
@@ -424,6 +427,7 @@ export function Editor() {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [threats, setThreats] = useState<Threat[]>([]);
   const [threatTriage, setThreatTriage] = useState<ThreatTriage[]>(INITIAL_WORKSPACE.threats ?? []);
+  const [metadata, setMetadata] = useState<TmForgeModel['metadata']>(INITIAL_WORKSPACE.metadata);
   const flaggedIdsRef = useRef<ReadonlySet<string>>(new Set());
   const [engine, setEngine] = useState<IEngineClient>(offlineEngine);
   const [engineOnline, setEngineOnline] = useState(false);
@@ -643,9 +647,8 @@ export function Editor() {
   // the last explicit Save. A debounced localStorage write of the whole workspace (pages + active
   // tab) runs on every change as a crash-recovery net, so a reload never loses work.
   const currentModel = useMemo(() => {
-    const model = modelFromPages(allPages, buildAnalysis(disabledRulePacks, disabledRuleIds, expectedPacks));
-    return threatTriage.length > 0 ? { ...model, threats: threatTriage } : model;
-  }, [allPages, disabledRulePacks, disabledRuleIds, expectedPacks, threatTriage]);
+    return modelFromPages(allPages, buildAnalysis(disabledRulePacks, disabledRuleIds, expectedPacks), threatTriage, metadata);
+  }, [allPages, disabledRulePacks, disabledRuleIds, expectedPacks, threatTriage, metadata]);
   const currentJson = useMemo(() => JSON.stringify(currentModel), [currentModel]);
   const [savedJson, setSavedJson] = useState(INITIAL_SAVED_JSON);
   const dirty = currentJson !== savedJson;
@@ -1564,13 +1567,14 @@ export function Editor() {
       setFindings([]);
       setThreats([]);
       setThreatTriage(model.threats ?? []);
+      setMetadata(model.metadata);
       flaggedIdsRef.current = new Set();
       analysisActiveRef.current = false;
       setSelection({ nodes: [], edges: [] });
       reset();
       // A freshly loaded model is the new saved baseline, so it does not read as dirty.
       setSavedJson(
-        JSON.stringify(modelFromPages(nextPages, buildAnalysis(nextPacks, nextRuleIds, nextExpected))),
+        JSON.stringify(modelFromPages(nextPages, buildAnalysis(nextPacks, nextRuleIds, nextExpected), model.threats, model.metadata)),
       );
       window.setTimeout(() => fitView({ padding: 0.25, maxZoom: 1.15, duration: 300 }), 0);
     },
@@ -1600,8 +1604,8 @@ export function Editor() {
         return {
           model: await readModelFromBytes(bytes, detected.id),
           saveFormat: detected.canWrite ? detected.id : 'tmforge-json',
-          fileName: name,
-          bindable: true,
+          fileName: detected.canWrite ? name : modelNameForManifest(name),
+          bindable: detected.canWrite,
         };
       }
 
@@ -1677,6 +1681,7 @@ export function Editor() {
     setFindings([]);
     setThreats([]);
     setThreatTriage([]);
+    setMetadata(undefined);
     flaggedIdsRef.current = new Set();
     analysisActiveRef.current = false;
     setSelection({ nodes: [], edges: [] });
