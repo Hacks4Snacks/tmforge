@@ -292,6 +292,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/model/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["PreflightModel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/model/manifest": {
         parameters: {
             query?: never;
@@ -402,6 +418,17 @@ export interface components {
             elements?: number | string;
             /** Format: int32 */
             flows?: number | string;
+        };
+        /** @description A structural input or conversion diagnostic, separate from security findings. */
+        DocumentDiagnostic: {
+            /** @description Gets the stable diagnostic code. */
+            code?: string;
+            /** @description Gets the severity: error, warning or info. */
+            severity?: string;
+            /** @description Gets the location in the source document, using JSONPath for JSON input. */
+            path?: string;
+            /** @description Gets the actionable diagnostic text. */
+            message?: string;
         };
         ExpectedRulePackDto: {
             id?: null | string;
@@ -579,6 +606,12 @@ export interface components {
              * @description Gets the number of stencils the pack contributes.
              */
             count?: number | string;
+        };
+        PreflightResultDto: {
+            success?: boolean;
+            format?: null | string;
+            targetFormat?: null | string;
+            diagnostics?: components["schemas"]["DocumentDiagnostic"][];
         };
         /**
          * @description Typed definition of a single element custom property (for example, a data store's
@@ -1161,6 +1194,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TmForgeModelDto"];
+                };
+            };
+        };
+    };
+    PreflightModel: {
+        parameters: {
+            query?: {
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FileContentDto"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreflightResultDto"];
                 };
             };
         };

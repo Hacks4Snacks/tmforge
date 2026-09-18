@@ -163,6 +163,23 @@ namespace ThreatModelForge.Cli.Tests
             Assert.AreEqual("Web", reread.Elements![0].Name);
         }
 
+        /// <summary>MCP preflight uses the workspace sandbox and returns the common input diagnostics.</summary>
+        [TestMethod]
+        public void PreflightRemainsReadOnlyAndSandboxed()
+        {
+            const string Json = "{\"schema\":\"tmforge-json\",\"elements\":[],\"flows\":[{\"id\":\"f\",\"source\":\"a\",\"target\":\"b\"}]}";
+            string path = Path.Join(this.WorkingDirectory, "broken.json");
+            File.WriteAllText(path, Json);
+            using ServiceProvider services = CreateServices(this.WorkingDirectory);
+
+            PreflightResultDto result = McpModelTools.Preflight("broken.json", services);
+
+            Assert.IsFalse(result.Success);
+            Assert.IsTrue(result.Diagnostics.Any(diagnostic => diagnostic.Path == "$.flows[0].source"));
+            Assert.AreEqual(Json, File.ReadAllText(path));
+            Assert.Throws<UnauthorizedAccessException>(() => McpModelTools.Preflight("../outside.json", services));
+        }
+
         /// <summary>Verifies that relative traversal cannot leave the configured MCP workspace root.</summary>
         [TestMethod]
         public void Read_RejectsPathTraversal()

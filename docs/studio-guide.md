@@ -267,6 +267,19 @@ then `tmforge analyze` / `tmforge report` / `tmforge convert` in a pipeline, or 
 > or `.drawio` itself. Use the API's `convert` / `read` endpoints or the CLI for those. Studio
 > speaks `tmforge-json`; the engine handles every other format behind `/v1`.
 
+### Preflight review
+
+Before replacing the canvas, **Open File** runs preflight through the active engine. Structural
+errors appear with their source paths and must be corrected in the input. Known import losses appear
+in a review dialog with **Continue** and **Cancel**. Closing or cancelling leaves the current model
+and undo history unchanged; a delayed import is discarded if the workspace changes while it runs.
+
+**Save** and **Export** also review known conversion losses before writing. Native JSON saves do not
+perform the engine's structural conversion, so they retain the existing wire state. Importing a new
+file requires the API or WASM engine to be ready; offline authoring and saving the current JSON
+workspace remain available. These diagnostics are separate from **Analyze** and do not accept or
+mitigate threats. See [preflight coverage and limits](formats.md#preflight-and-import-diagnostics).
+
 ### Opening an authoring manifest
 
 **Open File** also accepts a declarative [authoring manifest](cli-reference.md#apply) — the

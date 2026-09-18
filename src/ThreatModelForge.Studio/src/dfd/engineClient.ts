@@ -213,6 +213,20 @@ export interface PropertyDescriptorInfo {
  * so all clients share them. Everything else (`analyze`, `getFormats`, `detect`, `readFile`,
  * `convert`, `report`, `exportTm7`) is a coarse-grained engine call.
  */
+export interface DocumentDiagnostic {
+  code: string;
+  severity: 'error' | 'warning' | 'info';
+  path: string;
+  message: string;
+}
+
+export interface PreflightResult {
+  success: boolean;
+  format?: string;
+  targetFormat?: string;
+  diagnostics: DocumentDiagnostic[];
+}
+
 export interface IEngineClient {
   readonly label: string;
   write(model: TmForgeModel): Promise<string>;
@@ -250,6 +264,7 @@ export interface IEngineClient {
   getPropertySchema(): Promise<PropertyDescriptorInfo[]>;
   /** Detects the format of raw document bytes, or null when none matches. */
   detect(bytes: Uint8Array): Promise<FormatInfo | null>;
+  preflight(bytes: Uint8Array, formatId?: string, targetFormat?: string): Promise<PreflightResult>;
   /** Reads a document in any registered format into the canonical tmforge-json model. */
   readFile(bytes: Uint8Array, formatId?: string): Promise<TmForgeModel>;
   /**
@@ -326,6 +341,24 @@ function modelFromApplyResult(dto: components['schemas']['ApplyResultDto'] | und
     throw new Error(dto?.error ?? 'The manifest could not be applied.');
   }
   return toModel(dto.model);
+}
+
+function toPreflight(dto: components['schemas']['PreflightResultDto'] | undefined): PreflightResult {
+  if (typeof dto?.success !== 'boolean' || !Array.isArray(dto.diagnostics)) {
+    throw new Error('The engine did not return a complete preflight result. Nothing was changed.');
+  }
+  const diagnostics = dto.diagnostics.map((item) => {
+    if (!item.code || !item.path || !item.message || !['error', 'warning', 'info'].includes(item.severity ?? '')) {
+      throw new Error('The engine returned an incomplete preflight diagnostic. Nothing was changed.');
+    }
+    return { code: item.code, path: item.path, message: item.message, severity: item.severity as DocumentDiagnostic['severity'] };
+  });
+  return {
+    success: dto.success && !diagnostics.some((item) => item.severity === 'error'),
+    format: dto.format ?? undefined,
+    targetFormat: dto.targetFormat ?? undefined,
+    diagnostics,
+  };
 }
 
 /** A refused layout never falls back to an unvalidated client-side arrangement. */
@@ -721,6 +754,10 @@ class OfflineEngineClient implements IEngineClient {
     return readJson(new TextDecoder().decode(bytes));
   }
 
+  public preflight(): Promise<PreflightResult> {
+    return Promise.reject(new Error('Document preflight requires the .NET engine. Wait for the engine to load or connect to the API. Nothing was changed.'));
+  }
+
   public applyManifest(): Promise<TmForgeModel> {
     // Building a manifest resolves aliases, derives stable ids, places elements inside their
     // boundaries, and validates every property against the schema. Re-implementing that here would
@@ -897,6 +934,17 @@ class HttpEngineClient implements IEngineClient {
     return data ? toFormatInfo(data) : null;
   }
 
+  public async preflight(bytes: Uint8Array, formatId?: string, targetFormat?: string): Promise<PreflightResult> {
+    const { data, response } = await this.client.POST('/v1/model/preflight', {
+      params: { query: { to: targetFormat } },
+      body: { contentBase64: toBase64(bytes), formatId },
+    });
+    if (!response.ok) {
+      throw new Error(`Engine preflight failed (${response.status}). Nothing was changed.`);
+    }
+    return toPreflight(data);
+  }
+
   public async readFile(bytes: Uint8Array, formatId?: string): Promise<TmForgeModel> {
     const { data, response } = await this.client.POST('/v1/model/read', {
       body: { contentBase64: toBase64(bytes), formatId },
@@ -986,6 +1034,7 @@ interface WasmEngineExports {
   Analyze(tmforgeJson: string): string;
   Threats(tmforgeJson: string): string;
   Detect(contentBase64: string): string;
+  Preflight(contentBase64: string, formatId: string, targetFormat: string): string;
   ReadFile(contentBase64: string, formatId: string): string;
   ApplyManifest(manifestJson: string): string;
   ExportTm7(tmforgeJson: string): string;
@@ -1019,6 +1068,10 @@ export class WasmEngineClient implements IEngineClient {
 
   public read(text: string): Promise<TmForgeModel> {
     return readJson(text);
+  }
+
+  public async preflight(bytes: Uint8Array, formatId?: string, targetFormat?: string): Promise<PreflightResult> {
+    return toPreflight(JSON.parse(this.wasm.Preflight(toBase64(bytes), formatId ?? '', targetFormat ?? '')));
   }
 
   public async analyze(model: TmForgeModel): Promise<Finding[]> {

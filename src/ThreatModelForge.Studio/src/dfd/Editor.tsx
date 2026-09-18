@@ -30,7 +30,7 @@ import { Toolbar } from './Toolbar';
 import { Inspector } from './Inspector';
 import { AnalysisSettings } from './AnalysisSettings';
 import { FALLBACK_PACKS, FALLBACK_STENCILS } from './stencils';
-import { createHttpEngine, loadWasmEngine, looksLikeManifest, offlineEngine, probeEngine, type AnalysisReportFormat, type Finding, type FormatInfo, type IEngineClient, type PackInfo, type PropertyDescriptorInfo, type RuleBundle, type RuleInfo, type RulePackInfo, type StencilInfo, type Threat } from './engineClient';
+import { createHttpEngine, loadWasmEngine, looksLikeManifest, offlineEngine, probeEngine, type AnalysisReportFormat, type Finding, type FormatInfo, type IEngineClient, type PackInfo, type PreflightResult, type PropertyDescriptorInfo, type RuleBundle, type RuleInfo, type RulePackInfo, type StencilInfo, type Threat } from './engineClient';
 import { ThreatsPanel, type NewThreatDraft, type ThreatEdit, type ThreatScopeOption } from './ThreatsPanel';
 import { CanvasSearch, type SearchItem } from './CanvasSearch';
 import { ModelOutline } from './ModelOutline';
@@ -42,6 +42,7 @@ import { useUndoRedo } from './useUndoRedo';
 import { FlowEdge } from './edges/FlowEdge';
 import { PageTabs } from './PageTabs';
 import { MergeResolveModal } from './MergeResolveModal';
+import { PreflightDialog } from './PreflightDialog';
 import { DfdActionsContext, type DfdActions } from './editorContext';
 import { Toaster, toast } from './toast';
 import type { DfdEdge, DfdKind, DfdNode, ThreatTriage, TmForgeModel, TmForgeAnalysis, TmForgeExpectedRulePack } from './types';
@@ -449,6 +450,9 @@ export function Editor() {
   const [ruleCatalogToken, setRuleCatalogToken] = useState(0);
   const [showRules, setShowRules] = useState(false);
   const [showMerge, setShowMerge] = useState(false);
+  const [preflightReview, setPreflightReview] = useState<{ title: string; result: PreflightResult } | null>(null);
+  const preflightDecision = useRef<((proceed: boolean) => void) | undefined>(undefined);
+  const preflightVersion = useRef(0);
   const [showOutline, setShowOutline] = useState(false);
   const [outlineOrder, setOutlineOrder] = useState<OutlineOrder>(loadOutlineOrder);
   const [outlineCrossingOnly, setOutlineCrossingOnly] = useState(false);
@@ -787,14 +791,52 @@ export function Editor() {
     return set;
   }, [findings, threats, elementPageIndex]);
 
+  const finishPreflight = useCallback((proceed: boolean) => {
+    const decide = preflightDecision.current;
+    preflightDecision.current = undefined;
+    setPreflightReview(null);
+    decide?.(proceed);
+  }, []);
+
+  const checkDocument = useCallback(async (bytes: Uint8Array, format: string | undefined, target: string | undefined, operation: 'import' | 'export') => {
+    const version = ++preflightVersion.current;
+    const baseline = layoutStateRef.current.workspaceJson;
+    finishPreflight(false);
+    const result = await engine.preflight(bytes, format, target);
+    const ensureCurrent = () => {
+      if (version !== preflightVersion.current || baseline !== layoutStateRef.current.workspaceJson) {
+        throw new DOMException('The workspace changed during preflight.', 'AbortError');
+      }
+    };
+    ensureCurrent();
+    if (!result.success || result.diagnostics.length > 0) {
+      const accepted = await new Promise<boolean>((resolve) => {
+        preflightDecision.current = resolve;
+        setPreflightReview({ title: result.success ? `Review ${operation}` : `${operation === 'import' ? 'Import' : 'Export'} blocked`, result });
+      });
+      ensureCurrent();
+      if (!accepted || !result.success) {
+        throw new DOMException('Preflight cancelled.', 'AbortError');
+      }
+    }
+    return result;
+  }, [engine, finishPreflight]);
+
   const serializeModel = useCallback(
     async (formatId: string): Promise<Blob> => {
-      if (formatId === 'tmforge-json') {
-        return new Blob([await engine.write(currentModel)], { type: 'application/json' });
+      const baseline = layoutStateRef.current.workspaceJson;
+      if (engine !== offlineEngine) {
+        await checkDocument(new TextEncoder().encode(JSON.stringify(currentModel)), 'tmforge-json', formatId === 'tmforge-json' ? undefined : formatId, 'export');
       }
-      return engine.convert(currentModel, formatId);
+      const blob = formatId === 'tmforge-json'
+        ? new Blob([await engine.write(currentModel)], { type: 'application/json' })
+        : await engine.convert(currentModel, formatId);
+      if (baseline !== layoutStateRef.current.workspaceJson) {
+        throw new DOMException('The workspace changed before export completed.', 'AbortError');
+      }
+      return blob;
     },
-    [engine, currentModel],
+    [engine, currentModel, checkDocument],
   );
 
   const writeToHandle = useCallback(
@@ -842,7 +884,7 @@ export function Editor() {
       await writeToHandle(handle, fileFormatRef.current);
       setSavedJson(currentJson);
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Could not write the file.', 'error');
+      if (!isAbortError(err)) toast(err instanceof Error ? err.message : 'Could not write the file.', 'error');
     }
   }, [currentJson, saveAs, writeToHandle]);
 
@@ -1514,13 +1556,13 @@ export function Editor() {
     async (formatId: string) => {
       const format = formats.find((f) => f.id === formatId);
       try {
-        const blob = await engine.convert(currentModel, formatId);
+        const blob = await serializeModel(formatId);
         downloadBlob(blob, `model${format?.extensions[0] ?? ''}`);
       } catch (err) {
-        toast(err instanceof Error ? err.message : String(err), 'error');
+        if (!isAbortError(err)) toast(err instanceof Error ? err.message : String(err), 'error');
       }
     },
-    [engine, currentModel, formats],
+    [serializeModel, formats],
   );
 
   // Download a report from the engine. The threat-model report and the diagram describe the model;
@@ -1599,38 +1641,47 @@ export function Editor() {
   // reported as an unreadable model.
   const readDocument = useCallback(
     async (bytes: Uint8Array, name: string): Promise<OpenedDocument> => {
+      const baseline = layoutStateRef.current.workspaceJson;
       const detected = await engine.detect(bytes).catch(() => null);
+      await checkDocument(bytes, detected?.id, detected?.id === 'tmforge-json' ? undefined : 'tmforge-json', 'import');
+      const version = preflightVersion.current;
+      const complete = (opened: OpenedDocument) => {
+        if (baseline !== layoutStateRef.current.workspaceJson || version !== preflightVersion.current) {
+          throw new DOMException('The workspace changed while the document was read.', 'AbortError');
+        }
+        return opened;
+      };
       if (detected) {
-        return {
+        return complete({
           model: await readModelFromBytes(bytes, detected.id),
           saveFormat: detected.canWrite ? detected.id : 'tmforge-json',
           fileName: detected.canWrite ? name : modelNameForManifest(name),
           bindable: detected.canWrite,
-        };
+        });
       }
 
       const text = new TextDecoder().decode(bytes);
       if (looksLikeManifest(text)) {
-        return {
+        return complete({
           model: await engine.applyManifest(text),
           saveFormat: 'tmforge-json',
           fileName: modelNameForManifest(name),
           // A manifest is an authoring source, not a model file. Binding a writable handle to it
           // would let Save overwrite the reviewable source with the model built from it.
           bindable: false,
-        };
+        });
       }
 
       // Nothing claimed it and it is not a manifest: fall back to tmforge-json so the reader reports
       // what is actually wrong with the document.
-      return {
+      return complete({
         model: await readModelFromBytes(bytes, 'tmforge-json'),
         saveFormat: 'tmforge-json',
         fileName: name,
         bindable: true,
-      };
+      });
     },
-    [engine, readModelFromBytes],
+    [engine, readModelFromBytes, checkDocument],
   );
 
   const onImportFile = useCallback(
@@ -1643,7 +1694,7 @@ export function Editor() {
         fileFormatRef.current = opened.saveFormat;
         setFileName(opened.fileName);
       } catch (err) {
-        toast(err instanceof Error ? err.message : 'Could not open that file.', 'error');
+        if (!isAbortError(err)) toast(err instanceof Error ? err.message : 'Could not open that file.', 'error');
       }
     },
     [loadModel, readDocument],
@@ -1985,6 +2036,7 @@ export function Editor() {
         }}
       />
     ) : null}
+    {preflightReview && <PreflightDialog title={preflightReview.title} result={preflightReview.result} onDecision={finishPreflight} />}
     <Toaster />
     </DfdActionsContext.Provider>
   );

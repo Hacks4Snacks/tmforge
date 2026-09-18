@@ -354,6 +354,21 @@ namespace ThreatModelForge.Api.Tests
             Assert.IsTrue(threats.EnumerateArray().All(threat => threat.GetProperty("source").GetProperty("format").GetString() == "threat-dragon"));
         }
 
+        /// <summary>The HTTP preflight endpoint returns the same diagnostics as the shared service.</summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task Preflight_ReturnsStructuredErrorsWithoutReadingAPartialModel()
+        {
+            const string Invalid = "{\"schema\":\"tmforge-json\",\"elements\":[],\"flows\":[{\"id\":\"broken\",\"source\":\"missing\",\"target\":\"also-missing\"}]}";
+            string request = JsonSerializer.Serialize(new { contentBase64 = Base64(Invalid) });
+            string expected = JsonSerializer.Serialize(DocumentPreflight.Inspect(Encoding.UTF8.GetBytes(Invalid), targetFormat: "tm7"), new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+            using HttpResponseMessage response = await PostJson("/v1/model/preflight?to=tm7", request);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            Assert.IsTrue(JsonNode.DeepEquals(JsonNode.Parse(expected), JsonNode.Parse(await response.Content.ReadAsStringAsync())));
+        }
+
         /// <summary>Verifies format detection answers with the format it recognized.</summary>
         /// <returns>A task.</returns>
         [TestMethod]

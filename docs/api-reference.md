@@ -40,6 +40,7 @@ and `/openapi` are matched first.
 | `POST /v1/model/threats` | Model | Generate the STRIDE threat register (rule threats plus the model's author overlay). |
 | `POST /v1/model/threat-register` | Model | Split the register by origin and standing: manual, current-generated, stale-generated, and entries whose rule was not part of the run. |
 | `POST /v1/model/read` | Model | Parse uploaded bytes (base64) into the canonical model. |
+| `POST /v1/model/preflight?to=<format>` | Model | Check source bytes and optionally preview conversion losses without writing or analyzing. |
 | `POST /v1/model/manifest` | Model | Materialize a declarative authoring manifest into a model (the `tmforge apply` build). |
 | `POST /v1/model/layout` | Model | Return geometry-only updates after preserving every boundary membership and actual flow crossing; unsafe candidates are refused atomically. |
 | `POST /v1/model/convert?to=<format>` | Model | Convert a model to another format. |
@@ -76,6 +77,29 @@ The `detail` of a `400` names what was unusable, so the request can be corrected
 An unmatched path under `/v1` answers `404` as the API rather than falling through to the Studio's
 HTML shell, so a mistyped endpoint fails as a client error instead of returning a page a JSON client
 cannot parse. Paths outside `/v1` still reach the SPA, which is what makes client-side routing work.
+
+## Document preflight
+
+Send the same `{ "contentBase64": "...", "formatId": "tmforge-json" }` payload used by the read
+endpoint to `POST /v1/model/preflight`. `formatId` is optional; it can also be `tmforge-manifest` for
+explicitly selected legacy manifests. The optional `to` query parameter selects a writable conversion
+target. No rule evaluation, file write, or remote content resolution occurs.
+
+The response is `{success,format,targetFormat,diagnostics}`. Each diagnostic contains a stable
+`code`, `severity` (`error`, `warning`, `info`), source `path`, and actionable `message`. JSON
+diagnostics use JSONPath locations; foreign-reader failures may include a provider-specific location
+in their message. An assessment that finds input errors still returns HTTP **200** with
+`success: false`. Invalid request JSON or base64 remains an ordinary **400** problem response.
+
+Warnings indicate known omissions or changes, not security findings. Inspect them before calling
+`/v1/model/read` or `/v1/model/convert`; those existing response shapes are unchanged. For an import
+into Studio's canonical model, select `to=tmforge-json`. The limit is 8 MiB of decoded input and
+100 diagnostics; JSON readers also cap nesting at 64. The final diagnostic is an error when the
+diagnostic budget is exhausted, so a truncated result cannot look successful.
+
+The WASM `Preflight(contentBase64, formatId, targetFormat)` export returns the same result; empty
+strings omit the two format selections. MCP exposes `preflight(path, format?, to?)` with the existing
+workspace sandbox and archive limits. Neither operation accepts rule content or changes models.
 
 ## One analysis action
 
