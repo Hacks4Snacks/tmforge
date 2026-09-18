@@ -283,6 +283,23 @@ it. To change the model, edit the manifest and re-apply, or save the model as it
 > `tmforge apply`, but Studio cannot recognize it: every manifest field is optional, so a recognizer
 > that accepted an absent envelope would claim any JSON file. Add the envelope to open it here.
 
+### Opening Threat Dragon v2 JSON
+
+**Open File** recognizes supported OWASP Threat Dragon v2 JSON through the active engine. Imported
+threats appear as manual entries alongside tmforge-generated threats after **Analyze**, retaining
+their original category, text, treatment and scope. Model metadata and threat provenance survive
+saving, reopening and exporting to `.tm7`.
+
+This is import-only: Studio does not bind the original file for overwriting. **Save** offers a new
+`.tmforge.json` filename, and Threat Dragon is not offered as an export target. Keep the original
+for Threat Dragon-specific content such as styling and routing.
+
+The first delivery supports rectangular boundaries and directed flows. Curved boundaries,
+bidirectional flows, fractional rectangles and unsupported treatment states are refused, with no
+partial replacement of the current workspace. Out-of-scope flags remain source information and do
+not disable tmforge rules. See the [full import contract](formats.md#threat-dragon-owasp-threat-dragon-v2-import)
+before migrating a model.
+
 ## Merging edits from two branches
 
 When two people edit the same model on different branches, click **Merge** in the toolbar to

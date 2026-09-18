@@ -118,6 +118,19 @@ describe('looksLikeManifest — routing an unidentified document', () => {
 });
 
 describe('engine model normalization', () => {
+  it('preserves imported metadata and threat provenance', () => {
+    const dto: components['schemas']['TmForgeModelDto'] = {
+      metadata: { owner: 'Author', threatModelName: 'Threat Dragon model', reviewer: 'Reviewer' },
+      threats: [{ id: 'manual:threat-dragon.original', manual: true, state: 'Accepted', category: 'Linkability', source: { format: 'threat-dragon', id: 'original', modelType: 'LINDDUN' } }],
+    };
+
+    const model = toModel(dto);
+
+    expect(model.metadata).toEqual(dto.metadata);
+    expect(model.threats?.[0].source).toEqual(dto.threats?.[0].source);
+    expect(model.threats?.[0].category).toBe('Linkability');
+  });
+
   it('preserves every imported page and the expected rule fingerprints before layout', () => {
     const dto: components['schemas']['TmForgeModelDto'] = {
       diagrams: [

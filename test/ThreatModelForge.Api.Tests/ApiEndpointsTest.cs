@@ -2,11 +2,13 @@ namespace ThreatModelForge.Api.Tests
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Linq;
     using System.Net;
     using System.Net.Http;
     using System.Text;
     using System.Text.Json;
+    using System.Text.Json.Nodes;
     using System.Threading.Tasks;
     using Microsoft.AspNetCore.Mvc.Testing;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -307,6 +309,49 @@ namespace ThreatModelForge.Api.Tests
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
             using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             Assert.AreEqual("Alpha", body.RootElement.GetProperty("elements")[0].GetProperty("name").GetString());
+        }
+
+        /// <summary>HTTP import returns the shared model or an actionable caller-input error.</summary>
+        /// <param name="variation">A valid file or an unsupported or malformed variant.</param>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        [DataRow("valid")]
+        [DataRow("dangling")]
+        [DataRow("curved")]
+        public async Task Read_ThreatDragonPreservesEvidenceOrReportsInputError(string variation)
+        {
+            string json = File.ReadAllText(Path.Join(AppContext.BaseDirectory, "Fixtures", "threat-dragon-v2.json"));
+            JsonNode document = JsonNode.Parse(json) ?? throw new InvalidDataException("Missing fixture.");
+            JsonNode cells = document["detail"]?["diagrams"]?[0]?["cells"]
+                ?? throw new InvalidDataException("Missing fixture cells.");
+            if (variation == "dangling")
+            {
+                JsonNode source = cells[4]?["source"] ?? throw new InvalidDataException("Missing source.");
+                source["cell"] = "missing";
+            }
+            else if (variation == "curved")
+            {
+                JsonNode data = cells[3]?["data"] ?? throw new InvalidDataException("Missing boundary.");
+                data["type"] = "tm.Boundary";
+            }
+
+            string request = JsonSerializer.Serialize(new { contentBase64 = Base64(document.ToJsonString()) });
+            using HttpResponseMessage response = await PostJson("/v1/model/read", request);
+            string body = await response.Content.ReadAsStringAsync();
+            if (variation != "valid")
+            {
+                Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+                Assert.AreEqual("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+                StringAssert.Contains(body, variation == "dangling" ? "missing" : "curved trust boundary");
+                return;
+            }
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            using JsonDocument model = JsonDocument.Parse(body);
+            Assert.AreEqual("Model owner", model.RootElement.GetProperty("metadata").GetProperty("owner").GetString());
+            JsonElement threats = model.RootElement.GetProperty("threats");
+            Assert.AreEqual(3, threats.GetArrayLength());
+            Assert.IsTrue(threats.EnumerateArray().All(threat => threat.GetProperty("source").GetProperty("format").GetString() == "threat-dragon"));
         }
 
         /// <summary>Verifies format detection answers with the format it recognized.</summary>

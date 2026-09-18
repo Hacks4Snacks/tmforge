@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor, within, act } from '@testing-librar
 import { ReactFlowProvider, useReactFlow, type ReactFlowInstance } from '@xyflow/react';
 import { STORAGE_KEY } from './Editor';
 import type { IEngineClient, LayoutElement } from './engineClient';
+import type { TmForgeModel } from './types';
 
 const engineState = vi.hoisted(() => ({ current: undefined as IEngineClient | undefined }));
 vi.mock('./engineClient', async (importOriginal) => {
@@ -508,6 +509,48 @@ describe('Editor — the outline highlights what it picks', () => {
     await waitFor(() => expect(nodeEl('c')).toHaveClass('flagged'));
     expect(nodeEl('b')).toHaveClass('flagged');
     expect(nodeEl('a')).not.toHaveClass('flagged');
+  });
+});
+
+describe('Editor import-only formats', () => {
+  it('saves to a new canonical file without binding or overwriting the source', async () => {
+    const { offlineEngine } = await import('./engineClient');
+    const imported: TmForgeModel = await offlineEngine.read(JSON.stringify(chain()));
+    imported.metadata = { owner: 'Imported owner' };
+    imported.threats = [{ id: 'manual:threat-dragon.source', state: 'Accepted', manual: true, category: 'Linkability', source: { format: 'threat-dragon', id: 'source' } }];
+    imported.diagrams = [{ id: 'source-page', name: 'Imported page', elements: imported.elements, flows: imported.flows }];
+    const sourceWrite = vi.fn();
+    const targetWrite = vi.fn(async () => undefined);
+    const writeModel = vi.fn(async (model: TmForgeModel) => JSON.stringify(model));
+    const readFile = vi.fn(async () => imported);
+    const open = vi.fn(async () => [{ name: 'foreign.json', getFile: async () => ({ arrayBuffer: async () => new ArrayBuffer(0) }), createWritable: sourceWrite }]);
+    const save = vi.fn(async () => ({ name: 'foreign.tmforge.json', createWritable: async () => ({ write: targetWrite, close: async () => undefined }) }));
+    const format = { id: 'threat-dragon', displayName: 'Threat Dragon', canRead: true, canWrite: false, roundTrips: false, extensions: [], fidelityNote: 'Import only' };
+    engineState.current = Object.assign(Object.create(offlineEngine) as IEngineClient, {
+      label: 'import test engine', detect: async () => format, readFile, write: writeModel,
+    });
+    Object.defineProperty(window, 'showOpenFilePicker', { configurable: true, value: open });
+    Object.defineProperty(window, 'showSaveFilePicker', { configurable: true, value: save });
+    try {
+      await mountEditor(chain());
+      await waitFor(() => expect(document.querySelector('.engine-pill')).toHaveTextContent('import test engine'));
+      fireEvent.click(screen.getByRole('button', { name: 'Open File' }));
+      await waitFor(() => expect(screen.getByText('foreign.tmforge.json')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(targetWrite).toHaveBeenCalledOnce());
+      expect(sourceWrite).not.toHaveBeenCalled();
+      expect(save).toHaveBeenCalledWith({ suggestedName: 'foreign.tmforge.json' });
+      expect(readFile).toHaveBeenCalledWith(expect.any(Uint8Array), 'threat-dragon');
+      const saved = writeModel.mock.calls.at(-1)?.[0];
+      expect(saved?.metadata).toEqual(imported.metadata);
+      expect(saved?.threats).toEqual(imported.threats);
+      expect(saved?.diagrams?.[0]).toMatchObject({ id: 'source-page', name: 'Imported page' });
+    } finally {
+      Reflect.deleteProperty(window, 'showOpenFilePicker');
+      Reflect.deleteProperty(window, 'showSaveFilePicker');
+    }
   });
 });
 

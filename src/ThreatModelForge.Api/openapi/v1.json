@@ -1244,6 +1244,61 @@
           }
         }
       },
+      "MetaInformation": {
+        "type": "object",
+        "properties": {
+          "assumptions": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Gets or sets the recorded assumptions."
+          },
+          "contributors": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Gets or sets the contributors."
+          },
+          "externalDependencies": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Gets or sets the external dependencies."
+          },
+          "highLevelSystemDescription": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Gets or sets the high-level system description."
+          },
+          "owner": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Gets or sets the model owner."
+          },
+          "reviewer": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Gets or sets the reviewer."
+          },
+          "threatModelName": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Gets or sets the threat model name."
+          }
+        },
+        "description": "Free-text metadata describing the modeled system (owner, reviewer, assumptions, and so on)."
+      },
       "PackDto": {
         "type": "object",
         "properties": {
@@ -1511,6 +1566,15 @@
               "string"
             ]
           },
+          "source": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
           "manual": {
             "type": "boolean"
           }
@@ -1655,6 +1719,15 @@
               "null",
               "string"
             ]
+          },
+          "source": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
           },
           "priority": {
             "type": [
@@ -1830,6 +1903,16 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "metadata": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MetaInformation"
+              }
             ]
           },
           "elements": {

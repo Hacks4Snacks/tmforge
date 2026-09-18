@@ -1340,6 +1340,7 @@ namespace ThreatModelForge.Engine
                     Interaction = DescribeScope(ids, idToName),
                     State = NormalizeState(entry.State),
                     Justification = entry.Justification,
+                    Source = entry.Source,
                     Manual = true,
                 });
             }

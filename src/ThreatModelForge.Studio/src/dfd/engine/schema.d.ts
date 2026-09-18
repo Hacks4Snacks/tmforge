@@ -548,6 +548,23 @@ export interface components {
             merged?: null | components["schemas"]["TmForgeModelDto"];
             conflicts?: null | components["schemas"]["MergeConflictDto"][];
         };
+        /** @description Free-text metadata describing the modeled system (owner, reviewer, assumptions, and so on). */
+        MetaInformation: {
+            /** @description Gets or sets the recorded assumptions. */
+            assumptions?: null | string;
+            /** @description Gets or sets the contributors. */
+            contributors?: null | string;
+            /** @description Gets or sets the external dependencies. */
+            externalDependencies?: null | string;
+            /** @description Gets or sets the high-level system description. */
+            highLevelSystemDescription?: null | string;
+            /** @description Gets or sets the model owner. */
+            owner?: null | string;
+            /** @description Gets or sets the reviewer. */
+            reviewer?: null | string;
+            /** @description Gets or sets the threat model name. */
+            threatModelName?: null | string;
+        };
         /**
          * @description Describes a stencil pack: a named, togglable group of related stencils (for example, the
          *     Azure pack). The palette uses packs so the user can show or hide whole families at once.
@@ -651,6 +668,9 @@ export interface components {
             state?: string;
             justification?: null | string;
             description?: null | string;
+            source?: null | {
+                [key: string]: string;
+            };
             manual?: boolean;
         };
         ThreatRegisterDto: {
@@ -686,6 +706,9 @@ export interface components {
             title?: null | string;
             description?: null | string;
             mitigation?: null | string;
+            source?: null | {
+                [key: string]: string;
+            };
             priority?: null | string;
             elementIds?: null | string[];
         };
@@ -728,6 +751,7 @@ export interface components {
         TmForgeModelDto: {
             schema?: null | string;
             version?: null | string;
+            metadata?: null | components["schemas"]["MetaInformation"];
             elements?: null | components["schemas"]["TmForgeElementDto"][];
             flows?: null | components["schemas"]["TmForgeFlowDto"][];
             diagrams?: null | components["schemas"]["TmForgeDiagramDto"][];

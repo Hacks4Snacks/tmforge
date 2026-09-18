@@ -122,6 +122,27 @@ namespace ThreatModelForge.Cli.Tests
             Assert.AreEqual(JsonSerializer.Serialize(expected), JsonSerializer.Serialize(actual));
         }
 
+        /// <summary>Sandboxed Threat Dragon import retains authored evidence through an MCP save.</summary>
+        [TestMethod]
+        public void ReadThreatDragonAndSavePreservesEvidence()
+        {
+            string path = Path.Join(this.WorkingDirectory, "dragon.json");
+            File.Copy(Path.Join(AppContext.BaseDirectory, "Fixtures", "threat-dragon-v2.json"), path);
+            byte[] original = File.ReadAllBytes(path);
+            using ServiceProvider services = CreateServices(this.WorkingDirectory);
+
+            TmForgeModelDto imported = McpModelTools.Read("dragon.json", services);
+            McpSaveResult saved = McpModelTools.Save(imported, "imported.tmforge.json", services, "tmforge-json");
+            TmForgeModelDto restored = McpModelTools.Read("imported.tmforge.json", services);
+
+            Assert.IsTrue(saved.Bytes > 0);
+            Assert.IsNotNull(restored.Threats);
+            Assert.HasCount(3, restored.Threats);
+            Assert.AreEqual("Model owner", restored.Metadata?.Owner);
+            Assert.AreEqual("LINDDUN", restored.Threats.Single(threat => threat.Id == "manual:threat-dragon.linkability").Source?["modelType"]);
+            CollectionAssert.AreEqual(original, File.ReadAllBytes(path));
+        }
+
         /// <summary>
         /// Verifies that <c>save</c> writes a model to disk and <c>read</c> loads it back.
         /// </summary>
