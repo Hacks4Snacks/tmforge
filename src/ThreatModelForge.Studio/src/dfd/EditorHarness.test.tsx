@@ -3,8 +3,10 @@ import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import { ReactFlowProvider, useReactFlow, type ReactFlowInstance } from '@xyflow/react';
 import { STORAGE_KEY } from './Editor';
-import type { IEngineClient, LayoutElement } from './engineClient';
+import type { IEngineClient, LayoutElement, ModelCompareResult } from './engineClient';
 import type { TmForgeModel } from './types';
+import { ReviewDiagram, reviewPageId } from './ReviewDiagram';
+import { pagesFromModel } from './mapping';
 
 const engineState = vi.hoisted(() => ({ current: undefined as IEngineClient | undefined }));
 vi.mock('./engineClient', async (importOriginal) => {
@@ -195,6 +197,224 @@ function addCustomProperty(key: string, value: string): void {
 beforeEach(() => {
   window.localStorage.clear();
   engineState.current = undefined;
+});
+
+describe('Read-only review diagrams', () => {
+  it('uses separate SVG and accessibility namespaces for both canvases', () => {
+    const pages = pagesFromModel(chain() as TmForgeModel);
+    render(<>
+      <ReviewDiagram side="baseline" pages={pages} theme="light" selection={undefined} />
+      <ReviewDiagram side="proposed" pages={pages} theme="light" selection={undefined} />
+    </>);
+    const ids = Array.from(document.querySelectorAll('[id]')).map((element) => element.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(document.getElementById('tmforge-review-baseline')).toBeInTheDocument();
+    expect(document.getElementById('tmforge-review-proposed')).toBeInTheDocument();
+  });
+
+  it('keeps selected shapes and boundaries passive', async () => {
+    const model = chain() as TmForgeModel;
+    model.elements.push({ id: 'zone', kind: 'boundary', name: 'Trust zone', x: 0, y: 0, width: 600, height: 300 });
+    const pages = pagesFromModel(model);
+    const original = JSON.stringify(pages);
+    render(<ReviewDiagram side="baseline" pages={pages} theme="light" selection={{
+      id: 'changed', section: 'structure', kind: 'modified', title: 'Alpha',
+      baselineElementIds: ['a', 'zone'], proposedElementIds: ['a'], properties: [],
+    }} />);
+    await waitFor(() => expect(screen.getByText('Alpha')).toBeInTheDocument());
+    fireEvent.doubleClick(screen.getByText('Alpha'));
+    fireEvent.doubleClick(screen.getByText('Trust zone'));
+    fireEvent.keyDown(screen.getByRole('region', { name: 'Baseline diagram' }), { key: 'Backspace' });
+    expect(document.querySelector('.dfd-label-input')).toBeNull();
+    expect(document.querySelector('.dfd-boundary-label-input')).toBeNull();
+    expect(document.querySelector('.react-flow__resize-control')).toBeNull();
+    expect(document.querySelectorAll('.review-highlight')).toHaveLength(2);
+    expect(JSON.stringify(pages)).toBe(original);
+  });
+
+  it('locates author ids across pages and falls back only for implicit single-page identities', () => {
+    const pages = pagesFromModel(chain() as TmForgeModel);
+    expect(reviewPageId(pages, 'engine-default-page', ['ab'])).toBe(pages[0].id);
+    expect(reviewPageId(pages, 'engine-default-page', [])).toBe(pages[0].id);
+    expect(reviewPageId(pages, undefined, [])).toBeUndefined();
+    const second = { ...pages[0], id: 'second', nodes: [], edges: [] };
+    expect(reviewPageId([...pages, second], 'second', [])).toBe('second');
+    expect(reviewPageId([...pages, second], 'missing', [])).toBeUndefined();
+  });
+});
+
+describe('Editor comparison review', () => {
+  const renamed: ModelCompareResult = {
+    success: true, findingsAvailable: true, unchangedFindings: 3, warnings: [], diagnostics: [],
+    changes: [{ id: 'structure:a', section: 'structure', kind: 'modified', title: 'Gateway', elementKind: 'process',
+      baselineElementIds: ['a'], proposedElementIds: ['a'], properties: [{ key: 'name', from: 'Alpha', to: 'Gateway' }] }],
+  };
+
+  async function openReview(compare = vi.fn<IEngineClient['compare']>(async () => renamed), preflight: IEngineClient['preflight'] = async () => ({ success: true, format: 'tmforge-json', diagnostics: [] })) {
+    const { offlineEngine } = await import('./engineClient');
+    engineState.current = Object.assign(Object.create(offlineEngine) as IEngineClient, { label: 'compare test engine', compare, preflight });
+    await mountEditor(chain());
+    await waitFor(() => expect(document.querySelector('.engine-pill')).toHaveTextContent('compare test engine'));
+    selectNodes('a');
+    addCustomProperty('Owner', 'reviewed');
+    await waitFor(() => expect(window.localStorage.getItem(STORAGE_KEY)).toContain('reviewed'), { timeout: 3000 });
+    fireEvent.click(screen.getByRole('button', { name: 'Compare' }));
+    return { compare, dialog: screen.getByRole('dialog', { name: 'Model Review' }) };
+  }
+
+  function upload(side: string, name: string, model: TmForgeModel = chain() as TmForgeModel) {
+    const bytes = new TextEncoder().encode(JSON.stringify(model));
+    const file = new File([bytes], name, { type: 'application/json' });
+    Object.defineProperty(file, 'arrayBuffer', { value: async () => bytes.buffer });
+    fireEvent.change(screen.getByLabelText(`${side} file`), { target: { files: [file] } });
+  }
+
+  it('reviews a frozen snapshot without editing, saving, or consuming undo history', async () => {
+    const { compare, dialog } = await openReview();
+    const before = window.localStorage.getItem(STORAGE_KEY);
+    upload('baseline', 'baseline.json');
+    await waitFor(() => expect(within(dialog).getByText('baseline.json')).toBeInTheDocument());
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Compare' }));
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: /Gateway/ })).toBeInTheDocument());
+    expect(compare).toHaveBeenCalledTimes(1);
+    expect(compare.mock.calls[0]?.length).toBe(2);
+    const inputs = compare.mock.calls[0];
+    expect(inputs[1].elements[0].properties).toEqual({ Owner: 'reviewed' });
+    expect(document.querySelector('.app')).toHaveAttribute('inert');
+    expect(within(dialog).getByText('3 unchanged findings')).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+    fireEvent.keyDown(window, { key: 'd', ctrlKey: true });
+    fireEvent.keyDown(dialog, { key: 'Backspace' });
+    fireEvent.doubleClick(within(dialog).getAllByText('Alpha')[0]);
+    expect(within(dialog).queryByRole('textbox')).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close review' }));
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBe(before);
+    expect(document.querySelector('.save-status')).toHaveTextContent('Unsaved');
+    expect(canvasNodeIds()).toEqual(['a', 'b', 'c']);
+    expect(await undoToExhaustion()).toBe(1);
+    expect(flow!.getNode('a')?.data.properties).toEqual({});
+  });
+
+  it('requires import-loss confirmation and retains the warning with the accepted input', async () => {
+    const preflight = vi.fn<IEngineClient['preflight']>(async () => ({ success: true, format: 'tmforge-json', diagnostics: [
+      { code: 'import.loss', severity: 'warning', path: '$.threats', message: 'Generated register will not be compared.' },
+    ] }));
+    const { dialog, compare } = await openReview(undefined, preflight);
+    const read = vi.spyOn(engineState.current!, 'read');
+    upload('baseline', 'lossy.json');
+    const prompt = await screen.findByRole('dialog', { name: 'Baseline import: lossy.json' });
+    expect(read).not.toHaveBeenCalled();
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Cancel' }));
+    expect(within(dialog).getByRole('button', { name: 'Compare' })).toBeDisabled();
+    upload('baseline', 'lossy.json');
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Baseline import: lossy.json' })).getByRole('button', { name: 'Continue' }));
+    await waitFor(() => expect(within(dialog).getByText('lossy.json')).toBeInTheDocument());
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(preflight).toHaveBeenCalledWith(expect.any(Uint8Array), 'tmforge-json', undefined);
+    expect(within(dialog).getByText(/Generated register will not be compared/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Compare' }));
+    await waitFor(() => expect(compare).toHaveBeenCalledTimes(1));
+    expect(within(dialog).getByText('Baseline import: 1 diagnostics')).toBeInTheDocument();
+  });
+
+  it('blocks invalid input and cancels a pending file read when review closes', async () => {
+    const { dialog } = await openReview(undefined, async () => ({ success: false, format: 'tmforge-json', diagnostics: [
+      { code: 'model.endpoint', severity: 'error', path: '$.flows[0].target', message: 'Missing target.' },
+    ] }));
+    const read = vi.spyOn(engineState.current!, 'read');
+    upload('baseline', 'invalid.json');
+    const prompt = await screen.findByRole('dialog', { name: 'Baseline import: invalid.json' });
+    expect(within(prompt).queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument();
+    fireEvent.keyDown(prompt, { key: 'Escape' });
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Compare' })).toBeDisabled();
+    expect(read).not.toHaveBeenCalled();
+    let finish!: (result: Awaited<ReturnType<IEngineClient['preflight']>>) => void;
+    engineState.current!.preflight = vi.fn<IEngineClient['preflight']>(() => new Promise((resolve) => { finish = resolve; }));
+    upload('baseline', 'late.json');
+    await waitFor(() => expect(engineState.current!.preflight).toHaveBeenCalledTimes(1));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close review' }));
+    await act(async () => { finish({ success: true, format: 'tmforge-json', diagnostics: [] }); });
+    expect(read).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(canvasNodeIds()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('ignores an old comparison after an input is replaced', async () => {
+    let finish!: (result: ModelCompareResult) => void;
+    const compare = vi.fn<IEngineClient['compare']>(() => new Promise((resolve) => { finish = resolve; }));
+    const { dialog } = await openReview(compare);
+    upload('baseline', 'old.json');
+    await waitFor(() => expect(within(dialog).getByText('old.json')).toBeInTheDocument());
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Compare' }));
+    await waitFor(() => expect(compare).toHaveBeenCalledTimes(1));
+    upload('baseline', 'new.json');
+    await waitFor(() => expect(within(dialog).getByText('new.json')).toBeInTheDocument());
+    await act(async () => { finish(renamed); });
+    expect(within(dialog).queryByRole('button', { name: /Gateway/ })).not.toBeInTheDocument();
+    expect(within(dialog).getByText('Not compared')).toBeInTheDocument();
+    compare.mockResolvedValue({ ...renamed, changes: [] });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Compare' }));
+    await waitFor(() => expect(within(dialog).getByText('No changes in this category')).toBeInTheDocument());
+  });
+
+  it('distinguishes unavailable findings from an empty findings delta', async () => {
+    const compare = vi.fn<IEngineClient['compare']>(async () => ({ ...renamed, findingsAvailable: false, unchangedFindings: 0,
+      warnings: ['Rule selection changed.'], diagnostics: [
+        { code: 'compare.analysis-unavailable', severity: 'error', path: '$.baseline.analysis', message: 'Missing custom pack.' },
+      ] }));
+    const { dialog } = await openReview(compare);
+    upload('baseline', 'base.json');
+    await waitFor(() => expect(within(dialog).getByText('base.json')).toBeInTheDocument());
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Compare' }));
+    await waitFor(() => expect(within(dialog).getByText('Findings comparison unavailable.')).toBeInTheDocument());
+    expect(within(dialog).getByRole('button', { name: /Gateway/ })).toBeInTheDocument();
+    expect(within(dialog).getByText('Rule selection changed.')).toBeInTheDocument();
+    expect(within(dialog).queryByText(/unchanged findings/)).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('tab', { name: /Findings N\/A/ }));
+    expect(within(dialog).getByText('Findings unavailable')).toBeInTheDocument();
+  });
+
+  it('filters and steps through changes and resets results when the proposed source changes', async () => {
+    const changes = [...renamed.changes, { ...renamed.changes[0], id: 'crossings:ab', section: 'crossings' as const,
+      title: 'Crossing request', elementKind: 'flow', properties: [{ key: 'Service zone', from: 'Crosses', to: 'Does not cross' }] }];
+    const { dialog } = await openReview(vi.fn(async () => ({ ...renamed, changes })));
+    upload('baseline', 'base.json');
+    await waitFor(() => expect(within(dialog).getByText('base.json')).toBeInTheDocument());
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Compare' }));
+    await waitFor(() => expect(within(dialog).getByText('1 / 2')).toBeInTheDocument());
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Next change' }));
+    expect(within(dialog).getByText('2 / 2')).toBeInTheDocument();
+    expect(within(dialog).getByRole('heading', { name: 'Crossing request' })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Previous change' }));
+    expect(within(dialog).getByRole('heading', { name: 'Gateway' })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('tab', { name: /Boundary crossings/ }));
+    expect(within(dialog).getByText('1 / 1')).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByRole('searchbox'), { target: { value: 'missing' } });
+    await waitFor(() => expect(within(dialog).getByText('No matching changes')).toBeInTheDocument());
+    upload('proposed', 'proposal.json');
+    await waitFor(() => expect(within(dialog).getByText('proposal.json')).toBeInTheDocument());
+    expect(within(dialog).getByText('Not compared')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Use current canvas' }));
+    expect(within(dialog).getByText('Canvas snapshot')).toBeInTheDocument();
+  });
+
+  it('keeps long reviews bounded when navigation wraps to the last change', async () => {
+    const changes = Array.from({ length: 101 }, (_, index) => ({ ...renamed.changes[0], id: `change-${index}`, title: `Gateway ${index}` }));
+    const { dialog } = await openReview(vi.fn(async () => ({ ...renamed, changes })));
+    upload('baseline', 'base.json');
+    await waitFor(() => expect(within(dialog).getByText('base.json')).toBeInTheDocument());
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Compare' }));
+    await waitFor(() => expect(within(dialog).getByText('1 / 101')).toBeInTheDocument());
+    expect(dialog.querySelectorAll('.review-change')).toHaveLength(100);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Previous change' }));
+    expect(within(dialog).getByText('101 / 101')).toBeInTheDocument();
+    expect(dialog.querySelectorAll('.review-change')).toHaveLength(1);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Previous 100 changes' }));
+    expect(dialog.querySelectorAll('.review-change')).toHaveLength(100);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Next 100 changes' }));
+    expect(dialog.querySelectorAll('.review-change')).toHaveLength(1);
+  });
 });
 
 describe('Editor — guarded Tidy', () => {

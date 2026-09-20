@@ -42,6 +42,7 @@ import { useUndoRedo } from './useUndoRedo';
 import { FlowEdge } from './edges/FlowEdge';
 import { PageTabs } from './PageTabs';
 import { MergeResolveModal } from './MergeResolveModal';
+import { CompareReview } from './CompareReview';
 import { PreflightDialog } from './PreflightDialog';
 import { DfdActionsContext, type DfdActions } from './editorContext';
 import { Toaster, toast } from './toast';
@@ -450,6 +451,9 @@ export function Editor() {
   const [ruleCatalogToken, setRuleCatalogToken] = useState(0);
   const [showRules, setShowRules] = useState(false);
   const [showMerge, setShowMerge] = useState(false);
+  const [compareSnapshot, setCompareSnapshot] = useState<{ model: TmForgeModel; name: string | null } | null>(null);
+  const reviewActiveRef = useRef(false);
+  reviewActiveRef.current = compareSnapshot !== null;
   const [preflightReview, setPreflightReview] = useState<{ title: string; result: PreflightResult } | null>(null);
   const preflightDecision = useRef<((proceed: boolean) => void) | undefined>(undefined);
   const preflightVersion = useRef(0);
@@ -941,6 +945,9 @@ export function Editor() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (reviewActiveRef.current) {
+        return;
+      }
       // Cmd/Ctrl+S saves — even while typing in a field — and never opens the browser's save dialog.
       if ((event.metaKey || event.ctrlKey) && (event.key === 's' || event.key === 'S')) {
         event.preventDefault();
@@ -1799,7 +1806,7 @@ export function Editor() {
 
   return (
     <DfdActionsContext.Provider value={actions}>
-    <div className="app">
+    <div className="app" inert={compareSnapshot !== null}>
       <Toolbar
         engineLabel={engine.label}
         engineOnline={engineOnline}
@@ -1809,6 +1816,7 @@ export function Editor() {
         onImport={openFile}
         onSave={saveModel}
         onMerge={() => setShowMerge(true)}
+        onCompare={() => setCompareSnapshot({ model: JSON.parse(JSON.stringify(currentModel)) as TmForgeModel, name: fileName })}
         dirty={dirty}
         fileName={fileName}
         onAnalyze={runAnalyze}
@@ -1851,6 +1859,7 @@ export function Editor() {
             edgeTypes={edgeTypes}
             defaultEdgeOptions={defaultEdgeOptions}
             connectionMode={ConnectionMode.Loose}
+            deleteKeyCode={compareSnapshot ? null : 'Backspace'}
             elevateNodesOnSelect={false}
             snapToGrid
             snapGrid={[GRID_SIZE, GRID_SIZE]}
@@ -2021,6 +2030,9 @@ export function Editor() {
         />
       </div>
     </div>
+    {compareSnapshot && <CompareReview key={`${engine.label}:${ruleCatalogToken}`} engine={engine}
+      current={compareSnapshot.model} currentName={compareSnapshot.name} accept={buildFileAccept(formats)} theme={theme}
+      onClose={() => setCompareSnapshot(null)} />}
     {showMerge ? (
       <MergeResolveModal
         engine={engine}
