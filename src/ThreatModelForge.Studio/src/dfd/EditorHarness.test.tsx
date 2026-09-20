@@ -415,6 +415,132 @@ describe('Editor comparison review', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Next 100 changes' }));
     expect(dialog.querySelectorAll('.review-change')).toHaveLength(1);
   });
+
+  it.each(['bytes', 'detect', 'preflight'] as const)('discards a pending import at %s without opening a late preflight dialog', async (phase) => {
+    const { offlineEngine } = await import('./engineClient');
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => { finish = resolve; });
+    const started = vi.fn();
+    const pauseAt = async (stage: typeof phase) => {
+      if (stage === phase) {
+        started();
+        await pending;
+      }
+    };
+    const read = vi.fn<IEngineClient['read']>(offlineEngine.read);
+    engineState.current = Object.assign(Object.create(offlineEngine) as IEngineClient, {
+      label: 'early import engine', read,
+      detect: async (bytes: Uint8Array) => { await pauseAt('detect'); return offlineEngine.detect(bytes); },
+      preflight: async () => {
+        await pauseAt('preflight');
+        return { success: true, format: 'tmforge-json', diagnostics: [
+          { code: 'import.loss', severity: 'warning', path: '$', message: 'Late import warning' },
+        ] };
+      },
+    });
+    await mountEditor(chain());
+    await waitFor(() => expect(document.querySelector('.engine-pill')).toHaveTextContent('early import engine'));
+    const nodesBefore = flow!.getNodes();
+    const edgesBefore = flow!.getEdges();
+    const bytes = new TextEncoder().encode(JSON.stringify(chain()));
+    const file = new File([bytes], 'incoming.tmforge.json', { type: 'application/json' });
+    Object.defineProperty(file, 'arrayBuffer', { value: async () => { await pauseAt('bytes'); return bytes.buffer; } });
+    fireEvent.change(document.querySelector('.app input[type="file"]')!, { target: { files: [file] } });
+    await waitFor(() => expect(started).toHaveBeenCalledOnce());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Compare' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close review' }));
+    await act(async () => { finish(); });
+
+    expect(read).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(flow!.getNodes()).toEqual(nodesBefore);
+    expect(flow!.getEdges()).toEqual(edgesBefore);
+    expect(document.querySelector('.file-chip')).toBeNull();
+    expect(document.querySelector('.save-status')).toHaveTextContent('Saved');
+    expect(undoButton()).toBeDisabled();
+  });
+
+  it.each([
+    { picker: true, closeBeforeResponse: false },
+    { picker: true, closeBeforeResponse: true },
+    { picker: false, closeBeforeResponse: false },
+    { picker: false, closeBeforeResponse: true },
+  ])('discards a pending editor import when review opens (picker=$picker, closed=$closeBeforeResponse)', async ({ picker, closeBeforeResponse }) => {
+    const { offlineEngine } = await import('./engineClient');
+    const working = chain() as TmForgeModel;
+    working.metadata = { owner: 'Current owner' };
+    working.threats = [{ id: 'manual:current', manual: true, title: 'Current risk', category: 'Spoofing', state: 'Accepted', justification: 'Reviewed' }];
+    const incoming = chain() as TmForgeModel;
+    incoming.elements[0].name = 'Late imported Alpha';
+    const bytes = new TextEncoder().encode(JSON.stringify(working));
+    const write = vi.fn(async () => undefined);
+    const workingHandle = {
+      name: 'working.tmforge.json',
+      getFile: async () => ({ arrayBuffer: async () => bytes.buffer }),
+      createWritable: vi.fn(async () => ({ write, close: async () => undefined })),
+    };
+    const incomingHandle = { ...workingHandle, name: 'incoming.tmforge.json', createWritable: vi.fn() };
+    const open = vi.fn().mockResolvedValueOnce([workingHandle]).mockResolvedValueOnce([incomingHandle]);
+    let finish!: (model: TmForgeModel) => void;
+    const read = vi.fn<IEngineClient['read']>()
+      .mockImplementationOnce(offlineEngine.read)
+      .mockImplementationOnce(() => new Promise<TmForgeModel>((resolve) => { finish = resolve; }));
+    const writeModel = vi.fn<IEngineClient['write']>(async (model) => JSON.stringify(model));
+    engineState.current = Object.assign(Object.create(offlineEngine) as IEngineClient, {
+      label: 'pending import engine', read, write: writeModel,
+      preflight: async () => ({ success: true, format: 'tmforge-json', diagnostics: [] }),
+    });
+    Object.defineProperty(window, 'showOpenFilePicker', { configurable: true, value: open });
+    try {
+      await mountEditor(chain());
+      await waitFor(() => expect(document.querySelector('.engine-pill')).toHaveTextContent('pending import engine'));
+      fireEvent.click(screen.getByRole('button', { name: 'Open File' }));
+      await screen.findByText('working.tmforge.json');
+      selectNodes('a');
+      addCustomProperty('Owner', 'Unsaved edit');
+      await waitFor(() => expect(window.localStorage.getItem(STORAGE_KEY)).toContain('Unsaved edit'), { timeout: 3000 });
+      const before = window.localStorage.getItem(STORAGE_KEY);
+      const nodesBefore = flow!.getNodes();
+      const edgesBefore = flow!.getEdges();
+
+      if (picker) {
+        fireEvent.click(screen.getByRole('button', { name: 'Open File' }));
+      } else {
+        Reflect.deleteProperty(window, 'showOpenFilePicker');
+        const file = new File([bytes], 'incoming.tmforge.json', { type: 'application/json' });
+        Object.defineProperty(file, 'arrayBuffer', { value: async () => bytes.buffer });
+        fireEvent.change(document.querySelector('.app input[type="file"]')!, { target: { files: [file] } });
+      }
+      await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+      fireEvent.click(screen.getByRole('button', { name: 'Compare' }));
+      const dialog = screen.getByRole('dialog', { name: 'Model Review' });
+      if (closeBeforeResponse) {
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Close review' }));
+      }
+      await act(async () => { finish(incoming); });
+
+      expect(flow!.getNodes()).toEqual(nodesBefore);
+      expect(flow!.getEdges()).toEqual(edgesBefore);
+      expect(window.localStorage.getItem(STORAGE_KEY)).toBe(before);
+      expect(document.querySelector('.file-chip')).toHaveTextContent('working.tmforge.json');
+      expect(document.querySelector('.save-status')).toHaveTextContent('Unsaved');
+      expect(workingHandle.createWritable).not.toHaveBeenCalled();
+      expect(incomingHandle.createWritable).not.toHaveBeenCalled();
+      if (!closeBeforeResponse) {
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Close review' }));
+      }
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(write).toHaveBeenCalledOnce());
+      expect(incomingHandle.createWritable).not.toHaveBeenCalled();
+      expect(writeModel.mock.calls[0][0].metadata).toEqual(working.metadata);
+      expect(writeModel.mock.calls[0][0].threats).toEqual(working.threats);
+      expect(await undoToExhaustion()).toBe(1);
+      expect(flow!.getNode('a')?.data.properties).toEqual({});
+    } finally {
+      Reflect.deleteProperty(window, 'showOpenFilePicker');
+    }
+  });
 });
 
 describe('Editor — guarded Tidy', () => {
@@ -494,6 +620,43 @@ describe('Editor — guarded Tidy', () => {
     await waitFor(() => expect(screen.getByText(/model changed while tidying/i)).toBeInTheDocument());
     expect(flow!.getNode('a')?.position).toEqual({ x: 0, y: 0 });
     expect(flow!.getNode('a')?.data.properties).toMatchObject({ Owner: 'newer-edit' });
+    expect(await undoToExhaustion()).toBe(1);
+  });
+
+  it.each([false, true])('discards a pending Tidy when review opens (closed=%s)', async (closeBeforeResponse) => {
+    let finish!: (elements: LayoutElement[]) => void;
+    const layout = vi.fn<IEngineClient['layout']>(() => new Promise<LayoutElement[]>((resolve) => { finish = resolve; }));
+    await useLayout(layout);
+    await mountEditor(chain());
+    selectNodes('a');
+    addCustomProperty('Owner', 'Unsaved edit');
+    await waitFor(() => expect(window.localStorage.getItem(STORAGE_KEY)).toContain('Unsaved edit'), { timeout: 3000 });
+    const before = window.localStorage.getItem(STORAGE_KEY);
+    const nodesBefore = flow!.getNodes();
+    const edgesBefore = flow!.getEdges();
+    await tidy();
+    await waitFor(() => expect(layout).toHaveBeenCalledOnce());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Compare' }));
+    const dialog = screen.getByRole('dialog', { name: 'Model Review' });
+    if (closeBeforeResponse) {
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Close review' }));
+    }
+    await act(async () => { finish(geometry); });
+
+    expect(flow!.getNodes()).toEqual(nodesBefore);
+    expect(flow!.getEdges()).toEqual(edgesBefore);
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBe(before);
+    expect(document.querySelector('.save-status')).toHaveTextContent('Unsaved');
+    if (!closeBeforeResponse) {
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Close review' }));
+    }
+    expect(screen.getByRole('button', { name: 'Tidy' })).toBeEnabled();
+    expect(await undoToExhaustion()).toBe(1);
+    expect(flow!.getNode('a')?.data.properties).toEqual({});
+    layout.mockResolvedValue(geometry);
+    await tidy();
+    await waitFor(() => expect(flow!.getNode('a')?.position).toEqual({ x: 40, y: 100 }));
     expect(await undoToExhaustion()).toBe(1);
   });
 

@@ -453,6 +453,7 @@ export function Editor() {
   const [showMerge, setShowMerge] = useState(false);
   const [compareSnapshot, setCompareSnapshot] = useState<{ model: TmForgeModel; name: string | null } | null>(null);
   const reviewActiveRef = useRef(false);
+  const reviewVersionRef = useRef(0);
   reviewActiveRef.current = compareSnapshot !== null;
   const [preflightReview, setPreflightReview] = useState<{ title: string; result: PreflightResult } | null>(null);
   const preflightDecision = useRef<((proceed: boolean) => void) | undefined>(undefined);
@@ -1647,12 +1648,21 @@ export function Editor() {
   // `tmforge apply` builds a model from — so it is materialized through the engine instead of being
   // reported as an unreadable model.
   const readDocument = useCallback(
-    async (bytes: Uint8Array, name: string): Promise<OpenedDocument> => {
+    async (bytes: Uint8Array, name: string, reviewVersion: number): Promise<OpenedDocument> => {
+      const ensureNotSuperseded = () => {
+        if (reviewVersion !== reviewVersionRef.current) {
+          throw new DOMException('Import cancelled because model review was opened.', 'AbortError');
+        }
+      };
+      ensureNotSuperseded();
       const baseline = layoutStateRef.current.workspaceJson;
       const detected = await engine.detect(bytes).catch(() => null);
+      ensureNotSuperseded();
       await checkDocument(bytes, detected?.id, detected?.id === 'tmforge-json' ? undefined : 'tmforge-json', 'import');
+      ensureNotSuperseded();
       const version = preflightVersion.current;
       const complete = (opened: OpenedDocument) => {
+        ensureNotSuperseded();
         if (baseline !== layoutStateRef.current.workspaceJson || version !== preflightVersion.current) {
           throw new DOMException('The workspace changed while the document was read.', 'AbortError');
         }
@@ -1693,8 +1703,9 @@ export function Editor() {
 
   const onImportFile = useCallback(
     async (file: File) => {
+      const reviewVersion = reviewVersionRef.current;
       try {
-        const opened = await readDocument(new Uint8Array(await file.arrayBuffer()), file.name);
+        const opened = await readDocument(new Uint8Array(await file.arrayBuffer()), file.name, reviewVersion);
         loadModel(opened.model);
         // A hidden <input> gives no writable handle, so Save falls back to Save As / download.
         fileHandleRef.current = null;
@@ -1710,6 +1721,7 @@ export function Editor() {
   // Prefer the File System Access API so Open retains a writable handle (Save can then overwrite the
   // same file); browsers without it (Firefox/Safari) fall back to the hidden <input>.
   const openFile = useCallback(async () => {
+    const reviewVersion = reviewVersionRef.current;
     const picker = window as unknown as FilePickerWindow;
     if (!picker.showOpenFilePicker) {
       fileRef.current?.click();
@@ -1718,7 +1730,7 @@ export function Editor() {
     try {
       const [handle] = await picker.showOpenFilePicker();
       const file = await handle.getFile();
-      const opened = await readDocument(new Uint8Array(await file.arrayBuffer()), handle.name);
+      const opened = await readDocument(new Uint8Array(await file.arrayBuffer()), handle.name, reviewVersion);
       loadModel(opened.model);
       fileHandleRef.current = opened.bindable ? handle : null;
       fileFormatRef.current = opened.saveFormat;
@@ -1816,7 +1828,15 @@ export function Editor() {
         onImport={openFile}
         onSave={saveModel}
         onMerge={() => setShowMerge(true)}
-        onCompare={() => setCompareSnapshot({ model: JSON.parse(JSON.stringify(currentModel)) as TmForgeModel, name: fileName })}
+        onCompare={() => {
+          reviewVersionRef.current += 1;
+          preflightVersion.current += 1;
+          finishPreflight(false);
+          layoutRequestRef.current += 1;
+          layoutPendingRef.current = false;
+          setTidying(false);
+          setCompareSnapshot({ model: JSON.parse(JSON.stringify(currentModel)) as TmForgeModel, name: fileName });
+        }}
         dirty={dirty}
         fileName={fileName}
         onAnalyze={runAnalyze}
