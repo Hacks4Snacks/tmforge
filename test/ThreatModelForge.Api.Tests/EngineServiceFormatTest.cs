@@ -554,10 +554,56 @@ namespace ThreatModelForge.Api.Tests
         [TestMethod]
         [DataRow("<invalid")]
         [DataRow("<!DOCTYPE ThreatModel [<!ENTITY secret SYSTEM 'file:///not-read'>]><ThreatModel>&secret;</ThreatModel>")]
+        [DataRow("<WrongRoot xmlns='http://schemas.datacontract.org/2004/07/ThreatModeling.Model' />")]
+        [DataRow("<ThreatModel xmlns='urn:untrusted' />")]
+        [DataRow("<ThreatModel />")]
         public void SaveTm7RejectsInvalidXml(string xml)
         {
-            Assert.Throws<InvalidDataException>(() => EngineService.SaveTm7(Encoding.UTF8.GetBytes(xml), ConnectedModel()));
+            byte[] invalid = Encoding.UTF8.GetBytes(xml);
+            InvalidDataException error = Assert.Throws<InvalidDataException>(() => EngineService.SaveTm7(invalid, ConnectedModel()));
+            StringAssert.Contains(error.Message, "The native TM7 XML is invalid:");
             Assert.Throws<InvalidDataException>(() => EngineService.SaveTm7(new byte[JsonDocumentPreflight.MaxBytes + 1], ConnectedModel()));
+            byte[] original = EngineService.Convert(ConnectedModel(), "tm7");
+            Assert.Throws<InvalidDataException>(() => EngineService.SaveTm7(original, ConnectedModel(), null, invalid));
+        }
+
+        /// <summary>Untrusted schema hints never replace the native envelope schema or fetch external resources.</summary>
+        [TestMethod]
+        public void SaveTm7IgnoresUserSuppliedSchemas()
+        {
+            XDocument document = XDocument.Parse(Encoding.UTF8.GetString(EngineService.Convert(ConnectedModel(), "tm7")));
+            XNamespace schema = "http://www.w3.org/2001/XMLSchema";
+            document.Root!.SetAttributeValue(
+                XNamespace.Get("http://www.w3.org/2001/XMLSchema-instance") + "schemaLocation",
+                document.Root.Name.NamespaceName + " file:///tmforge-must-not-read.xsd");
+            document.Root.Add(new XElement(
+                schema + "schema",
+                new XAttribute("targetNamespace", document.Root.Name.NamespaceName),
+                new XAttribute(XNamespace.Xmlns + "xs", schema),
+                new XElement(schema + "element", new XAttribute("name", "ThreatModel"), new XAttribute("type", "xs:int"))));
+            byte[] original = Encoding.UTF8.GetBytes(document.ToString());
+            TmForgeModelDto baseline = EngineService.ReadModel(original, "tm7");
+
+            CollectionAssert.AreEqual(original, EngineService.SaveTm7(original, baseline));
+            CollectionAssert.AreEqual(original, EngineService.SaveTm7(original, baseline, null, original));
+        }
+
+        /// <summary>Opaque XML remains bounded before document materialization for both native input parameters.</summary>
+        [TestMethod]
+        public void SaveTm7RejectsExcessiveXmlDepth()
+        {
+            byte[] original = EngineService.Convert(ConnectedModel(), "tm7");
+            XDocument document = XDocument.Parse(Encoding.UTF8.GetString(original));
+            XElement nested = new XElement("opaque");
+            for (int depth = 0; depth < 130; depth++)
+            {
+                nested = new XElement("opaque", nested);
+            }
+
+            document.Root!.Add(nested);
+            byte[] excessive = Encoding.UTF8.GetBytes(document.ToString(SaveOptions.DisableFormatting));
+            Assert.Throws<InvalidDataException>(() => EngineService.SaveTm7(excessive, ConnectedModel()));
+            Assert.Throws<InvalidDataException>(() => EngineService.SaveTm7(original, ConnectedModel(), null, excessive));
         }
 
         /// <summary>Native structural edits retain the original template and do not create generated threats.</summary>

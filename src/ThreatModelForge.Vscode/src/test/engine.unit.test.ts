@@ -74,6 +74,15 @@ test('native saves retain source bytes, opaque XML and previous native edits', a
     const content = original.toString('base64');
     const baseline = await worker.invoke('ReadFile', [content, 'tm7']);
     assert.deepEqual(Buffer.from(await worker.invoke('SaveTm7', [content, baseline]), 'base64'), original);
+    for (const xml of [
+      '<WrongRoot xmlns="http://schemas.datacontract.org/2004/07/ThreatModeling.Model"/>',
+      '<ThreatModel xmlns="urn:untrusted"/>',
+      '<!DOCTYPE ThreatModel [<!ENTITY data SYSTEM "file:///not-read">]><ThreatModel>&data;</ThreatModel>',
+    ]) {
+      const invalid = Buffer.from(xml).toString('base64');
+      await assert.rejects(worker.invoke('SaveTm7', [invalid, baseline]), /native TM7 XML is invalid/);
+      await assert.rejects(worker.invoke('SaveTm7WithPrevious', [content, baseline, invalid]), /native TM7 XML is invalid/);
+    }
     const edited = JSON.parse(baseline);
     const page = edited.diagrams[0];
     page.elements.find((element: { name: string }) => element.name === 'Orders API').name = 'Native VS Code API';

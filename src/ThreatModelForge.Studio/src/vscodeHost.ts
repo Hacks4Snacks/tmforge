@@ -1,5 +1,15 @@
 import type { TmForgeModel } from './dfd/types';
 
+export function listenForHostMessages(receive: (message: Record<string, unknown>) => void): () => void {
+  const trustedOrigin = window.origin;
+  const listener = (event: MessageEvent) => {
+    if (!trustedOrigin || trustedOrigin === 'null' || event.origin !== trustedOrigin) return;
+    if (event.data && typeof event.data === 'object' && !Array.isArray(event.data)) receive(event.data);
+  };
+  window.addEventListener('message', listener);
+  return () => window.removeEventListener('message', listener);
+}
+
 export interface StudioDocument {
   version: number;
   dirty: boolean;

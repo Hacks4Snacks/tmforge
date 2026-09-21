@@ -4,7 +4,7 @@ import { ReactFlowProvider } from '@xyflow/react';
 import { Editor } from './dfd/Editor';
 import { WasmEngineClient } from './dfd/engineClient';
 import type { EditorHost } from './dfd/editorContext';
-import { StudioBridge, type StudioDocument } from './vscodeHost';
+import { listenForHostMessages, StudioBridge, type StudioDocument } from './vscodeHost';
 import './index.css';
 import './App.css';
 import './vscode.css';
@@ -34,12 +34,9 @@ function Studio() {
     bridge.onDocument = value => { setDocument(value); if (value.error) setError(value.error); };
     bridge.onStatus = value => setDocument(current => current ? { ...current, ...value } : current);
     bridge.onError = setError;
-    const receive = (event: MessageEvent) => {
-      if (event.data && typeof event.data === 'object') bridge.receive(event.data);
-    };
-    window.addEventListener('message', receive);
+    const stopListening = listenForHostMessages(message => bridge.receive(message));
     vscode.postMessage({ type: 'ready' });
-    return () => { window.removeEventListener('message', receive); bridge.dispose(); };
+    return () => { stopListening(); bridge.dispose(); };
   }, []);
   useEffect(() => {
     if (document?.model && !document.error) vscode.postMessage({ type: 'rendered', version: document.version });

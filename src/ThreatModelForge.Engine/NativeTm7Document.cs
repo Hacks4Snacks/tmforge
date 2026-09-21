@@ -6,6 +6,7 @@ namespace ThreatModelForge.Engine
     using System.Text.Json;
     using System.Xml;
     using System.Xml.Linq;
+    using System.Xml.Schema;
     using ThreatModelForge.Analysis;
     using ThreatModelForge.Editing;
     using ThreatModelForge.Formats;
@@ -19,6 +20,7 @@ namespace ThreatModelForge.Engine
         private static readonly XNamespace Instance = "http://www.w3.org/2001/XMLSchema-instance";
         private static readonly XName StudioStateName = XNamespace.Get("urn:tmforge:studio:v1") + "State";
         private static readonly JsonSerializerOptions StateOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        private static readonly XmlSchemaSet NativeEnvelopeSchemas = CreateNativeEnvelopeSchemas();
 
         /// <summary>Saves supported edits while retaining unrepresented native XML.</summary>
         /// <param name="original">The native source bytes.</param>
@@ -791,6 +793,31 @@ namespace ThreatModelForge.Engine
 
         private static bool Same<T>(T before, T after) => JsonElement.DeepEquals(JsonSerializer.SerializeToElement(before), JsonSerializer.SerializeToElement(after));
 
+        private static XmlSchemaSet CreateNativeEnvelopeSchemas()
+        {
+            XmlSchema schema = new XmlSchema
+            {
+                TargetNamespace = "http://schemas.datacontract.org/2004/07/ThreatModeling.Model",
+                ElementFormDefault = XmlSchemaForm.Qualified,
+            };
+            schema.Items.Add(new XmlSchemaElement
+            {
+                Name = "ThreatModel",
+                SchemaType = new XmlSchemaComplexType
+                {
+                    Particle = new XmlSchemaSequence
+                    {
+                        Items = { new XmlSchemaAny { MinOccurs = 0, MaxOccursString = "unbounded", ProcessContents = XmlSchemaContentProcessing.Skip } },
+                    },
+                    AnyAttribute = new XmlSchemaAnyAttribute { ProcessContents = XmlSchemaContentProcessing.Skip },
+                },
+            });
+            XmlSchemaSet schemas = new XmlSchemaSet { XmlResolver = null };
+            schemas.Add(schema);
+            schemas.Compile();
+            return schemas;
+        }
+
         private static XDocument ReadXml(byte[] content)
         {
             using MemoryStream stream = new MemoryStream(content, writable: false);
@@ -798,9 +825,13 @@ namespace ThreatModelForge.Engine
             {
                 DtdProcessing = DtdProcessing.Prohibit,
                 XmlResolver = null,
+                ValidationType = ValidationType.Schema,
+                ValidationFlags = XmlSchemaValidationFlags.ReportValidationWarnings,
+                Schemas = NativeEnvelopeSchemas,
                 MaxCharactersInDocument = JsonDocumentPreflight.MaxBytes,
                 CloseInput = false,
             };
+            settings.ValidationEventHandler += (sender, arguments) => throw arguments.Exception;
             try
             {
                 using (XmlReader probe = XmlReader.Create(stream, settings))
@@ -818,7 +849,7 @@ namespace ThreatModelForge.Engine
                 using XmlReader reader = XmlReader.Create(stream, settings);
                 return XDocument.Load(reader, LoadOptions.PreserveWhitespace);
             }
-            catch (XmlException error)
+            catch (Exception error) when (error is XmlException || error is XmlSchemaException)
             {
                 throw new InvalidDataException("The native TM7 XML is invalid: " + error.Message, error);
             }
@@ -846,34 +877,32 @@ namespace ThreatModelForge.Engine
                     .ToDictionary(element => ObjectId(element).GetValueOrDefault(), element => (sourceObjects[ObjectId(element).GetValueOrDefault()], element));
             }
 
-            foreach (XName name in before.Attributes().Concat(after.Attributes()).Where(attribute => !attribute.IsNamespaceDeclaration).Select(attribute => attribute.Name).Distinct())
+            foreach (XName name in before.Attributes().Concat(after.Attributes()).Where(attribute => !attribute.IsNamespaceDeclaration)
+                .Select(attribute => attribute.Name).Distinct().Where(name => before.Attribute(name)?.Value != after.Attribute(name)?.Value))
             {
-                if (before.Attribute(name)?.Value != after.Attribute(name)?.Value)
+                if (name == Instance + "type" && after.Attribute(name) is XAttribute type)
                 {
-                    if (name == Instance + "type" && after.Attribute(name) is XAttribute type)
+                    string[] parts = type.Value.Split(':');
+                    XNamespace typeNamespace = parts.Length == 2
+                        ? after.GetNamespaceOfPrefix(parts[0]) ?? throw new InvalidDataException("Unresolved XML type namespace.")
+                        : after.GetDefaultNamespace();
+                    string prefix = retained.GetPrefixOfNamespace(typeNamespace) ?? string.Empty;
+                    if (prefix.Length == 0)
                     {
-                        string[] parts = type.Value.Split(':');
-                        XNamespace typeNamespace = parts.Length == 2
-                            ? after.GetNamespaceOfPrefix(parts[0]) ?? throw new InvalidDataException("Unresolved XML type namespace.")
-                            : after.GetDefaultNamespace();
-                        string prefix = retained.GetPrefixOfNamespace(typeNamespace) ?? string.Empty;
-                        if (prefix.Length == 0)
+                        int suffix = 0;
+                        do
                         {
-                            int suffix = 0;
-                            do
-                            {
-                                prefix = "native" + suffix++.ToString(CultureInfo.InvariantCulture);
-                            }
-                            while (retained.GetNamespaceOfPrefix(prefix) != null);
-                            retained.SetAttributeValue(XNamespace.Xmlns + prefix, typeNamespace.NamespaceName);
+                            prefix = "native" + suffix++.ToString(CultureInfo.InvariantCulture);
                         }
+                        while (retained.GetNamespaceOfPrefix(prefix) != null);
+                        retained.SetAttributeValue(XNamespace.Xmlns + prefix, typeNamespace.NamespaceName);
+                    }
 
-                        retained.SetAttributeValue(name, prefix + ":" + parts[^1]);
-                    }
-                    else
-                    {
-                        retained.SetAttributeValue(name, after.Attribute(name)?.Value);
-                    }
+                    retained.SetAttributeValue(name, prefix + ":" + parts[^1]);
+                }
+                else
+                {
+                    retained.SetAttributeValue(name, after.Attribute(name)?.Value);
                 }
             }
 
@@ -1021,12 +1050,9 @@ namespace ThreatModelForge.Engine
             XElement copy = new XElement(source);
             foreach (XElement ancestor in source.Ancestors())
             {
-                foreach (XAttribute declaration in ancestor.Attributes().Where(attribute => attribute.IsNamespaceDeclaration))
+                foreach (XAttribute declaration in ancestor.Attributes().Where(attribute => attribute.IsNamespaceDeclaration && copy.Attribute(attribute.Name) == null))
                 {
-                    if (copy.Attribute(declaration.Name) == null)
-                    {
-                        copy.Add(new XAttribute(declaration));
-                    }
+                    copy.Add(new XAttribute(declaration));
                 }
             }
 

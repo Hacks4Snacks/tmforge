@@ -327,6 +327,13 @@ needed. Native geometry can be translated for MTMT while Studio restores the aut
 Invalid references and unrecognized extension versions fail before writing. Explicit JSON/diagram exports and URL shares remain
 structural conversions and do not carry the native backing document.
 
+Native XML preservation validates the `ThreatModel` root name and namespace against a trusted,
+compiled envelope schema. The body remains extensible so unknown native XML can survive edits;
+the typed model reader and structural preflight validate the data used by the engine. Both the
+original document and any previous-save input reject DTDs, external resource resolution, and XML
+deeper than 128 levels, with an 8 MiB input limit. Inline schemas and `xsi:schemaLocation` values
+never replace the trusted schema or cause resource retrieval.
+
 **Open File** uses the active API or in-browser WASM
 engine to read `.tm7`, `.drawio`, `.vsdx`, supported Threat Dragon JSON, Mermaid and DOT. Read-only inputs save
 as new tmforge files, not back to their original format. The browser canvas itself does not parse

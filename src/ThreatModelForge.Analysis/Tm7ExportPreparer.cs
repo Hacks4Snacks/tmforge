@@ -165,13 +165,11 @@ namespace ThreatModelForge.Analysis
                     continue;
                 }
 
-                foreach (KnowledgeBaseAttribute attribute in type.Attributes)
+                foreach (KnowledgeBaseAttribute attribute in type.Attributes.Where(attribute =>
+                    !existing.Attributes.Any(candidate => string.Equals(candidate.Name, attribute.Name, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(candidate.DisplayName, attribute.DisplayName, StringComparison.OrdinalIgnoreCase))))
                 {
-                    if (!existing.Attributes.Any(candidate => string.Equals(candidate.Name, attribute.Name, StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(candidate.DisplayName, attribute.DisplayName, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        existing.Attributes.Add(attribute);
-                    }
+                    existing.Attributes.Add(attribute);
                 }
             }
         }
