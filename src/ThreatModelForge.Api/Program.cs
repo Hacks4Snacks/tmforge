@@ -134,7 +134,7 @@ namespace ThreatModelForge.Api
             app.MapPost(
                 "/v1/model/save/tm7",
                 (NativeTm7SaveRequest request) => TypedResults.File(
-                    EngineService.SaveTm7(Convert.FromBase64String(request.ContentBase64), request.Model ?? throw new ArgumentException("An edited model is required.")),
+                    EngineService.SaveTm7(Convert.FromBase64String(request.ContentBase64), request.Model ?? throw new ArgumentException("An edited model is required."), rules, string.IsNullOrEmpty(request.PreviousContentBase64) ? Array.Empty<byte>() : Convert.FromBase64String(request.PreviousContentBase64)),
                     "application/xml",
                     "model.tm7"))
                 .WithName("SaveNativeTm7")

@@ -119,6 +119,11 @@ describe('looksLikeManifest — routing an unidentified document', () => {
 });
 
 describe('engine model normalization', () => {
+  it('restores native canvas labels and ports', () => {
+    const model = toModel({ flows: [{ id: 'flow', source: 'a', target: 'b', labelOffset: { x: 32, y: -20 }, sourceHandle: 'r', targetHandle: 'l' }] });
+    expect(model.flows[0]).toMatchObject({ labelOffset: { x: 32, y: -20 }, sourceHandle: 'r', targetHandle: 'l' });
+  });
+
   it('preserves imported metadata and threat provenance', () => {
     const dto: components['schemas']['TmForgeModelDto'] = {
       metadata: { owner: 'Author', threatModelName: 'Threat Dragon model', reviewer: 'Reviewer' },
@@ -201,6 +206,13 @@ describe('engine model normalization', () => {
 });
 
 describe('asynchronous engine transport', () => {
+  it('carries the latest successful save when preserving an older undo source', async () => {
+    const invoke = vi.fn(async () => btoa('<preserved/>'));
+    const engine = new WasmEngineClient(invoke);
+    await engine.saveTm7(new Uint8Array([1]), emptyModel(), new Uint8Array([2]));
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('SaveTm7WithPrevious', 'AQ==', JSON.stringify(emptyModel()), 'Ag==');
+  });
+
   it('surfaces the HTTP native-save refusal instead of hiding it behind a status code', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ detail: 'The native threat register references this object.' }), {
       status: 400, headers: { 'Content-Type': 'application/problem+json' },

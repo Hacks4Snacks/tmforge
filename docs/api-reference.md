@@ -108,11 +108,25 @@ workspace sandbox and archive limits. Neither operation accepts rule content or 
 `POST /v1/model/save/tm7` accepts `{ "contentBase64": "...", "model": { ... } }`: the original
 native bytes and the edited `tmforge-json` projection returned by `/v1/model/read`. The response is
 `application/xml` with a `model.tm7` download name. No server-side file or session is created.
+Clients that keep the opening bytes as an undo baseline may also send `previousContentBase64`, the
+latest successful save. This retains newly materialized decisions and definitions across successive
+saves, including deleting and then restoring a newly added object. Clients that instead advance
+their source to the last saved document can omit it.
 
-The engine applies changes by stable identities and retains unedited native XML, including the
-embedded knowledge base and full threat register. An unchanged model returns the exact source bytes.
-Edited XML is semantically preserving, not necessarily byte-identical in formatting. It does not
-run analysis, regenerate threats, normalize the original geometry or replace the template.
+The engine applies changes by stable identities and retains unedited native XML, including custom
+knowledge-base definitions and threat decisions. An unchanged valid model with a template returns
+the exact source bytes. Edited XML is semantically preserving, not necessarily byte-identical in
+formatting. Missing templates and definitions are supplied additively. Graph edits, page moves and
+kind changes preserve the remaining native data. Deleted scopes are recorded on retained threats
+as `Source.retired*` metadata, and dangling object references are cleared without changing triage.
+
+Changed generated-threat decisions are materialized with the host's active rule bundle. Missing or
+mismatched expected packs block new generated threats, not unrelated preserving edits. Existing
+native/manual threats are never wholesale replaced by analysis. Studio view fields (`labelOffset`,
+`sourceHandle`, `targetHandle`) and analysis selections are retained in a versioned
+`urn:tmforge:studio:v1` XML extension. Whole-page normalization prepares native coordinates for MTMT;
+the extension restores the author's original canvas positions. A fingerprint and projection check
+invalidate stale state after external edits. Other editors may discard the extension.
 
 Malformed sources and edits that cannot be preserved safely return **400** with a reason, not a
 lossy fallback. The native source and output are limited to 8 MiB; XML DTDs are prohibited and XML
@@ -120,8 +134,9 @@ depth is limited to 128. Existing JSON limits also apply to the edited projectio
 check for external file changes before replacing its local file.
 
 The WASM `SaveTm7(contentBase64, tmforgeJson)` export calls the same engine method and returns
-base64 bytes. `/v1/model/convert` and `/v1/model/export/tm7` remain explicit reconstruction APIs;
-they do not acquire lossless round-trip behavior without an original document.
+base64 bytes. `SaveTm7WithPrevious(contentBase64, tmforgeJson, previousBase64)` supports the retained
+undo-baseline workflow. `/v1/model/convert` and `/v1/model/export/tm7` create new native documents with the active
+template and Studio presentation state; they cannot recover foreign data absent from their input.
 
 ## One analysis action
 

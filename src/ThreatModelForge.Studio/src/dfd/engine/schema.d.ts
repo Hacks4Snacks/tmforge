@@ -656,6 +656,7 @@ export interface components {
         };
         NativeTm7SaveRequest: {
             contentBase64?: string;
+            previousContentBase64?: null | string;
             model?: null | components["schemas"]["TmForgeModelDto"];
         };
         /**
@@ -865,6 +866,9 @@ export interface components {
             source?: string;
             target?: string;
             name?: null | string;
+            labelOffset?: null | components["schemas"]["TmForgePointDto"];
+            sourceHandle?: null | string;
+            targetHandle?: null | string;
             properties?: {
                 [key: string]: string;
             };
@@ -878,6 +882,12 @@ export interface components {
             diagrams?: null | components["schemas"]["TmForgeDiagramDto"][];
             analysis?: null | components["schemas"]["TmForgeAnalysisDto"];
             threats?: null | components["schemas"]["ThreatStateDto"][];
+        };
+        TmForgePointDto: {
+            /** Format: int32 */
+            x?: number | string;
+            /** Format: int32 */
+            y?: number | string;
         };
     };
     responses: never;

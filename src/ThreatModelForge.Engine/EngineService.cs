@@ -373,11 +373,12 @@ namespace ThreatModelForge.Engine
         public static byte[] ExportTm7(TmForgeModelDto dto, EngineRuleOptions? rules)
         {
             ThreatModel model = BuildModelForExport(dto, rules);
-            Tm7ExportPreparer.Prepare(model);
+            using RuleSet ruleSet = LoadRuleSet(rules, null, out _);
+            Tm7ExportPreparer.Prepare(model, ruleSet);
 
             using (MemoryStream stream = new MemoryStream())
             {
-                model.Save(stream);
+                NativeTm7Document.WriteNew(model, dto, stream);
                 return stream.ToArray();
             }
         }
@@ -407,6 +408,11 @@ namespace ThreatModelForge.Engine
             }
 
             TmForgeModelDto result = ToDto(model);
+            if (native)
+            {
+                result = NativeTm7Document.RestoreView(content, model, result);
+            }
+
             if (!native || model.DrawingSurfaceList.Count == 0)
             {
                 return result;
@@ -420,11 +426,11 @@ namespace ThreatModelForge.Engine
                 Schema = result.Schema,
                 Version = result.Version,
                 Metadata = result.Metadata,
-                Elements = result.Elements,
-                Flows = result.Flows,
+                Elements = pages[0].Elements ?? Array.Empty<TmForgeElementDto>(),
+                Flows = pages[0].Flows ?? Array.Empty<TmForgeFlowDto>(),
                 Threats = result.Threats,
                 Analysis = result.Analysis,
-                Diagrams = pages.Select(item => Guid.Parse(item.Id) == TmForgeJsonFormat.DefaultPageId
+                Diagrams = pages.Select(item => Guid.TryParse(item.Id, out Guid id) && id == TmForgeJsonFormat.DefaultPageId
                     ? new TmForgeDiagramDto { Id = TmForgeJsonFormat.DefaultPageId.ToString("N"), Name = item.Name, Elements = item.Elements, Flows = item.Flows }
                     : item).ToArray(),
             };
@@ -434,11 +440,31 @@ namespace ThreatModelForge.Engine
         /// <param name="original">The original document bytes.</param>
         /// <param name="edited">The edited canvas model.</param>
         /// <returns>The edited native document bytes.</returns>
-        public static byte[] SaveTm7(byte[] original, TmForgeModelDto edited)
+        public static byte[] SaveTm7(byte[] original, TmForgeModelDto edited) => SaveTm7(original, edited, null);
+
+        /// <summary>Saves native edits using the same rule bundle as analysis.</summary>
+        /// <param name="original">The original document bytes.</param>
+        /// <param name="edited">The edited canvas model.</param>
+        /// <param name="rules">The active custom rule sources.</param>
+        /// <returns>The preserved and edited native document.</returns>
+        public static byte[] SaveTm7(byte[] original, TmForgeModelDto edited, EngineRuleOptions? rules)
+            => SaveTm7(original, edited, rules, Array.Empty<byte>());
+
+        /// <summary>Saves ongoing native edits while preserving decisions materialized by previous saves.</summary>
+        /// <param name="original">The opening document used by undo.</param>
+        /// <param name="edited">The current canvas projection.</param>
+        /// <param name="rules">The active rule bundle.</param>
+        /// <param name="previous">The latest successful native save, or empty.</param>
+        /// <returns>The updated native document.</returns>
+        public static byte[] SaveTm7(byte[] original, TmForgeModelDto edited, EngineRuleOptions? rules, byte[] previous)
         {
             ArgumentNullException.ThrowIfNull(original);
             ArgumentNullException.ThrowIfNull(edited);
-            return NativeTm7Document.Save(original, edited);
+            List<string> diagnostics = new List<string>();
+            using RuleSet ruleSet = LoadRuleSet(rules, diagnostics, out IReadOnlyList<RulePackDefinition> packs);
+            diagnostics.AddRange(VerifyExpectedPacks(edited.Analysis?.ExpectedPacks, MapRulePacks(packs, ruleSet)).Select(finding => finding.Message));
+            ruleSet.Disable(edited.Analysis?.DisabledPacks, edited.Analysis?.DisabledRuleIds);
+            return NativeTm7Document.Save(original, edited, ruleSet, diagnostics, previous);
         }
 
         /// <summary>Preflights, renders and analyzes a document without projecting away native geometry.</summary>
@@ -554,7 +580,10 @@ namespace ThreatModelForge.Engine
             if (string.Equals(formatId, Tm7Format.FormatId, StringComparison.OrdinalIgnoreCase))
             {
                 model = BuildModelForExport(dto, rules);
-                Tm7ExportPreparer.Prepare(model);
+                using RuleSet ruleSet = LoadRuleSet(rules, null, out _);
+                Tm7ExportPreparer.Prepare(model, ruleSet);
+                NativeTm7Document.WriteNew(model, dto, output);
+                return;
             }
             else
             {
@@ -1365,6 +1394,22 @@ namespace ThreatModelForge.Engine
             }
 
             AppendManualThreats(threats, dto.Threats, seen, nameToIds, diagnostics);
+            foreach (ThreatStateDto entry in dto.Threats ?? Array.Empty<ThreatStateDto>())
+            {
+                if (entry.Source?.ContainsKey("retiredReason") != true || !seen.Add(entry.Id))
+                {
+                    continue;
+                }
+
+                threats.Add(new ThreatDto
+                {
+                    Id = entry.Id, RuleId = entry.Id.Contains(':') ? entry.Id.Substring(entry.Id.IndexOf(':') + 1) : string.Empty,
+                    Title = entry.Title ?? "Retained threat decision", Category = entry.Category ?? string.Empty,
+                    State = NormalizeState(entry.State), Justification = entry.Justification, Description = entry.Description,
+                    Mitigation = entry.Mitigation, Priority = entry.Priority, Source = entry.Source,
+                    Severity = "info", Interaction = "Retired: " + entry.Source["retiredReason"], ElementIds = Array.Empty<string>(),
+                });
+            }
         }
 
         private static IReadOnlyList<string> BuildElementIds(GeneratedThreat threat)

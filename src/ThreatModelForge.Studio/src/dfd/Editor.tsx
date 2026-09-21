@@ -855,10 +855,10 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
     if (preserveNative) {
       result.targetFormat = undefined;
       result.diagnostics = result.diagnostics.filter(item => item.code !== 'conversion.generated-register').map(item => {
-        if (item.code === 'conversion.knowledge-base') return { ...item, code: 'native.analysis-rules',
-          message: 'The original TM7 template and threat register are retained when you save. Studio analysis uses tmforge rules, not automatically the rules in the embedded template, so analysis results may differ from MTMT.' };
+        if (item.code === 'conversion.knowledge-base') return { ...item, code: 'native.analysis-rules', severity: 'info' as const,
+          message: 'TM7 data is retained. New edits update the template as needed. Analysis uses the active tmforge rules.' };
         if (item.code === 'conversion.line-boundaries') return { ...item, code: 'native.line-boundaries',
-          message: 'This file has native line trust boundaries that Studio does not display. They are retained on save. Review boundary crossings in MTMT before relying on analysis or changing geometry.' };
+          message: 'This file has line trust boundaries that are not displayed on the canvas. They are retained on save; canvas-only analysis may omit those crossings. Deleting a page also removes its hidden objects.' };
         return item;
       });
     }
@@ -868,7 +868,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
       }
     };
     ensureCurrent();
-    if (!result.success || result.diagnostics.length > 0) {
+    if (!result.success || result.diagnostics.some(item => item.severity !== 'info')) {
       const accepted = await new Promise<boolean>((resolve) => {
         preflightDecision.current = resolve;
         setPreflightReview({ title: result.success ? `Review ${operation}` : `${operation === 'import' ? 'Import' : 'Export'} blocked`, result, operation });
@@ -885,13 +885,9 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
     async (formatId: string): Promise<Blob> => {
       const baseline = layoutStateRef.current.workspaceJson;
       if (nativeSource && formatId === 'tm7') {
-        const flows = currentModel.diagrams?.flatMap(page => page.flows) ?? currentModel.flows;
-        if (flows.some(flow => flow.labelOffset && (flow.labelOffset.x !== 0 || flow.labelOffset.y !== 0))) {
-          throw new Error('Native TM7 saving preserves original connector curves and label positions. Manual canvas label offsets cannot be saved to the native document; undo that label edit or export a separate JSON copy.');
-        }
         const blob = nativeSource.saved?.model === currentJson
           ? new Blob([fromBase64(nativeSource.saved.contentBase64)], { type: 'application/xml' })
-          : await engine.saveTm7(fromBase64(nativeSource.contentBase64), currentModel);
+          : await engine.saveTm7(fromBase64(nativeSource.contentBase64), currentModel, nativeSource.saved ? fromBase64(nativeSource.saved.contentBase64) : undefined);
         if (baseline !== layoutStateRef.current.workspaceJson) throw new DOMException('The workspace changed before save completed.', 'AbortError');
         return blob;
       }
@@ -1865,7 +1861,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
           await host.create(opened.model, modelNameForManifest(file.name));
           return;
         }
-        loadModel(opened.model, false, opened.nativeSource);
+        loadModel(opened.model, Boolean(opened.nativeSource), opened.nativeSource);
         // A hidden <input> gives no writable handle, so Save falls back to Save As / download.
         fileHandleRef.current = null;
         fileFormatRef.current = opened.saveFormat;
@@ -1902,7 +1898,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
       const [handle] = await picker.showOpenFilePicker();
       const file = await handle.getFile();
       const opened = await readDocument(new Uint8Array(await file.arrayBuffer()), handle.name, reviewVersion);
-      loadModel(opened.model, false, opened.nativeSource);
+      loadModel(opened.model, Boolean(opened.nativeSource), opened.nativeSource);
       fileHandleRef.current = opened.bindable ? handle : null;
       fileFormatRef.current = opened.saveFormat;
       setFileName(opened.fileName);

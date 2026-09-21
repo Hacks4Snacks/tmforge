@@ -1325,7 +1325,7 @@ describe('Editor native TM7 saves', () => {
     const { offlineEngine } = await import('./engineClient');
     const original = new TextEncoder().encode('<native-source/>');
     let disk = original;
-    const saveTm7 = vi.fn(async (_original: Uint8Array, _model: TmForgeModel) => new Blob([original], { type: 'application/xml' }));
+    const saveTm7 = vi.fn(async (_original: Uint8Array, _model: TmForgeModel, _previous?: Uint8Array) => new Blob([original], { type: 'application/xml' }));
     const convert = vi.fn(async () => new Blob(['converted']));
     const write = vi.fn(async (blob: Blob) => { disk = new Uint8Array(await blob.arrayBuffer()); });
     const writable = vi.fn(async () => ({ write, close: async () => undefined }));
@@ -1364,6 +1364,9 @@ describe('Editor native TM7 saves', () => {
       expect(stored.nativeSource.contentBase64).toBe(btoa('<native-source/>'));
       expect(stored.model.elements[0].properties?.NativeEdit).toBeUndefined();
     }, { timeout: 3000 });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(saveTm7).toHaveBeenCalledTimes(2));
+    expect(Array.from(saveTm7.mock.calls[1][2]!)).toEqual(Array.from(original));
   });
 
   it('restores the native source after reload and saves a new TM7 copy', async () => {
@@ -1393,6 +1396,15 @@ describe('Editor native TM7 saves', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await screen.findByText(/changed on disk after it was opened/);
     expect(writable).not.toHaveBeenCalled();
+    expect(convert).not.toHaveBeenCalled();
+  });
+
+  it('saves manual label edits without requiring conversion', async () => {
+    const { saveTm7, write, convert } = await prepareNative();
+    act(() => flow!.setEdges(edges => edges.map(edge => ({ ...edge, data: { ...edge.data, labelOffset: { x: 32, y: -20 }, autoLabelOffset: false } }))));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(write).toHaveBeenCalledOnce());
+    expect(saveTm7.mock.calls[0][1].flows[0].labelOffset).toEqual({ x: 32, y: -20 });
     expect(convert).not.toHaveBeenCalled();
   });
 
@@ -1427,16 +1439,33 @@ describe('Editor preflight review', () => {
     return { readFile, preflight };
   }
 
-  it('explains native preservation and keeps import diagnostics in collapsed technical details', async () => {
+  it('opens ordinary native files without requiring a conversion acknowledgement', async () => {
+    try {
+      const { readFile } = await prepare({ success: true, format: 'tm7', targetFormat: 'tmforge-json', diagnostics: [
+        { code: 'conversion.knowledge-base', severity: 'warning', path: '$.knowledgeBase', message: 'Template omitted.' },
+        { code: 'conversion.generated-register', severity: 'warning', path: '$.threats', message: 'Register omitted.' },
+      ] });
+      await waitFor(() => expect(readFile).toHaveBeenCalledOnce());
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(screen.getByText('Imported Alpha')).toBeInTheDocument();
+    } finally {
+      Reflect.deleteProperty(window, 'showOpenFilePicker');
+    }
+  });
+
+  it('warns about hidden native objects and keeps import diagnostics in collapsed technical details', async () => {
     try {
       const { readFile, preflight } = await prepare({
         success: true, format: 'tm7', targetFormat: 'tmforge-json',
-        diagnostics: [{ code: 'conversion.knowledge-base', severity: 'warning', path: '$.knowledgeBase', message: 'The embedded knowledge base is not carried in canonical JSON. Rules and catalogs must be supplied separately.' }],
+        diagnostics: [
+          { code: 'conversion.knowledge-base', severity: 'warning', path: '$.knowledgeBase', message: 'The embedded knowledge base is not carried in canonical JSON. Rules and catalogs must be supplied separately.' },
+          { code: 'conversion.line-boundaries', severity: 'warning', path: '$.diagrams', message: 'Line boundaries are omitted.' },
+        ],
       });
       const dialog = await screen.findByRole('dialog', { name: 'Review import' });
       expect(within(dialog).getByRole('heading', { name: 'Original TM7 data will be preserved' })).toBeVisible();
-      expect(within(dialog).getByText(/original TM7 template and threat register are retained/)).toBeVisible();
-      expect(within(dialog).getByText(/analysis results may differ from MTMT/)).toBeVisible();
+      expect(within(dialog).getByText(/TM7 data is retained/)).toBeVisible();
+      expect(within(dialog).getByText(/not displayed on the canvas/)).toBeVisible();
       expect(within(dialog).queryByText('Embedded template will not be preserved')).not.toBeInTheDocument();
       const proceed = within(dialog).getByRole('button', { name: 'Continue import' });
       const details = within(dialog).getByText('Technical details');

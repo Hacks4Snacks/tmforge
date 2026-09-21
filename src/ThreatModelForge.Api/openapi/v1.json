@@ -1566,6 +1566,12 @@
           "contentBase64": {
             "type": "string"
           },
+          "previousContentBase64": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "model": {
             "oneOf": [
               {
@@ -2249,6 +2255,28 @@
               "string"
             ]
           },
+          "labelOffset": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TmForgePointDto"
+              }
+            ]
+          },
+          "sourceHandle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "targetHandle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "properties": {
             "type": "object",
             "additionalProperties": {
@@ -2327,6 +2355,27 @@
             "items": {
               "$ref": "#/components/schemas/ThreatStateDto"
             }
+          }
+        }
+      },
+      "TmForgePointDto": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "y": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       }

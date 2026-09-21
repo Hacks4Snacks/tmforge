@@ -1,10 +1,12 @@
 namespace ThreatModelForge.Engine
 {
     using System.Globalization;
+    using System.Security.Cryptography;
     using System.Text;
     using System.Text.Json;
     using System.Xml;
     using System.Xml.Linq;
+    using ThreatModelForge.Analysis;
     using ThreatModelForge.Editing;
     using ThreatModelForge.Formats;
     using ThreatModelForge.KnowledgeBase;
@@ -15,12 +17,17 @@ namespace ThreatModelForge.Engine
     internal static class NativeTm7Document
     {
         private static readonly XNamespace Instance = "http://www.w3.org/2001/XMLSchema-instance";
+        private static readonly XName StudioStateName = XNamespace.Get("urn:tmforge:studio:v1") + "State";
+        private static readonly JsonSerializerOptions StateOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
         /// <summary>Saves supported edits while retaining unrepresented native XML.</summary>
         /// <param name="original">The native source bytes.</param>
         /// <param name="edited">The edited canvas projection.</param>
+        /// <param name="rules">The active analysis rules.</param>
+        /// <param name="ruleErrors">Unavailable or mismatched rule-pack diagnostics.</param>
+        /// <param name="previous">The latest successful save in this editing session.</param>
         /// <returns>The original bytes for a no-op, otherwise the patched native document.</returns>
-        internal static byte[] Save(byte[] original, TmForgeModelDto edited)
+        internal static byte[] Save(byte[] original, TmForgeModelDto edited, RuleSet rules, IReadOnlyList<string> ruleErrors, byte[] previous)
         {
             if (original.Length > JsonDocumentPreflight.MaxBytes)
             {
@@ -36,25 +43,67 @@ namespace ThreatModelForge.Engine
 
             using MemoryStream input = new MemoryStream(original, writable: false);
             ThreatModel native = ThreatModel.Load(input);
-            TmForgeModelDto baseline = ModelDtoMapper.ToDto(native);
+            XDocument before = Serialize(native);
+            StudioState? state = ReadState(retained, native);
+            TmForgeModelDto baseline = state?.Model ?? ModelDtoMapper.ToDto(native);
+            TranslateCoordinates(native, state, -1);
+            XDocument editableBefore = Serialize(native);
             ThreatModel beforeProjection = ModelDtoMapper.ToModel(baseline);
             ThreatModel requested = ModelDtoMapper.ToModel(edited);
-            XDocument before = Serialize(native);
+            HashSet<Guid> originalIds = native.DrawingSurfaceList.SelectMany(page => page.Borders.Keys.Concat(page.Lines.Keys).Append(page.Guid)).ToHashSet();
+            IReadOnlyList<ThreatStateDto>? previousThreats = baseline.Threats;
+            if (previous.Length > 0)
+            {
+                if (previous.Length > JsonDocumentPreflight.MaxBytes)
+                {
+                    throw new InvalidDataException("The previous native save exceeds the 8 MiB limit.");
+                }
+
+                _ = ReadXml(previous);
+                using MemoryStream savedInput = new MemoryStream(previous, writable: false);
+                ThreatModel prior = ThreatModel.Load(savedInput);
+                StudioState? savedState = ReadState(ReadXml(previous), prior);
+                HashSet<string> introduced = prior.AllThreatsDictionary.Keys.Where(key => !native.AllThreatsDictionary.ContainsKey(key)).ToHashSet(StringComparer.Ordinal);
+                foreach (string key in introduced)
+                {
+                    native.AllThreatsDictionary[key] = prior.AllThreatsDictionary[key];
+                }
+
+                originalIds.UnionWith(prior.DrawingSurfaceList.SelectMany(page => page.Borders.Keys.Concat(page.Lines.Keys).Append(page.Guid)));
+                previousThreats = (baseline.Threats ?? Array.Empty<ThreatStateDto>()).Concat(
+                    (savedState?.AuthoredThreats ?? savedState?.Model?.Threats ?? ModelDtoMapper.ToDto(prior).Threats ?? Array.Empty<ThreatStateDto>())
+                    .Where(threat => introduced.Contains(threat.Id))).ToArray();
+                PreserveAddedDefinitions(native, prior);
+            }
+
             ApplyPages(native, beforeProjection, requested);
             if (!Same(baseline.Metadata, edited.Metadata))
             {
                 native.MetaInformation = edited.Metadata;
             }
 
-            ApplyThreats(native, baseline.Threats, edited.Threats, requested);
+            ApplyThreats(native, previousThreats, edited.Threats, requested, rules, ruleErrors);
+            RetireDeletedScopes(native, originalIds);
 
-            XDocument after = Serialize(native);
-            if (XNode.DeepEquals(before, after))
+            bool viewChanged = !Same(View(baseline), View(edited));
+            if (XNode.DeepEquals(editableBefore, Serialize(native)) && !viewChanged && native.KnowledgeBase != null)
             {
                 return original.ToArray();
             }
 
+            Dictionary<Guid, TmForgePointDto> positions = native.DrawingSurfaceList.ToDictionary(page => page.Guid, Anchor);
+            Tm7ExportPreparer.NormalizeNativeCoordinates(native);
+            Dictionary<Guid, TmForgePointDto> offsets = native.DrawingSurfaceList.ToDictionary(page => page.Guid, page => new TmForgePointDto
+            {
+                X = Anchor(page).X - positions[page.Guid].X,
+                Y = Anchor(page).Y - positions[page.Guid].Y,
+            });
+            Tm7ExportPreparer.ExtendNativeTemplate(native, rules);
+            XDocument after = Serialize(native);
             Patch(retained.Root!, before.Root!, after.Root!);
+            StudioState next = new StudioState { Fingerprint = Fingerprint(native), Model = WithRetiredThreats(edited, native), AuthoredThreats = edited.Threats, Offsets = offsets };
+            retained.Root!.Element(StudioStateName)?.Remove();
+            retained.Root.Add(new XElement(StudioStateName, JsonSerializer.Serialize(next, StateOptions)));
             using MemoryStream output = new MemoryStream();
             using (XmlWriter writer = XmlWriter.Create(output, new XmlWriterSettings
             {
@@ -77,86 +126,262 @@ namespace ThreatModelForge.Engine
             return saved;
         }
 
-        private static void ApplyPages(ThreatModel native, ThreatModel baseline, ThreatModel requested)
+        /// <summary>Restores Studio presentation only when it matches the native model's current content.</summary>
+        /// <param name="content">The native document bytes.</param>
+        /// <param name="native">The parsed native model.</param>
+        /// <param name="fallback">The native canvas projection.</param>
+        /// <returns>The current Studio projection or the native projection after an external edit.</returns>
+        internal static TmForgeModelDto RestoreView(byte[] content, ThreatModel native, TmForgeModelDto fallback)
+            => WithRetiredThreats(ReadState(ReadXml(content), native)?.Model ?? fallback, native);
+
+        /// <summary>Writes a new TM7 while retaining presentation unavailable in MTMT's model.</summary>
+        /// <param name="model">The prepared native document.</param>
+        /// <param name="canvas">The authored canvas state.</param>
+        /// <param name="output">The destination stream.</param>
+        internal static void WriteNew(ThreatModel model, TmForgeModelDto canvas, Stream output)
         {
-            Dictionary<Guid, DrawingSurfaceModel> oldPages = baseline.DrawingSurfaceList.ToDictionary(page => page.Guid);
-            Dictionary<Guid, DrawingSurfaceModel> newPages = requested.DrawingSurfaceList.ToDictionary(page => page.Guid);
-            Dictionary<Guid, DrawingSurfaceModel> nativePages = native.DrawingSurfaceList.ToDictionary(page => page.Guid);
-            Dictionary<Guid, Guid> oldOwners = baseline.DrawingSurfaceList.SelectMany(page => page.Borders.Keys.Concat(page.Lines.Keys)
-                .Select(id => (Id: id, Page: page.Guid))).ToDictionary(item => item.Id, item => item.Page);
-            foreach (DrawingSurfaceModel page in requested.DrawingSurfaceList)
+            ThreatModel projected = ModelDtoMapper.ToModel(canvas);
+            Dictionary<Guid, TmForgePointDto> positions = projected.DrawingSurfaceList.ToDictionary(page => page.Guid, Anchor);
+            Dictionary<Guid, TmForgePointDto> offsets = model.DrawingSurfaceList.ToDictionary(page => page.Guid, page => new TmForgePointDto
             {
-                if (page.Borders.Keys.Concat(page.Lines.Keys).Any(id => oldOwners.TryGetValue(id, out Guid owner) && owner != page.Guid))
-                {
-                    throw new NotSupportedException("Moving an existing native object between pages is not supported; its unrepresented data must stay with its original page.");
-                }
+                X = Anchor(page).X - positions[page.Guid].X,
+                Y = Anchor(page).Y - positions[page.Guid].Y,
+            });
+            bool needsState = canvas.Analysis != null || offsets.Values.Any(offset => offset.X != 0 || offset.Y != 0)
+                || (canvas.Diagrams?.SelectMany(page => page.Flows ?? Array.Empty<TmForgeFlowDto>()) ?? canvas.Flows ?? Array.Empty<TmForgeFlowDto>())
+                    .Any(flow => flow.LabelOffset != null || flow.SourceHandle != null || flow.TargetHandle != null);
+            if (!needsState)
+            {
+                model.Save(output);
+                return;
             }
 
-            foreach (DrawingSurfaceModel page in native.DrawingSurfaceList.ToArray())
+            XDocument document = Serialize(model);
+            StudioState state = new StudioState
             {
-                DrawingSurfaceModel before = oldPages[page.Guid];
-                if (!newPages.TryGetValue(page.Guid, out DrawingSurfaceModel? after))
+                Fingerprint = Fingerprint(model), Model = canvas, Offsets = offsets,
+            };
+            document.Root!.Add(new XElement(StudioStateName, JsonSerializer.Serialize(state, StateOptions)));
+            using XmlWriter writer = XmlWriter.Create(output, new XmlWriterSettings
+            {
+                Encoding = new UTF8Encoding(false), OmitXmlDeclaration = true, NewLineHandling = NewLineHandling.None, CloseOutput = false,
+            });
+            document.Save(writer);
+        }
+
+        private static void PreserveAddedDefinitions(ThreatModel target, ThreatModel saved)
+        {
+            if (saved.KnowledgeBase == null)
+            {
+                return;
+            }
+
+            if (target.KnowledgeBase == null)
+            {
+                target.KnowledgeBase = saved.KnowledgeBase;
+                return;
+            }
+
+            foreach (ElementType type in saved.KnowledgeBase.GenericElements.Where(type => !target.KnowledgeBase.GenericElements.Any(existing => existing.Id == type.Id)))
+            {
+                target.KnowledgeBase.GenericElements.Add(type);
+            }
+
+            foreach (ElementType type in saved.KnowledgeBase.StandardElements.Where(type => !target.KnowledgeBase.StandardElements.Any(existing => existing.Id == type.Id)))
+            {
+                target.KnowledgeBase.StandardElements.Add(type);
+            }
+
+            foreach (ThreatType type in saved.KnowledgeBase.ThreatTypes.Where(type => !target.KnowledgeBase.ThreatTypes.Any(existing => existing.Id == type.Id)))
+            {
+                target.KnowledgeBase.ThreatTypes.Add(type);
+            }
+
+            foreach (ThreatCategory category in saved.KnowledgeBase.ThreatCategories.Where(category => !target.KnowledgeBase.ThreatCategories.Any(existing => existing.Id == category.Id)))
+            {
+                target.KnowledgeBase.ThreatCategories.Add(category);
+            }
+        }
+
+        private static TmForgeModelDto WithRetiredThreats(TmForgeModelDto canvas, ThreatModel native)
+        {
+            Dictionary<string, ThreatStateDto> retired = native.AllThreatsDictionary
+                .Where(pair => pair.Value.Properties?.ContainsKey("Source.retiredReason") == true)
+                .ToDictionary(pair => pair.Key, pair => RetiredEntry(pair.Key, pair.Value), StringComparer.Ordinal);
+            if (retired.Count == 0)
+            {
+                return canvas;
+            }
+
+            return new TmForgeModelDto
+            {
+                Schema = canvas.Schema, Version = canvas.Version, Metadata = canvas.Metadata,
+                Diagrams = canvas.Diagrams, Elements = canvas.Elements, Flows = canvas.Flows, Analysis = canvas.Analysis,
+                Threats = (canvas.Threats ?? Array.Empty<ThreatStateDto>()).Where(threat => !retired.ContainsKey(threat.Id)).Concat(retired.Values).ToArray(),
+            };
+        }
+
+        private static ThreatStateDto RetiredEntry(string id, Threat threat) => new ThreatStateDto
+        {
+            Id = id, Manual = ManualThreatId.IsManual(id) ? true : null,
+            Title = threat.Title, Category = threat.UserThreatCategory, Priority = threat.Priority,
+            State = ThreatStateWire.ToWire(threat.State), Justification = threat.StateInformation,
+            Description = threat.UserThreatDescription,
+            Mitigation = threat.Properties?.GetValueOrDefault("Mitigation"),
+            Source = threat.Properties?.Where(pair => pair.Key.StartsWith("Source.", StringComparison.Ordinal))
+                .ToDictionary(pair => pair.Key.Substring("Source.".Length), pair => pair.Value, StringComparer.Ordinal),
+            ElementIds = Array.Empty<string>(),
+        };
+
+        private static StudioState? ReadState(XDocument document, ThreatModel native)
+        {
+            XElement? element = document.Root?.Element(StudioStateName);
+            if (element == null)
+            {
+                return null;
+            }
+
+            StudioState state;
+            try
+            {
+                state = JsonSerializer.Deserialize<StudioState>(element.Value, StateOptions)
+                    ?? throw new InvalidDataException("Invalid Studio state in TM7.");
+            }
+            catch (JsonException error)
+            {
+                throw new InvalidDataException("Invalid Studio state in TM7.", error);
+            }
+
+            if (state.Version != 1)
+            {
+                throw new NotSupportedException("This TM7 contains a newer Studio state version. Update tmforge to edit it without losing that state.");
+            }
+
+            if (state.Fingerprint != Fingerprint(native))
+            {
+                return null;
+            }
+
+            if (state.Model == null || state.Offsets == null || state.Offsets.Any(pair => pair.Value == null
+                || Math.Abs((long)pair.Value.X) > 1000000 || Math.Abs((long)pair.Value.Y) > 1000000))
+            {
+                throw new InvalidDataException("Invalid Studio coordinates in TM7.");
+            }
+
+            ThreatModel projected = ModelDtoMapper.ToModel(state.Model);
+            TranslateCoordinates(projected, state, 1);
+            _ = Serialize(projected);
+            TmForgeModelDto expected = ModelDtoMapper.ToDto(projected);
+            TmForgeModelDto actual = ModelDtoMapper.ToDto(native);
+            if (!Same(expected.Elements, actual.Elements) || !Same(expected.Flows, actual.Flows)
+                || !Same(expected.Diagrams, actual.Diagrams) || !Same(expected.Metadata, actual.Metadata))
+            {
+                return null;
+            }
+
+            return state;
+        }
+
+        private static string Fingerprint(ThreatModel native)
+        {
+            using MemoryStream stream = new MemoryStream();
+            native.Save(stream);
+            return Convert.ToHexString(SHA256.HashData(stream.ToArray()));
+        }
+
+        private static object View(TmForgeModelDto model) => new
+        {
+            model.Analysis,
+            Flows = (model.Diagrams?.SelectMany(page => page.Flows ?? Array.Empty<TmForgeFlowDto>()) ?? model.Flows ?? Array.Empty<TmForgeFlowDto>())
+                .OrderBy(flow => flow.Id, StringComparer.Ordinal).Select(flow => new { flow.Id, flow.LabelOffset, flow.SourceHandle, flow.TargetHandle }),
+        };
+
+        private static TmForgePointDto Anchor(DrawingSurfaceModel page)
+        {
+            if (page.Borders.Values.OfType<DrawingElement>().FirstOrDefault() is DrawingElement box)
+            {
+                return new TmForgePointDto { X = box.Left, Y = box.Top };
+            }
+
+            LineElement? line = page.Lines.Values.OfType<LineElement>().FirstOrDefault();
+            return new TmForgePointDto { X = line?.SourceX ?? 0, Y = line?.SourceY ?? 0 };
+        }
+
+        private static void TranslateCoordinates(ThreatModel native, StudioState? state, int direction)
+        {
+            foreach (DrawingSurfaceModel page in native.DrawingSurfaceList)
+            {
+                if (state == null || !state.Offsets.TryGetValue(page.Guid, out TmForgePointDto? offset) || offset == null)
                 {
-                    if (page.Borders.Count != before.Borders.Count || page.Lines.Count != before.Lines.Count)
-                    {
-                        throw new NotSupportedException("The page contains native objects that are not editable in Studio. Delete it in MTMT to avoid losing hidden data.");
-                    }
-
-                    EnsureUnreferenced(native, page.Guid);
-                    foreach (Guid id in page.Borders.Keys.Concat(page.Lines.Keys))
-                    {
-                        EnsureUnreferenced(native, id);
-                    }
-
-                    native.DrawingSurfaceList.Remove(page);
                     continue;
                 }
 
-                if (before.Header != after.Header)
+                foreach (DrawingElement box in page.Borders.Values.OfType<DrawingElement>())
+                {
+                    box.Left = checked(box.Left + (direction * offset.X));
+                    box.Top = checked(box.Top + (direction * offset.Y));
+                }
+
+                foreach (LineElement line in page.Lines.Values.OfType<LineElement>())
+                {
+                    line.HandleX = checked(line.HandleX + (direction * offset.X));
+                    line.HandleY = checked(line.HandleY + (direction * offset.Y));
+                    line.SourceX = checked(line.SourceX + (direction * offset.X));
+                    line.SourceY = checked(line.SourceY + (direction * offset.Y));
+                    line.TargetX = checked(line.TargetX + (direction * offset.X));
+                    line.TargetY = checked(line.TargetY + (direction * offset.Y));
+                }
+            }
+        }
+
+        private static void ApplyPages(ThreatModel native, ThreatModel baseline, ThreatModel requested)
+        {
+            Dictionary<Guid, DrawingSurfaceModel> oldPages = baseline.DrawingSurfaceList.ToDictionary(page => page.Guid);
+            Dictionary<Guid, DrawingSurfaceModel> nativePages = native.DrawingSurfaceList.ToDictionary(page => page.Guid);
+            Dictionary<Guid, object> oldObjects = baseline.DrawingSurfaceList.SelectMany(page => page.Borders.Concat(page.Lines)).ToDictionary(pair => pair.Key, pair => pair.Value);
+            Dictionary<Guid, object> nativeObjects = native.DrawingSurfaceList.SelectMany(page => page.Borders.Concat(page.Lines)).ToDictionary(pair => pair.Key, pair => pair.Value);
+            List<DrawingSurfaceModel> orderedPages = new List<DrawingSurfaceModel>();
+            foreach (DrawingSurfaceModel after in requested.DrawingSurfaceList)
+            {
+                if (!nativePages.TryGetValue(after.Guid, out DrawingSurfaceModel? page))
+                {
+                    page = new DrawingSurfaceModel { Guid = after.Guid, Header = after.Header };
+                }
+
+                if (!oldPages.TryGetValue(after.Guid, out DrawingSurfaceModel? before) || before.Header != after.Header)
                 {
                     page.Header = after.Header;
                     DiagramElementHelper.SetName(page, after.Header ?? string.Empty);
                 }
 
-                ApplyObjects(native, page.Borders, before.Borders, after.Borders);
-                ApplyObjects(native, page.Lines, before.Lines, after.Lines);
-                UpdateConnectors(page, before, after);
-            }
-
-            foreach (DrawingSurfaceModel page in requested.DrawingSurfaceList.Where(page => !oldPages.ContainsKey(page.Guid)))
-            {
-                foreach (Entity element in page.Borders.Values.Concat(page.Lines.Values).OfType<Entity>())
-                {
-                    ValidateAddition(native, element);
-                }
-
-                nativePages.Add(page.Guid, page);
+                ApplyObjects(page.Borders, oldObjects, nativeObjects, after.Borders);
+                ApplyObjects(page.Lines, oldObjects, nativeObjects, after.Lines);
+                UpdateConnectors(page, oldObjects, after);
+                orderedPages.Add(page);
             }
 
             native.DrawingSurfaceList.Clear();
-            foreach (DrawingSurfaceModel page in requested.DrawingSurfaceList)
+            foreach (DrawingSurfaceModel page in orderedPages)
             {
-                native.DrawingSurfaceList.Add(nativePages[page.Guid]);
+                native.DrawingSurfaceList.Add(page);
             }
         }
 
-        private static void ApplyObjects(ThreatModel model, IDictionary<Guid, object> native, IDictionary<Guid, object> baseline, IDictionary<Guid, object> requested)
+        private static void ApplyObjects(IDictionary<Guid, object> native, IDictionary<Guid, object> baseline, IDictionary<Guid, object> originals, IDictionary<Guid, object> requested)
         {
-            foreach (Guid id in baseline.Keys.Where(id => !requested.ContainsKey(id)))
+            foreach (Guid id in native.Keys.Where(id => baseline.ContainsKey(id) && !requested.ContainsKey(id)).ToArray())
             {
-                EnsureUnreferenced(model, id);
                 native.Remove(id);
             }
 
-            foreach (KeyValuePair<Guid, object> pair in requested.Where(pair => !baseline.ContainsKey(pair.Key)))
+            foreach (KeyValuePair<Guid, object> pair in requested)
             {
-                if (native.ContainsKey(pair.Key))
+                if (originals.TryGetValue(pair.Key, out object? original) && !baseline.ContainsKey(pair.Key))
                 {
                     throw new NotSupportedException("A new object collides with an unrepresented native object identity.");
                 }
 
-                ValidateAddition(model, (Entity)pair.Value);
-                native.Add(pair.Key, pair.Value);
+                native[pair.Key] = original ?? pair.Value;
             }
 
             foreach (KeyValuePair<Guid, object> pair in baseline.Where(pair => requested.ContainsKey(pair.Key)))
@@ -166,7 +391,18 @@ namespace ThreatModelForge.Engine
                 Entity target = (Entity)native[pair.Key];
                 if (before.GetType() != after.GetType())
                 {
-                    throw new NotSupportedException("Changing an existing native stencil kind is not supported.");
+                    DrawingElement oldShape = (DrawingElement)target;
+                    DrawingElement newShape = (DrawingElement)after;
+                    newShape.StrokeDashArray = oldShape.StrokeDashArray;
+                    newShape.StrokeThickness = oldShape.StrokeThickness;
+                    newShape.Properties.Clear();
+                    foreach (object property in oldShape.Properties)
+                    {
+                        newShape.Properties.Add(property);
+                    }
+
+                    target = newShape;
+                    native[pair.Key] = newShape;
                 }
 
                 if (DiagramElementHelper.GetName(before) != DiagramElementHelper.GetName(after))
@@ -178,7 +414,6 @@ namespace ThreatModelForge.Engine
                 if (before is DrawingElement oldBox && after is DrawingElement newBox
                     && (oldBox.Left != newBox.Left || oldBox.Top != newBox.Top || oldBox.Width != newBox.Width || oldBox.Height != newBox.Height))
                 {
-                    ValidateBox(newBox);
                     DrawingElement box = (DrawingElement)target;
                     box.Left = newBox.Left;
                     box.Top = newBox.Top;
@@ -197,55 +432,62 @@ namespace ThreatModelForge.Engine
             }
         }
 
-        private static void EnsureUnreferenced(ThreatModel model, Guid id)
+        private static void RetireDeletedScopes(ThreatModel model, HashSet<Guid> originalIds)
         {
-            if (model.AllThreatsDictionary.Values.Any(threat => threat.DrawingSurfaceGuid == id
-                || threat.SourceGuid == id || threat.TargetGuid == id || threat.FlowGuid == id))
+            Dictionary<Guid, Guid> owners = model.DrawingSurfaceList.SelectMany(page => page.Borders.Keys.Concat(page.Lines.Keys)
+                .Select(id => (Id: id, Page: page.Guid))).ToDictionary(item => item.Id, item => item.Page);
+            originalIds.ExceptWith(owners.Keys.Concat(model.DrawingSurfaceList.Select(page => page.Guid)));
+            HashSet<Guid> present = owners.Keys.Concat(model.DrawingSurfaceList.Select(page => page.Guid)).ToHashSet();
+            Guid fallbackPage = model.DrawingSurfaceList.FirstOrDefault()?.Guid ?? Guid.Empty;
+            foreach (Threat threat in model.AllThreatsDictionary.Values)
             {
-                throw new NotSupportedException("Cannot remove object " + id + " because the native threat register references it. Resolve those threats in MTMT before deleting it.");
+                Guid Retire(Guid id, string member)
+                {
+                    string key = "Source.retired" + member;
+                    if (threat.Properties?.TryGetValue(key, out string? previousId) == true && Guid.TryParse(previousId, out Guid restoredId) && present.Contains(restoredId))
+                    {
+                        SetThreatProperty(threat, key, null);
+                        return restoredId;
+                    }
+
+                    if (!originalIds.Contains(id))
+                    {
+                        return id;
+                    }
+
+                    SetThreatProperty(threat, key, id.ToString("D"));
+                    SetThreatProperty(threat, "Source.retiredReason", "The scoped object or page was deleted.");
+                    return Guid.Empty;
+                }
+
+                threat.SourceGuid = Retire(threat.SourceGuid, "SourceGuid");
+                threat.TargetGuid = Retire(threat.TargetGuid, "TargetGuid");
+                threat.FlowGuid = Retire(threat.FlowGuid, "FlowGuid");
+                threat.DrawingSurfaceGuid = Retire(threat.DrawingSurfaceGuid, "DrawingSurfaceGuid");
+                if (threat.Properties?.ContainsKey("Source.retiredReason") == true && !threat.Properties.Keys.Any(key => key.StartsWith("Source.retired", StringComparison.Ordinal) && key != "Source.retiredReason"))
+                {
+                    SetThreatProperty(threat, "Source.retiredReason", null);
+                    threat.Wide = threat.SourceGuid == Guid.Empty && threat.TargetGuid == Guid.Empty && threat.FlowGuid == Guid.Empty;
+                }
+
+                Guid scoped = new[] { threat.FlowGuid, threat.SourceGuid, threat.TargetGuid }.FirstOrDefault(owners.ContainsKey);
+                if (owners.TryGetValue(scoped, out Guid page))
+                {
+                    threat.DrawingSurfaceGuid = page;
+                }
+                else if (threat.DrawingSurfaceGuid == Guid.Empty)
+                {
+                    threat.DrawingSurfaceGuid = fallbackPage;
+                    threat.Wide = true;
+                }
             }
         }
 
-        private static void ValidateAddition(ThreatModel model, Entity element)
-        {
-            if (model.KnowledgeBase == null || !model.KnowledgeBase.GenericElements.Concat(model.KnowledgeBase.StandardElements)
-                .Any(type => string.Equals(type.Id, element.TypeId, StringComparison.OrdinalIgnoreCase)))
-            {
-                throw new NotSupportedException("The embedded template does not declare type '" + element.TypeId + "'. Add it in MTMT or export a separate converted model.");
-            }
-
-            if (element is DrawingElement box)
-            {
-                ValidateBox(box);
-            }
-            else if (element is Connector flow)
-            {
-                ValidateConnector(flow);
-            }
-        }
-
-        private static void ValidateBox(DrawingElement box)
-        {
-            if (box.Left < 10 || box.Top < 10 || box.Left > 1890 || box.Top > 2090 || box.Width <= 0 || box.Height <= 0)
-            {
-                throw new NotSupportedException("Native TM7 saving requires edited objects within MTMT's canvas (x 10..1890, y 10..2090). Move the object into that range; existing geometry is never shifted automatically.");
-            }
-        }
-
-        private static void ValidateConnector(Connector flow)
-        {
-            if (new[] { flow.SourceX, flow.TargetX, flow.HandleX }.Any(value => value < 10 || value > 1990)
-                || new[] { flow.SourceY, flow.TargetY, flow.HandleY }.Any(value => value < 10 || value > 2190))
-            {
-                throw new NotSupportedException("The edited connector exceeds MTMT's canvas. Move its endpoints into range before saving.");
-            }
-        }
-
-        private static void UpdateConnectors(DrawingSurfaceModel native, DrawingSurfaceModel baseline, DrawingSurfaceModel requested)
+        private static void UpdateConnectors(DrawingSurfaceModel native, IDictionary<Guid, object> baseline, DrawingSurfaceModel requested)
         {
             foreach (Connector flow in native.Lines.Values.OfType<Connector>())
             {
-                if (!baseline.Lines.TryGetValue(flow.Guid, out object? original))
+                if (!baseline.TryGetValue(flow.Guid, out object? original))
                 {
                     continue;
                 }
@@ -267,7 +509,7 @@ namespace ThreatModelForge.Engine
                 }
                 else
                 {
-                    (flow.SourceX, flow.SourceY) = MoveEndpoint(sourceX, sourceY, (DrawingElement)baseline.Borders[before.SourceGuid], (DrawingElement)requested.Borders[after.SourceGuid]);
+                    (flow.SourceX, flow.SourceY) = MoveEndpoint(sourceX, sourceY, (DrawingElement)baseline[before.SourceGuid], (DrawingElement)requested.Borders[after.SourceGuid]);
                 }
 
                 if (before.TargetGuid != after.TargetGuid)
@@ -279,14 +521,13 @@ namespace ThreatModelForge.Engine
                 }
                 else
                 {
-                    (flow.TargetX, flow.TargetY) = MoveEndpoint(targetX, targetY, (DrawingElement)baseline.Borders[before.TargetGuid], (DrawingElement)requested.Borders[after.TargetGuid]);
+                    (flow.TargetX, flow.TargetY) = MoveEndpoint(targetX, targetY, (DrawingElement)baseline[before.TargetGuid], (DrawingElement)requested.Borders[after.TargetGuid]);
                 }
 
                 if (sourceX != flow.SourceX || sourceY != flow.SourceY || targetX != flow.TargetX || targetY != flow.TargetY)
                 {
                     flow.HandleX = handleX + ((flow.SourceX - sourceX + flow.TargetX - targetX) / 2);
                     flow.HandleY = handleY + ((flow.SourceY - sourceY + flow.TargetY - targetY) / 2);
-                    ValidateConnector(flow);
                 }
             }
         }
@@ -316,45 +557,43 @@ namespace ThreatModelForge.Engine
 
                 List<ListDisplayAttribute> typed = target.Properties.OfType<ListDisplayAttribute>()
                     .Where(property => string.Equals(property.DisplayName, key, StringComparison.OrdinalIgnoreCase)).ToList();
-                if (typed.Count > 1 || target.Properties.OfType<CustomStringDisplayAttribute>()
-                    .Count(property => (property.Value as string ?? string.Empty).StartsWith(key + ":", StringComparison.OrdinalIgnoreCase)) > 1)
-                {
-                    throw new NotSupportedException("The native document has ambiguous definitions for '" + key + "'. Resolve them in MTMT before editing that property.");
-                }
-
-                if (value != null && typed.Any(property => property.Value is not string[] options
-                    || !options.Contains(value, StringComparer.OrdinalIgnoreCase)))
-                {
-                    throw new NotSupportedException("The native template does not support value '" + value + "' for '" + key + "'.");
-                }
-
-                if (value != null)
-                {
-                    DiagramElementHelper.SetCustomProperty(target, key, value);
-                    continue;
-                }
-
                 foreach (ListDisplayAttribute property in typed)
                 {
-                    string[] options = (string[])property.Value!;
-                    int unset = Array.FindIndex(options, option => string.Equals(option, "Select", StringComparison.OrdinalIgnoreCase));
-                    if (unset < 0)
+                    List<string> options = property.Value is string[] values ? values.ToList() : new List<string>();
+                    string selected = value ?? "Select";
+                    int index = options.FindIndex(option => string.Equals(option, selected, StringComparison.OrdinalIgnoreCase));
+                    if (index < 0)
                     {
-                        throw new NotSupportedException("The native template does not allow clearing '" + key + "'.");
+                        index = options.Count;
+                        options.Add(selected);
                     }
 
-                    property.SelectedIndex = unset;
+                    property.Value = options.ToArray();
+                    property.SelectedIndex = index;
                 }
 
-                foreach (CustomStringDisplayAttribute property in target.Properties.OfType<CustomStringDisplayAttribute>()
-                    .Where(property => (property.Value as string ?? string.Empty).StartsWith(key + ":", StringComparison.OrdinalIgnoreCase)).ToArray())
+                CustomStringDisplayAttribute[] custom = target.Properties.OfType<CustomStringDisplayAttribute>()
+                    .Where(property => (property.Value as string ?? string.Empty).StartsWith(key + ":", StringComparison.OrdinalIgnoreCase)).ToArray();
+                foreach (CustomStringDisplayAttribute property in custom)
                 {
-                    target.Properties.Remove(property);
+                    if (value == null)
+                    {
+                        target.Properties.Remove(property);
+                    }
+                    else
+                    {
+                        property.Value = key + ":" + value;
+                    }
+                }
+
+                if (value != null && typed.Count == 0 && custom.Length == 0)
+                {
+                    DiagramElementHelper.SetCustomProperty(target, key, value);
                 }
             }
         }
 
-        private static void ApplyThreats(ThreatModel native, IReadOnlyList<ThreatStateDto>? baseline, IReadOnlyList<ThreatStateDto>? edited, ThreatModel requested)
+        private static void ApplyThreats(ThreatModel native, IReadOnlyList<ThreatStateDto>? baseline, IReadOnlyList<ThreatStateDto>? edited, ThreatModel requested, RuleSet rules, IReadOnlyList<string> ruleErrors)
         {
             if (Same(baseline, edited))
             {
@@ -363,6 +602,28 @@ namespace ThreatModelForge.Engine
 
             Dictionary<string, ThreatStateDto> before = (baseline ?? Array.Empty<ThreatStateDto>()).ToDictionary(threat => threat.Id, StringComparer.Ordinal);
             Dictionary<string, ThreatStateDto> after = (edited ?? Array.Empty<ThreatStateDto>()).ToDictionary(threat => threat.Id, StringComparer.Ordinal);
+            HashSet<string> generatedEdits = after.Values.Where(entry => !ManualThreatId.IsManual(entry.Id)
+                && entry.Source?.ContainsKey("retiredReason") != true
+                && (!before.TryGetValue(entry.Id, out ThreatStateDto? previous) || !Same(previous, entry)))
+                .Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
+            if (generatedEdits.Count > 0)
+            {
+                if (ruleErrors.Count > 0 && generatedEdits.Any(id => !native.AllThreatsDictionary.Any(pair => pair.Key == id || pair.Value.InteractionKey == id)))
+                {
+                    throw new InvalidDataException(string.Join(" ", ruleErrors));
+                }
+
+                if (ruleErrors.Count == 0)
+                {
+                    GenerationResult generated = ThreatGenerator.Generate(native, rules);
+                    GeneratedThreat[] selected = generated.Threats.Where(threat => generatedEdits.Contains(threat.Id)).ToArray();
+                    if (selected.Length > 0)
+                    {
+                        ThreatGenerator.Apply(native, new GenerationResult(selected));
+                    }
+                }
+            }
+
             foreach (string id in before.Keys.Union(after.Keys, StringComparer.Ordinal))
             {
                 before.TryGetValue(id, out ThreatStateDto? oldEntry);
@@ -396,7 +657,7 @@ namespace ThreatModelForge.Engine
                 {
                     if (!manual || !ManualThreatId.TryCanonicalize(id, out string? canonical, out _) || canonical != id)
                     {
-                        throw new NotSupportedException("This generated threat is not in the original register. Add a manual threat or explicitly export a converted model to materialize new analysis results.");
+                        throw new InvalidDataException("The selected threat is not produced by the active rules for this model. Analyze again before saving its decision.");
                     }
 
                     Threat added = requested.AllThreatsDictionary[id];
@@ -407,7 +668,7 @@ namespace ThreatModelForge.Engine
                 }
 
                 Threat target = matches[0].Value;
-                oldEntry ??= new ThreatStateDto { Id = id };
+                oldEntry ??= newEntry.Source?.ContainsKey("retiredReason") == true ? RetiredEntry(id, target) : new ThreatStateDto { Id = id };
                 if (oldEntry.State != newEntry.State)
                 {
                     target.State = ThreatStateWire.Parse(newEntry.State);
@@ -420,13 +681,13 @@ namespace ThreatModelForge.Engine
 
                 if (oldEntry.Title != newEntry.Title)
                 {
-                    target.Title = newEntry.Title ?? (manual ? string.Empty : GeneratedDefault(target, "GeneratedDefaultTitle"));
+                    target.Title = newEntry.Title ?? (manual ? string.Empty : GeneratedDefault(native, target, "GeneratedDefaultTitle"));
                     SetThreatProperty(target, "TitleOverride", manual || newEntry.Title == null ? null : "true");
                 }
 
                 if (oldEntry.Priority != newEntry.Priority)
                 {
-                    target.Priority = newEntry.Priority ?? (manual ? string.Empty : GeneratedDefault(target, "GeneratedDefaultPriority"));
+                    target.Priority = newEntry.Priority ?? (manual ? string.Empty : GeneratedDefault(native, target, "GeneratedDefaultPriority"));
                     SetThreatProperty(target, "PriorityOverride", manual || newEntry.Priority == null ? null : "true");
                 }
 
@@ -450,9 +711,31 @@ namespace ThreatModelForge.Engine
                     SetThreatProperty(target, "Mitigation", newEntry.Mitigation);
                 }
 
-                if (!Same(oldEntry.ElementIds, newEntry.ElementIds) || !Same(oldEntry.Source, newEntry.Source))
+                if (!Same(oldEntry.ElementIds, newEntry.ElementIds))
                 {
-                    throw new NotSupportedException("Changing the scope or provenance of an existing native threat is not supported.");
+                    if (!manual)
+                    {
+                        throw new InvalidDataException("The scope of a generated threat belongs to the rule that detected it.");
+                    }
+
+                    Threat scoped = requested.AllThreatsDictionary[id];
+                    ValidateThreatScope(native, scoped);
+                    target.SourceGuid = scoped.SourceGuid;
+                    target.TargetGuid = scoped.TargetGuid;
+                    target.FlowGuid = scoped.FlowGuid;
+                    target.DrawingSurfaceGuid = scoped.DrawingSurfaceGuid;
+                    target.Wide = scoped.Wide;
+                }
+
+                if (!Same(oldEntry.Source, newEntry.Source))
+                {
+                    IReadOnlyDictionary<string, string> previousSource = oldEntry.Source ?? new Dictionary<string, string>();
+                    IReadOnlyDictionary<string, string> nextSource = newEntry.Source ?? new Dictionary<string, string>();
+                    foreach (string key in previousSource.Keys.Union(nextSource.Keys, StringComparer.Ordinal))
+                    {
+                        nextSource.TryGetValue(key, out string? value);
+                        SetThreatProperty(target, "Source." + key, value);
+                    }
                 }
 
                 target.ModifiedAt = DateTime.UtcNow;
@@ -468,14 +751,17 @@ namespace ThreatModelForge.Engine
             }
         }
 
-        private static string GeneratedDefault(Threat threat, string key)
+        private static string GeneratedDefault(ThreatModel model, Threat threat, string key)
         {
             if (threat.Properties?.TryGetValue(key, out string? value) == true)
             {
                 return value;
             }
 
-            throw new NotSupportedException("The original template default is unavailable; reset this threat in MTMT instead of discarding its authored value.");
+            ThreatType? type = model.KnowledgeBase?.ThreatTypes.FirstOrDefault(item => string.Equals(item.Id, threat.TypeId, StringComparison.OrdinalIgnoreCase));
+            string? declared = key == "GeneratedDefaultTitle" ? type?.ShortTitle
+                : type?.PropertiesMetaData.FirstOrDefault(item => string.Equals(item.Name, "Priority", StringComparison.OrdinalIgnoreCase))?.Values.FirstOrDefault();
+            return declared ?? throw new InvalidDataException("This threat has no recorded template default. Enter an explicit title or priority instead of clearing it.");
         }
 
         private static void SetThreatProperty(Threat threat, string key, string? value)
@@ -533,11 +819,19 @@ namespace ThreatModelForge.Engine
             return ReadXml(output.ToArray());
         }
 
-        private static void Patch(XElement retained, XElement before, XElement after)
+        private static void Patch(XElement retained, XElement before, XElement after, IReadOnlyDictionary<Guid, (XElement Source, XElement Before)>? originals = null)
         {
             if (XNode.DeepEquals(before, after))
             {
                 return;
+            }
+
+            if (originals == null)
+            {
+                Dictionary<Guid, XElement> sourceObjects = retained.DescendantsAndSelf().Where(element => ObjectId(element).HasValue)
+                    .ToDictionary(element => ObjectId(element).GetValueOrDefault(), element => CopyWithNamespaces(element));
+                originals = before.DescendantsAndSelf().Where(element => ObjectId(element).HasValue && sourceObjects.ContainsKey(ObjectId(element).GetValueOrDefault()))
+                    .ToDictionary(element => ObjectId(element).GetValueOrDefault(), element => (sourceObjects[ObjectId(element).GetValueOrDefault()], element));
             }
 
             foreach (XName name in before.Attributes().Concat(after.Attributes()).Where(attribute => !attribute.IsNamespaceDeclaration).Select(attribute => attribute.Name).Distinct())
@@ -603,7 +897,7 @@ namespace ThreatModelForge.Engine
 
                 if (newChildren.TryGetValue(child.Key, out XElement? replacement))
                 {
-                    Patch(originalChild, child.Value, replacement);
+                    Patch(originalChild, child.Value, replacement, originals);
                 }
                 else
                 {
@@ -617,7 +911,7 @@ namespace ThreatModelForge.Engine
             {
                 if (!oldChildren.ContainsKey(child.Key))
                 {
-                    XElement added = CopyWithNamespaces(child.Value);
+                    XElement added = CopyPreserved(child.Value, originals);
                     if (previous != null)
                     {
                         previous.AddAfterSelf(added);
@@ -649,6 +943,30 @@ namespace ThreatModelForge.Engine
                     slots[index].ReplaceWith(ordered[index]);
                 }
             }
+        }
+
+        private static Guid? ObjectId(XElement element)
+        {
+            XNamespace abstracts = "http://schemas.datacontract.org/2004/07/ThreatModeling.Model.Abstracts";
+            return Guid.TryParse(element.Element(abstracts + "Guid")?.Value, out Guid id) ? id : null;
+        }
+
+        private static XElement CopyPreserved(XElement source, IReadOnlyDictionary<Guid, (XElement Source, XElement Before)> originals)
+        {
+            if (ObjectId(source) is Guid id && originals.TryGetValue(id, out (XElement Source, XElement Before) original))
+            {
+                XElement retained = CopyWithNamespaces(original.Source);
+                Patch(retained, original.Before, source, originals);
+                return retained;
+            }
+
+            XElement copy = CopyWithNamespaces(source);
+            foreach ((XElement before, XElement after) in source.Elements().Zip(copy.Elements().ToArray()))
+            {
+                after.ReplaceWith(CopyPreserved(before, originals));
+            }
+
+            return copy;
         }
 
         private static Dictionary<string, XElement> Children(XElement parent)
@@ -701,6 +1019,19 @@ namespace ThreatModelForge.Engine
             }
 
             return copy;
+        }
+
+        private sealed class StudioState
+        {
+            public int Version { get; init; } = 1;
+
+            public string Fingerprint { get; init; } = string.Empty;
+
+            public TmForgeModelDto? Model { get; init; }
+
+            public IReadOnlyList<ThreatStateDto>? AuthoredThreats { get; init; }
+
+            public Dictionary<Guid, TmForgePointDto> Offsets { get; init; } = new Dictionary<Guid, TmForgePointDto>();
         }
     }
 }

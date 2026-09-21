@@ -317,8 +317,12 @@ See the [API reference](api-reference.md).
 Studio uses `tmforge-json` for the canvas. Browser-opened `.tm7` files retain a separate native
 backing document: Save applies supported edits to that document instead of reconstructing it from
 the canvas. Unchanged saves return the original bytes; edited saves preserve unedited XML data,
-the embedded template and full threat register, without automatically regenerating threats.
-Unsupported edits fail before writing. Explicit JSON/diagram exports and URL shares remain
+existing template customizations and the full threat register. Missing definitions are added as
+needed, and new generated-threat decisions use the active rules. Deleting an object retires its
+recorded threat scope without losing the decision. Studio-only layout and analysis settings are
+retained in a versioned, fingerprinted XML extension; this is also written on new exports when
+needed. Native geometry can be translated for MTMT while Studio restores the authored positions.
+Invalid references and unrecognized extension versions fail before writing. Explicit JSON/diagram exports and URL shares remain
 structural conversions and do not carry the native backing document.
 
 **Open File** uses the active API or in-browser WASM

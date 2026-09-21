@@ -267,7 +267,7 @@ export interface IEngineClient {
    */
   runAnalysis(model: TmForgeModel): Promise<AnalysisResult>;
   exportTm7(model: TmForgeModel): Promise<Blob>;
-  saveTm7(original: Uint8Array, model: TmForgeModel): Promise<Blob>;
+  saveTm7(original: Uint8Array, model: TmForgeModel, previous?: Uint8Array): Promise<Blob>;
   /**
    * Selects the custom rule packs this engine runs, and reports what actually loaded. The selection
    * persists for the session, so catalogs, analysis, threat generation, reports, and exports all use
@@ -624,6 +624,9 @@ export function toModel(dto: components['schemas']['TmForgeModelDto']): TmForgeM
     target: f.target ?? '',
     name: f.name ?? '',
     properties: f.properties ?? {},
+    ...(f.labelOffset ? { labelOffset: { x: Number(f.labelOffset.x ?? 0), y: Number(f.labelOffset.y ?? 0) } } : {}),
+    ...(f.sourceHandle ? { sourceHandle: f.sourceHandle } : {}),
+    ...(f.targetHandle ? { targetHandle: f.targetHandle } : {}),
   }));
   return {
     schema: 'tmforge-json',
@@ -944,9 +947,9 @@ class HttpEngineClient implements IEngineClient {
     return await response.blob();
   }
 
-  public async saveTm7(original: Uint8Array, model: TmForgeModel): Promise<Blob> {
+  public async saveTm7(original: Uint8Array, model: TmForgeModel, previous?: Uint8Array): Promise<Blob> {
     const { response, error } = await this.client.POST('/v1/model/save/tm7', {
-      body: { contentBase64: toBase64(original), model },
+      body: { contentBase64: toBase64(original), model, previousContentBase64: previous ? toBase64(previous) : undefined },
       parseAs: 'stream',
     });
     if (!response.ok) {
@@ -1149,6 +1152,7 @@ interface WasmEngineExports {
   ApplyManifest(manifestJson: string): string;
   ExportTm7(tmforgeJson: string): string;
   SaveTm7(contentBase64: string, tmforgeJson: string): string;
+  SaveTm7WithPrevious(contentBase64: string, tmforgeJson: string, previousBase64: string): string;
   ConvertModel(tmforgeJson: string, toFormatId: string): string;
   Report(tmforgeJson: string, format: string): string;
   Merge(baseJson: string, oursJson: string, theirsJson: string): string;
@@ -1207,8 +1211,11 @@ export class WasmEngineClient implements IEngineClient {
     return blobFromBase64(await this.invoke('ExportTm7', JSON.stringify(model)), 'application/xml');
   }
 
-  public async saveTm7(original: Uint8Array, model: TmForgeModel): Promise<Blob> {
-    return blobFromBase64(await this.invoke('SaveTm7', toBase64(original), JSON.stringify(model)), 'application/xml');
+  public async saveTm7(original: Uint8Array, model: TmForgeModel, previous?: Uint8Array): Promise<Blob> {
+    const encoded = previous
+      ? await this.invoke('SaveTm7WithPrevious', toBase64(original), JSON.stringify(model), toBase64(previous))
+      : await this.invoke('SaveTm7', toBase64(original), JSON.stringify(model));
+    return blobFromBase64(encoded, 'application/xml');
   }
 
   public async getFormats(): Promise<FormatInfo[]> {

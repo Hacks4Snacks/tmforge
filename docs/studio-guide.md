@@ -302,17 +302,35 @@ also retains the original native document separately:
 - **Save / Save As / Export TM7** apply supported edits to the original document, retaining its
   embedded template, complete threat register, native connector geometry and unedited XML extensions.
   Saving without edits returns the original bytes. Edited XML may have different formatting; its
-  unedited data is preserved. Saving does not regenerate threats or replace the template.
+  unedited data is preserved. A missing template is supplied automatically; missing stencil and
+  threat definitions and newly authored property values are added without replacing customizations.
+- `.tm7` is an authoring format, not a read-only interchange format. Add, delete, move, resize,
+  reconnect and edit objects, change kinds, and create, rename, reorder or remove pages without
+  leaving tmforge. Existing native objects and their extension data move together.
+- New analysis threats can be triaged and saved using the active rule bundle. Existing manual
+  threats and decisions are retained; saving unrelated diagram edits does not regenerate the entire
+  register. A missing custom pack does not prevent a preserving diagram save, but must be loaded
+  before materializing a new threat from that pack.
+- Deleting a scoped object or page retains its threat decisions as **Retired**, recording the former
+  scope instead of leaving dangling references or deleting the decision. Retired entries remain
+  editable and are counted separately from current open threats when the saved model is reopened
+  and analyzed. They keep their lifecycle state; retirement does not claim the risk was mitigated.
+  Restoring the object with undo reattaches its retained decision on the next save.
+- Manual label offsets, routing, rule selection and pre-normalization canvas positions are stored
+  in a versioned Studio extension inside the `.tm7`, including on the first export. Native geometry
+  is translated by whole pages for MTMT compatibility without resizing or changing relative layout.
+  Studio restores its layout only while it matches the native document; external edits invalidate
+  stale state. Other tools may discard that extension on save. A diagram larger than MTMT's fixed
+  canvas remains editable in Studio, but MTMT may still adjust it when opened there.
 - The native source and edits survive local workspace recovery when browser storage is available.
   A storage-quota warning means you must save before reloading. Save refuses to overwrite a bound
   file that another editor changed on disk.
-- Unsupported edits are refused before writing, never silently converted. Examples include deleting
-  an object referenced by native threats, removing a page with hidden native objects, changing a
-  native stencil kind, using a typed value outside the embedded template, and manual canvas label
-  offsets. Undo the edit or use MTMT for those operations.
+- Invalid references, ambiguous native identities and unrecognized extension versions are refused
+  before writing rather than silently losing information. Generated categories and scope remain
+  rule-owned. If a threat has no recorded default, enter an explicit title or priority when editing it.
 - Native line boundaries are retained but are not displayed or analyzed by the canvas projection.
   Studio analysis still uses tmforge's active rules; retaining a template does not automatically
-  execute its rules. Review hidden boundary crossings in MTMT.
+  execute its rules. Imports warn about hidden boundaries; deleting their page removes them too.
 
 - **Export tmforge-json**: save the diagram as `.tmforge.json`, which the CLI and API speak
   natively. This is an explicit conversion: the native backing document is not included. The
@@ -331,9 +349,10 @@ then `tmforge analyze` / `tmforge report` / `tmforge convert` in a pipeline, or 
 
 Before replacing the canvas, **Open File** runs preflight through the active engine. Structural
 errors appear with their source paths under **Technical details** and must be corrected in the input.
-Import limitations appear in a review dialog with **Continue import** and **Cancel**. Native TM7
-imports explain that the original is retained and that analysis may differ; explicit conversions
-still warn about template and register loss. Closing or cancelling leaves the current model
+Import limitations appear in a review dialog with **Continue import** and **Cancel**. Ordinary native
+TM7 files open without a conversion acknowledgement. A file containing objects the canvas cannot
+display still receives a warning; explicit conversions still warn about template and register loss.
+Closing or cancelling leaves the current model
 and undo history unchanged; a delayed import is discarded if the workspace changes while it runs.
 
 **Save** and **Export** review known conversion losses before writing a converted model. Native TM7

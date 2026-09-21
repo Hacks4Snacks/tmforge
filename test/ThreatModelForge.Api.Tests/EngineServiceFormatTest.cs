@@ -65,6 +65,99 @@ namespace ThreatModelForge.Api.Tests
             Assert.AreEqual("writes", restored.Flows[0].Name);
         }
 
+        /// <summary>Reopened native models accept newly generated threats without losing the original register.</summary>
+        [TestMethod]
+        public void SaveTm7AcceptsNewlyGeneratedThreatsAfterReopening()
+        {
+            byte[] original = EngineService.Convert(ConnectedModel(), "tm7");
+            TmForgeModelDto baseline = EngineService.ReadModel(original, "tm7");
+            TmForgeDiagramDto page = baseline.Diagrams!.Single();
+            TmForgeElementDto added = new TmForgeElementDto
+            {
+                Id = Guid.NewGuid().ToString("D"), Kind = "datastore", Name = "New secrets", X = 600, Y = 100, Width = 120, Height = 60,
+                Properties = new Dictionary<string, string> { ["StoresCredentials"] = "Yes", ["Encrypted"] = "No" },
+            };
+            TmForgeModelDto WithThreats(IReadOnlyList<ThreatStateDto>? threats) => new TmForgeModelDto
+            {
+                Schema = baseline.Schema,
+                Version = baseline.Version,
+                Metadata = baseline.Metadata,
+                Diagrams = new[] { new TmForgeDiagramDto { Id = page.Id, Name = page.Name, Elements = page.Elements!.Append(added).ToArray(), Flows = page.Flows } },
+                Threats = threats,
+            };
+            ThreatDto generated = EngineService.GenerateThreats(WithThreats(baseline.Threats)).First(threat => threat.ElementIds.Contains(added.Id));
+            ThreatStateDto decision = new ThreatStateDto { Id = generated.Id, State = "Accepted", Justification = "Reviewed in tmforge" };
+
+            byte[] saved = EngineService.SaveTm7(original, WithThreats(new[] { decision }));
+            using MemoryStream output = new MemoryStream(saved);
+            using MemoryStream source = new MemoryStream(original);
+            ThreatModel restored = ThreatModel.Load(output);
+            ThreatModel initial = ThreatModel.Load(source);
+
+            Assert.AreEqual(ThreatState.NotApplicable, restored.AllThreatsDictionary[generated.Id].State);
+            Assert.AreEqual("Reviewed in tmforge", restored.AllThreatsDictionary[generated.Id].StateInformation);
+            Assert.AreEqual(generated.Title, restored.AllThreatsDictionary[generated.Id].Title);
+            Assert.IsTrue(initial.AllThreatsDictionary.Keys.All(restored.AllThreatsDictionary.ContainsKey));
+            CollectionAssert.AreEqual(saved, EngineService.SaveTm7(saved, EngineService.ReadModel(saved, "tm7")));
+
+            TmForgeModelDto deleted = new TmForgeModelDto
+            {
+                Schema = baseline.Schema, Version = baseline.Version, Metadata = baseline.Metadata,
+                Diagrams = baseline.Diagrams, Elements = baseline.Elements, Flows = baseline.Flows, Threats = new[] { decision },
+            };
+            byte[] retiredBytes = EngineService.SaveTm7(original, deleted, null, saved);
+            using MemoryStream retiredInput = new MemoryStream(retiredBytes);
+            Threat retired = ThreatModel.Load(retiredInput).AllThreatsDictionary[generated.Id];
+            Assert.AreEqual(ThreatState.NotApplicable, retired.State);
+            Assert.AreEqual("Reviewed in tmforge", retired.StateInformation);
+            Assert.IsTrue(retired.Properties!.ContainsKey("Source.retiredReason"));
+            Assert.AreEqual(Guid.Empty, retired.SourceGuid);
+            byte[] undone = EngineService.SaveTm7(original, WithThreats(new[] { decision }), null, retiredBytes);
+            using MemoryStream undoneInput = new MemoryStream(undone);
+            Threat reattached = ThreatModel.Load(undoneInput).AllThreatsDictionary[generated.Id];
+            Assert.AreEqual(Guid.Parse(added.Id), reattached.SourceGuid);
+            Assert.AreEqual(ThreatState.NotApplicable, reattached.State);
+            Assert.IsFalse(reattached.Properties!.ContainsKey("Source.retiredReason"));
+        }
+
+        /// <summary>Moving an object and changing its kind keeps its identity, foreign properties and extension XML.</summary>
+        [TestMethod]
+        public void SaveTm7MovesAndRetypesObjectsWithoutDroppingNativeData()
+        {
+            byte[] original = EngineService.Convert(ConnectedModel(), "tm7");
+            TmForgeModelDto initial = EngineService.ReadModel(original, "tm7");
+            string id = initial.Elements![0].Id;
+            XDocument document = XDocument.Parse(Encoding.UTF8.GetString(original));
+            XNamespace abstracts = "http://schemas.datacontract.org/2004/07/ThreatModeling.Model.Abstracts";
+            XElement native = document.Descendants(abstracts + "Guid").Single(element => element.Value == id).Parent!;
+            native.Add(new XElement(XNamespace.Get("urn:test:custom") + "Evidence", "Keep this with the object"));
+            byte[] source = Encoding.UTF8.GetBytes(document.ToString());
+            TmForgeModelDto baseline = EngineService.ReadModel(source, "tm7");
+            TmForgeElementDto old = baseline.Elements![0];
+            string pageId = Guid.NewGuid().ToString("D");
+            TmForgeElementDto changed = new TmForgeElementDto
+            {
+                Id = id, Kind = "external", Name = old.Name, X = old.X, Y = old.Y, Width = old.Width, Height = old.Height, Properties = old.Properties,
+            };
+            TmForgeModelDto edited = new TmForgeModelDto
+            {
+                Schema = baseline.Schema, Version = baseline.Version, Metadata = baseline.Metadata,
+                Diagrams = new[] { new TmForgeDiagramDto { Id = pageId, Name = "Moved page", Elements = new[] { changed, baseline.Elements[1] }, Flows = baseline.Flows } },
+            };
+
+            byte[] saved = EngineService.SaveTm7(source, edited);
+            XDocument output = XDocument.Parse(Encoding.UTF8.GetString(saved));
+            XElement retained = output.Descendants(abstracts + "Guid").Single(element => element.Value == id).Parent!;
+            Assert.AreEqual("Keep this with the object", retained.Element(XNamespace.Get("urn:test:custom") + "Evidence")?.Value);
+            TmForgeModelDto restored = EngineService.ReadModel(saved, "tm7");
+            Assert.AreEqual(pageId, restored.Diagrams![0].Id);
+            Assert.AreEqual("external", restored.Elements![0].Kind);
+            Assert.AreEqual(id, restored.Elements[0].Id);
+            using MemoryStream result = new MemoryStream(saved);
+            Assert.IsTrue(ThreatModel.Load(result).AllThreatsDictionary.Values.Where(threat => threat.SourceGuid == Guid.Parse(id)).All(threat => threat.DrawingSurfaceGuid == Guid.Parse(pageId)));
+            CollectionAssert.AreEqual(saved, EngineService.SaveTm7(saved, restored));
+        }
+
         /// <summary>Saving an unchanged native document retains its original bytes and opaque XML.</summary>
         [TestMethod]
         public void SaveTm7WithoutEditsPreservesOriginalBytes()
@@ -97,6 +190,7 @@ namespace ThreatModelForge.Api.Tests
             document = XDocument.Parse(Encoding.UTF8.GetString(original));
             XElement name = document.Descendants().Single(element => element.Name.LocalName == "Value" && !element.HasElements && element.Value == "Web App");
             name.Value = "Renamed service";
+            saved.Root!.Element(XNamespace.Get("urn:tmforge:studio:v1") + "State")?.Remove();
 
             Assert.IsTrue(XNode.DeepEquals(document, saved));
         }
@@ -135,15 +229,36 @@ namespace ThreatModelForge.Api.Tests
             CollectionAssert.AreEqual(saved, EngineService.SaveTm7(saved, restored));
         }
 
-        /// <summary>Native saves refuse deletion when the source register references the object.</summary>
+        /// <summary>Deleting scoped objects retains native decisions and records their former scope.</summary>
         [TestMethod]
-        public void SaveTm7RefusesToOrphanNativeThreats()
+        public void SaveTm7RetiresDeletedScopesWithoutLosingDecisions()
         {
             byte[] original = EngineService.Convert(ConnectedModel(), "tm7");
             TmForgeModelDto baseline = EngineService.ReadModel(original, "tm7");
             TmForgeModelDto edited = new TmForgeModelDto { Schema = baseline.Schema, Version = baseline.Version, Metadata = baseline.Metadata };
 
-            Assert.Throws<NotSupportedException>(() => EngineService.SaveTm7(original, edited));
+            byte[] saved = EngineService.SaveTm7(original, edited);
+            using MemoryStream source = new MemoryStream(original);
+            using MemoryStream output = new MemoryStream(saved);
+            ThreatModel initial = ThreatModel.Load(source);
+            ThreatModel result = ThreatModel.Load(output);
+            Assert.AreEqual(initial.AllThreatsDictionary.Count, result.AllThreatsDictionary.Count);
+            foreach (KeyValuePair<string, Threat> pair in initial.AllThreatsDictionary)
+            {
+                Threat retained = result.AllThreatsDictionary[pair.Key];
+                Assert.AreEqual(pair.Value.State, retained.State);
+                Assert.AreEqual(pair.Value.Title, retained.Title);
+                Assert.AreEqual(Guid.Empty, retained.SourceGuid);
+                Assert.AreEqual(Guid.Empty, retained.TargetGuid);
+                Assert.AreEqual(Guid.Empty, retained.FlowGuid);
+                Assert.IsTrue(retained.Properties!.ContainsKey("Source.retiredReason"));
+            }
+
+            TmForgeModelDto reopened = EngineService.ReadModel(saved, "tm7");
+            ThreatDto[] retired = EngineService.GenerateThreats(reopened).Where(threat => threat.Source?.ContainsKey("retiredReason") == true).ToArray();
+            Assert.AreEqual(initial.AllThreatsDictionary.Count, retired.Length);
+            Assert.IsTrue(retired.All(threat => !string.IsNullOrEmpty(threat.Title) && threat.ElementIds.Count == 0));
+            CollectionAssert.AreEqual(saved, EngineService.SaveTm7(saved, reopened));
         }
 
         /// <summary>Editing one native threat keeps all other threats and their native metadata unchanged.</summary>
@@ -239,6 +354,102 @@ namespace ThreatModelForge.Api.Tests
             Assert.HasCount(1, connector.Properties.OfType<ListDisplayAttribute>().Where(property => property.DisplayName == "Protocol").ToArray());
             Assert.IsFalse(connector.Properties.OfType<CustomStringDisplayAttribute>().Any(property => (property.Value as string ?? string.Empty).StartsWith("Protocol:", StringComparison.Ordinal)));
             CollectionAssert.AreEqual(saved, EngineService.SaveTm7(saved, EngineService.ReadModel(saved, "tm7")));
+        }
+
+        /// <summary>Missing templates and newly chosen native property values are supplied without discarding customizations.</summary>
+        [TestMethod]
+        public void SaveTm7SuppliesTemplatesAndExtendsNativeValues()
+        {
+            using MemoryStream initial = new MemoryStream(EngineService.Convert(ConnectedModel(), "tm7"));
+            ThreatModel native = ThreatModel.Load(initial);
+            native.KnowledgeBase = null;
+            using MemoryStream source = new MemoryStream();
+            native.Save(source);
+            byte[] original = source.ToArray();
+            byte[] supplied = EngineService.SaveTm7(original, EngineService.ReadModel(original, "tm7"));
+            using MemoryStream suppliedStream = new MemoryStream(supplied);
+            ThreatModel withTemplate = ThreatModel.Load(suppliedStream);
+            Assert.IsNotNull(withTemplate.KnowledgeBase);
+            withTemplate.KnowledgeBase.Manifest!.Name = "Customized template";
+            withTemplate.KnowledgeBase.GenericElements.Single(type => type.Id == "GE.DF").Description = "Preserve this description";
+            using MemoryStream customized = new MemoryStream();
+            withTemplate.Save(customized);
+            byte[] bytes = customized.ToArray();
+            TmForgeModelDto baseline = EngineService.ReadModel(bytes, "tm7");
+            TmForgeModelDto edited = AuthoringService.Set(baseline, new SetRequest { Id = baseline.Flows![0].Id, Properties = new[] { "Protocol=CustomTransport" }, Force = true }).Model!;
+
+            byte[] saved = EngineService.SaveTm7(bytes, edited);
+            using MemoryStream output = new MemoryStream(saved);
+            ThreatModel restored = ThreatModel.Load(output);
+            Assert.AreEqual("Customized template", restored.KnowledgeBase!.Manifest!.Name);
+            Assert.AreEqual("Preserve this description", restored.KnowledgeBase.GenericElements.Single(type => type.Id == "GE.DF").Description);
+            Assert.AreEqual("CustomTransport", DiagramElementHelper.GetCustomProperties(restored.DrawingSurfaceList[0].Lines.Values.OfType<Connector>().Single())["Protocol"]);
+            CollectionAssert.AreEqual(saved, EngineService.SaveTm7(saved, EngineService.ReadModel(saved, "tm7")));
+        }
+
+        /// <summary>Canvas geometry and labels survive MTMT normalization and external native edits invalidate stale views.</summary>
+        [TestMethod]
+        public void SaveTm7RetainsCanvasGeometryAndLabelOffsets()
+        {
+            byte[] original = EngineService.Convert(ConnectedModel(), "tm7");
+            TmForgeModelDto baseline = EngineService.ReadModel(original, "tm7");
+            JsonNode edited = JsonNode.Parse(JsonSerializer.Serialize(baseline)) ?? throw new InvalidOperationException();
+            JsonNode page = edited["Diagrams"]?[0] ?? throw new InvalidOperationException();
+            JsonNode element = page["Elements"]?[0] ?? throw new InvalidOperationException();
+            JsonNode flow = page["Flows"]?[0] ?? throw new InvalidOperationException();
+            element["X"] = -160;
+            flow["labelOffset"] = new JsonObject { ["X"] = 42, ["Y"] = -30 };
+            flow["sourceHandle"] = "r";
+            TmForgeModelDto requested = edited.Deserialize<TmForgeModelDto>() ?? throw new InvalidOperationException();
+            byte[] saved = EngineService.SaveTm7(original, requested);
+            TmForgeModelDto restored = EngineService.ReadModel(saved, "tm7");
+            Assert.AreEqual(-160, restored.Diagrams![0].Elements![0].X);
+            Assert.AreEqual(42, restored.Diagrams[0].Flows![0].LabelOffset!.X);
+            Assert.AreEqual("r", restored.Diagrams[0].Flows![0].SourceHandle);
+            using MemoryStream output = new MemoryStream(saved);
+            Assert.IsTrue(ThreatModel.Load(output).DrawingSurfaceList.SelectMany(surface => surface.Borders.Values).OfType<ThreatModelForge.Model.Abstracts.DrawingElement>().All(box => box.Left >= 10));
+            CollectionAssert.AreEqual(saved, EngineService.SaveTm7(saved, restored));
+            XDocument external = XDocument.Parse(Encoding.UTF8.GetString(saved));
+            external.Descendants().First(node => node.Name.LocalName == "Value" && !node.HasElements && node.Value == "Web App").Value = "Externally renamed";
+            TmForgeModelDto changed = EngineService.ReadModel(Encoding.UTF8.GetBytes(external.ToString()), "tm7");
+            Assert.AreEqual("Externally renamed", changed.Elements![0].Name);
+
+            XDocument tampered = XDocument.Parse(Encoding.UTF8.GetString(saved));
+            XElement extension = tampered.Root!.Element(XNamespace.Get("urn:tmforge:studio:v1") + "State") ?? throw new InvalidOperationException();
+            JsonNode state = JsonNode.Parse(extension.Value) ?? throw new InvalidOperationException();
+            JsonNode counterfeit = state["model"]?["diagrams"]?[0]?["elements"]?[0] ?? throw new InvalidOperationException();
+            counterfeit["name"] = "Counterfeit canvas";
+            extension.Value = state.ToJsonString();
+            TmForgeModelDto verified = EngineService.ReadModel(Encoding.UTF8.GetBytes(tampered.ToString()), "tm7");
+            Assert.AreEqual("Web App", verified.Elements![0].Name);
+        }
+
+        /// <summary>New TM7 exports retain their first canvas layout before a native save has occurred.</summary>
+        [TestMethod]
+        public void SaveTm7ExportRetainsInitialStudioLayout()
+        {
+            TmForgeModelDto seed = ConnectedModel();
+            TmForgeFlowDto sourceFlow = seed.Flows!.Single();
+            TmForgeModelDto canvas = new TmForgeModelDto
+            {
+                Schema = seed.Schema, Version = seed.Version, Elements = seed.Elements,
+                Analysis = new TmForgeAnalysisDto { DisabledRuleIds = new[] { "TM1000" } },
+                Flows = new[]
+                {
+                    new TmForgeFlowDto
+                    {
+                        Id = sourceFlow.Id, Source = sourceFlow.Source, Target = sourceFlow.Target, Name = sourceFlow.Name,
+                        Properties = sourceFlow.Properties, LabelOffset = new TmForgePointDto { X = 48, Y = -32 }, SourceHandle = "r", TargetHandle = "l",
+                    },
+                },
+            };
+
+            byte[] bytes = EngineService.Convert(canvas, "tm7");
+            TmForgeModelDto restored = EngineService.ReadModel(bytes, "tm7");
+            Assert.AreEqual(48, restored.Flows![0].LabelOffset!.X);
+            Assert.AreEqual("r", restored.Flows[0].SourceHandle);
+            Assert.AreEqual("TM1000", restored.Analysis!.DisabledRuleIds![0]);
+            CollectionAssert.AreEqual(bytes, EngineService.SaveTm7(bytes, restored));
         }
 
         /// <summary>Native input is bounded and never resolves XML DTDs or accepts malformed XML.</summary>

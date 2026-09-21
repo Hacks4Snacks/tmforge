@@ -223,13 +223,22 @@ namespace ThreatModelForge.Wasm
         public static string ExportTm7(string tmforgeJson)
             => Convert.ToBase64String(EngineService.ExportTm7(Deserialize(tmforgeJson), ruleOptions));
 
-        /// <summary>Applies edits to a retained native TM7 document without rebuilding its template or register.</summary>
+        /// <summary>Applies native edits and rule-backed triage while retaining existing document data.</summary>
         /// <param name="contentBase64">The original native document bytes as base64.</param>
         /// <param name="tmforgeJson">The edited canvas model.</param>
         /// <returns>The preserved document bytes as base64.</returns>
         [JSExport]
         public static string SaveTm7(string contentBase64, string tmforgeJson)
-            => Convert.ToBase64String(EngineService.SaveTm7(Convert.FromBase64String(contentBase64), Deserialize(tmforgeJson)));
+            => Convert.ToBase64String(EngineService.SaveTm7(Convert.FromBase64String(contentBase64), Deserialize(tmforgeJson), ruleOptions));
+
+        /// <summary>Saves ongoing edits with the register from the previous successful native save.</summary>
+        /// <param name="contentBase64">The opening native document.</param>
+        /// <param name="tmforgeJson">The current edited canvas.</param>
+        /// <param name="previousBase64">The latest successful native save.</param>
+        /// <returns>The updated native document as base64.</returns>
+        [JSExport]
+        public static string SaveTm7WithPrevious(string contentBase64, string tmforgeJson, string previousBase64)
+            => Convert.ToBase64String(EngineService.SaveTm7(Convert.FromBase64String(contentBase64), Deserialize(tmforgeJson), ruleOptions, Convert.FromBase64String(previousBase64)));
 
         /// <summary>Serializes a tmforge-json model to another registered format, returned as base64.</summary>
         /// <param name="tmforgeJson">The canonical tmforge-json model.</param>
