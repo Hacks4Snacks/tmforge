@@ -2,7 +2,7 @@
   "name": "tmforge",
   "displayName": "Threat Model Forge",
   "description": "Edit and analyze native TM7 and JSON threat models in Studio within VS Code",
-  "version": "0.12.0",
+  "version": "0.1.0",
   "publisher": "hacks4snacks",
   "license": "MIT",
   "homepage": "https://github.com/Hacks4Snacks/tmforge#readme",
