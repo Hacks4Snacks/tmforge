@@ -296,10 +296,28 @@ in-browser engine they are generated locally — the model never leaves the page
 
 ## Importing and exporting
 
-Studio round-trips through the canonical **`tmforge-json`** wire model:
+Studio edits a canonical **`tmforge-json`** canvas projection. When the browser opens a `.tm7`, it
+also retains the original native document separately:
+
+- **Save / Save As / Export TM7** apply supported edits to the original document, retaining its
+  embedded template, complete threat register, native connector geometry and unedited XML extensions.
+  Saving without edits returns the original bytes. Edited XML may have different formatting; its
+  unedited data is preserved. Saving does not regenerate threats or replace the template.
+- The native source and edits survive local workspace recovery when browser storage is available.
+  A storage-quota warning means you must save before reloading. Save refuses to overwrite a bound
+  file that another editor changed on disk.
+- Unsupported edits are refused before writing, never silently converted. Examples include deleting
+  an object referenced by native threats, removing a page with hidden native objects, changing a
+  native stencil kind, using a typed value outside the embedded template, and manual canvas label
+  offsets. Undo the edit or use MTMT for those operations.
+- Native line boundaries are retained but are not displayed or analyzed by the canvas projection.
+  Studio analysis still uses tmforge's active rules; retaining a template does not automatically
+  execute its rules. Review hidden boundary crossings in MTMT.
 
 - **Export tmforge-json**: save the diagram as `.tmforge.json`, which the CLI and API speak
-  natively.
+  natively. This is an explicit conversion: the native backing document is not included. The
+  conversion review identifies the omitted data. Share links likewise contain the canvas snapshot,
+  not the retained native source.
 - **Import JSON**: load a `.tmforge.json` document back onto the canvas.
 
 This is the bridge between visual authoring and the [CLI](cli-reference.md): export from Studio,
@@ -312,11 +330,14 @@ then `tmforge analyze` / `tmforge report` / `tmforge convert` in a pipeline, or 
 ### Preflight review
 
 Before replacing the canvas, **Open File** runs preflight through the active engine. Structural
-errors appear with their source paths and must be corrected in the input. Known import losses appear
-in a review dialog with **Continue** and **Cancel**. Closing or cancelling leaves the current model
+errors appear with their source paths under **Technical details** and must be corrected in the input.
+Import limitations appear in a review dialog with **Continue import** and **Cancel**. Native TM7
+imports explain that the original is retained and that analysis may differ; explicit conversions
+still warn about template and register loss. Closing or cancelling leaves the current model
 and undo history unchanged; a delayed import is discarded if the workspace changes while it runs.
 
-**Save** and **Export** also review known conversion losses before writing. Native JSON saves do not
+**Save** and **Export** review known conversion losses before writing a converted model. Native TM7
+saves validate the preserving edit before opening a writable stream. Native JSON saves do not
 perform the engine's structural conversion, so they retain the existing wire state. Importing a new
 file requires the API or WASM engine to be ready; offline authoring and saving the current JSON
 workspace remain available. These diagnostics are separate from **Analyze** and do not accept or

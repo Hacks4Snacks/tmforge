@@ -306,6 +306,7 @@ See the [CLI reference](cli-reference.md#convert).
 ```http
 POST /v1/model/convert?to=<format>     # convert to any format
 POST /v1/model/export/tm7              # export a .tm7 specifically
+POST /v1/model/save/tm7                # preserve an original .tm7 while applying edits
 POST /v1/detect                        # sniff a file's format from its bytes
 ```
 
@@ -313,7 +314,14 @@ See the [API reference](api-reference.md).
 
 ### Studio
 
-Studio round-trips through `tmforge-json`. **Open File** uses the active API or in-browser WASM
+Studio uses `tmforge-json` for the canvas. Browser-opened `.tm7` files retain a separate native
+backing document: Save applies supported edits to that document instead of reconstructing it from
+the canvas. Unchanged saves return the original bytes; edited saves preserve unedited XML data,
+the embedded template and full threat register, without automatically regenerating threats.
+Unsupported edits fail before writing. Explicit JSON/diagram exports and URL shares remain
+structural conversions and do not carry the native backing document.
+
+**Open File** uses the active API or in-browser WASM
 engine to read `.tm7`, `.drawio`, `.vsdx`, supported Threat Dragon JSON, Mermaid and DOT. Read-only inputs save
 as new tmforge files, not back to their original format. The browser canvas itself does not parse
 foreign file formats. See the [Studio guide](studio-guide.md#importing-and-exporting).

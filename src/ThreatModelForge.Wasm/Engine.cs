@@ -197,6 +197,14 @@ namespace ThreatModelForge.Wasm
             return Serialize(model);
         }
 
+        /// <summary>Inspects a source file without discarding native boundaries or geometry.</summary>
+        /// <param name="contentBase64">The source document bytes, base64-encoded.</param>
+        /// <param name="formatId">An explicit source format, or empty to detect.</param>
+        /// <returns>The rendered pages, findings and structural diagnostics as JSON.</returns>
+        [JSExport]
+        public static string InspectFile(string contentBase64, string formatId)
+            => Serialize(EngineService.InspectFile(Convert.FromBase64String(contentBase64), formatId));
+
         /// <summary>
         /// Materializes a declarative authoring manifest into a model. A manifest is a threat model's
         /// reviewable source rather than one of the registered model formats, so <see cref="Detect"/>
@@ -214,6 +222,14 @@ namespace ThreatModelForge.Wasm
         [JSExport]
         public static string ExportTm7(string tmforgeJson)
             => Convert.ToBase64String(EngineService.ExportTm7(Deserialize(tmforgeJson), ruleOptions));
+
+        /// <summary>Applies edits to a retained native TM7 document without rebuilding its template or register.</summary>
+        /// <param name="contentBase64">The original native document bytes as base64.</param>
+        /// <param name="tmforgeJson">The edited canvas model.</param>
+        /// <returns>The preserved document bytes as base64.</returns>
+        [JSExport]
+        public static string SaveTm7(string contentBase64, string tmforgeJson)
+            => Convert.ToBase64String(EngineService.SaveTm7(Convert.FromBase64String(contentBase64), Deserialize(tmforgeJson)));
 
         /// <summary>Serializes a tmforge-json model to another registered format, returned as base64.</summary>
         /// <param name="tmforgeJson">The canonical tmforge-json model.</param>

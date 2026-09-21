@@ -292,6 +292,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/model/save/tm7": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Applies edits while preserving the original native TM7 document. */
+        post: operations["SaveNativeTm7"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/model/read": {
         parameters: {
             query?: never;
@@ -637,6 +654,10 @@ export interface components {
             ruleId?: null | string;
             severity?: null | string;
         };
+        NativeTm7SaveRequest: {
+            contentBase64?: string;
+            model?: null | components["schemas"]["TmForgeModelDto"];
+        };
         /**
          * @description Describes a stencil pack: a named, togglable group of related stencils (for example, the
          *     Azure pack). The palette uses packs so the user can show or hide whole families at once.
@@ -657,6 +678,14 @@ export interface components {
             format?: null | string;
             targetFormat?: null | string;
             diagnostics?: components["schemas"]["DocumentDiagnostic"][];
+        };
+        ProblemDetails: {
+            type?: null | string;
+            title?: null | string;
+            /** Format: int32 */
+            status?: null | number | string;
+            detail?: null | string;
+            instance?: null | string;
         };
         /**
          * @description A single attribute-level change to an element between two models: the attribute key and its
@@ -1254,6 +1283,30 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    SaveNativeTm7: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NativeTm7SaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
             };
         };
     };

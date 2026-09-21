@@ -45,6 +45,7 @@ describe('OfflineEngineClient — the honest fallback contract', () => {
     await expect(offlineEngine.report(emptyModel(), 'html')).rejects.toThrow(/require[s]? the .NET engine/i);
     await expect(offlineEngine.merge(null, emptyModel(), emptyModel())).rejects.toThrow(/require[s]? the .NET engine/i);
     await expect(offlineEngine.exportTm7(emptyModel())).rejects.toThrow(/require[s]? the .NET engine/i);
+    await expect(offlineEngine.saveTm7(new Uint8Array(), emptyModel())).rejects.toThrow(/requires the .NET engine/i);
   });
 
   it('rejects opening an authoring manifest rather than re-implementing the builder', async () => {
@@ -196,6 +197,52 @@ describe('engine model normalization', () => {
         elementIds: ['source', 'target', 'flow'],
       },
     ]);
+  });
+});
+
+describe('asynchronous engine transport', () => {
+  it('surfaces the HTTP native-save refusal instead of hiding it behind a status code', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ detail: 'The native threat register references this object.' }), {
+      status: 400, headers: { 'Content-Type': 'application/problem+json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await expect(createHttpEngine().saveTm7(new Uint8Array([1]), emptyModel())).rejects.toThrow('The native threat register references this object.');
+      const request = fetchMock.mock.calls[0] as unknown as [Request];
+      expect(request[0].url).toContain('/v1/model/save/tm7');
+      expect(await request[0].json()).toMatchObject({ contentBase64: 'AQ==', model: emptyModel() });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('sends original bytes and edits through native save without using conversion', async () => {
+    const invoke = vi.fn(async () => btoa('<preserved/>'));
+    const engine = new WasmEngineClient(invoke);
+    const original = new TextEncoder().encode('<original/>');
+    const model = emptyModel();
+
+    const saved = await engine.saveTm7(original, model);
+
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('SaveTm7', btoa('<original/>'), JSON.stringify(model));
+    expect(saved.type).toBe('application/xml');
+    expect(saved.size).toBe('<preserved/>'.length);
+  });
+
+  it('shares decoding for message-based preflight, detection, catalogs and exports', async () => {
+    const invoke = vi.fn(async (method: string, ..._args: string[]) => {
+      if (method === 'Preflight') return JSON.stringify({ success: true, format: 'tmforge-json', diagnostics: [] });
+      if (method === 'Detect') return '';
+      if (method === 'ExportTm7') return btoa('<model/>');
+      return '[]';
+    });
+    const engine = new WasmEngineClient(invoke, 'engine (VS Code)');
+    expect((await engine.preflight(new Uint8Array(), 'tmforge-json')).success).toBe(true);
+    expect(invoke).toHaveBeenCalledWith('Preflight', '', 'tmforge-json', '');
+    expect(await engine.detect(new Uint8Array())).toBeNull();
+    expect(await engine.getStencils()).toEqual([]);
+    expect((await engine.exportTm7({ schema: 'tmforge-json', version: '0.1', elements: [], flows: [] })).size).toBe(8);
+    expect(engine.label).toBe('engine (VS Code)');
   });
 });
 

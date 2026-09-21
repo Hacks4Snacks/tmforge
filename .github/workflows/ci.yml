@@ -114,6 +114,29 @@ jobs:
           need System.Text.Json.wasm "DTO JSON serialization"
           echo "WASM bundle OK: $(ls "$fw"/*.wasm | wc -l | tr -d ' ') assemblies"
 
+      - name: Set up Node for the VS Code extension
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/ThreatModelForge.Vscode/package-lock.json
+
+      - name: Build and test the VS Code extension
+        run: |
+          npm --prefix src/ThreatModelForge.Studio ci
+          npm --prefix src/ThreatModelForge.Vscode ci
+          node src/ThreatModelForge.Vscode/scripts/stage-engine.mjs artifacts/wasm/wwwroot/_framework
+          npm --prefix src/ThreatModelForge.Vscode test
+          xvfb-run -a npm --prefix src/ThreatModelForge.Vscode run test:extension
+          npm --prefix src/ThreatModelForge.Vscode run package
+
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: tmforge-vscode
+          path: src/ThreatModelForge.Vscode/*.vsix
+          if-no-files-found: error
+
   containers:
     name: Container build & smoke test
     runs-on: ubuntu-latest

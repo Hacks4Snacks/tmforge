@@ -1,0 +1,137 @@
+{
+  "name": "tmforge",
+  "displayName": "Threat Model Forge",
+  "description": "Edit JSON threat models in Studio and preview native models locally in VS Code",
+  "version": "0.11.0",
+  "publisher": "hacks4snacks",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Hacks4Snacks/tmforge",
+    "directory": "src/ThreatModelForge.Vscode"
+  },
+  "engines": {
+    "vscode": "^1.103.0"
+  },
+  "categories": [
+    "Visualization",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
+  },
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "tmforge.openStudio",
+        "title": "Threat Model Forge: Open Studio"
+      },
+      {
+        "command": "tmforge.newModel",
+        "title": "Threat Model Forge: New Model"
+      },
+      {
+        "command": "tmforge.openPreview",
+        "title": "Threat Model Forge: Open Preview"
+      },
+      {
+        "command": "tmforge.analyze",
+        "title": "Threat Model Forge: Analyze Model"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "tmforge.studio",
+        "displayName": "Threat Model Forge Studio",
+        "selector": [{ "filenamePattern": "*.tmforge.json" }],
+        "priority": "default"
+      },
+      {
+        "viewType": "tmforge.preview",
+        "displayName": "Threat Model Forge Preview",
+        "selector": [
+          {
+            "filenamePattern": "*.tm7"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "tmforge.jsonPreview",
+        "displayName": "Threat Model Forge Preview",
+        "selector": [
+          {
+            "filenamePattern": "*.tmforge.json"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "tmforge.openPreview",
+          "when": "resourceFilename =~ /\\.(tm7|tmforge\\.json)$/",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "tmforge.openStudio",
+          "when": "resourceFilename =~ /\\.tmforge\\.json$/"
+        },
+        {
+          "command": "tmforge.openPreview",
+          "when": "resourceFilename =~ /\\.(tm7|tmforge\\.json)$/"
+        }
+      ]
+    },
+    "jsonValidation": [
+      {
+        "fileMatch": "*.tmrules.json",
+        "url": "./schemas/rules.schema.json"
+      },
+      {
+        "fileMatch": "*.suppressions.json",
+        "url": "./schemas/suppressions.schema.json"
+      },
+      {
+        "fileMatch": [
+          "*.manifest.json",
+          "*.tm.json"
+        ],
+        "url": "./schemas/manifest.schema.json"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile && npm run build:studio && node scripts/check-package.mjs",
+    "build:studio": "npm --prefix ../ThreatModelForge.Studio run build:extension",
+    "compile": "tsc -p ./ && node -e \"require('node:fs').copyFileSync('src/engine-worker.mjs','out/engine-worker.mjs')\"",
+    "watch": "tsc -watch -p ./",
+    "stage:engine": "node scripts/stage-engine.mjs",
+    "pretest": "npm run compile",
+    "test": "node --test out/test/*.unit.test.js",
+    "test:extension": "npm run compile && npm run build:studio && node scripts/test-extension.mjs",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "22.x",
+    "@types/vscode": "^1.103.0",
+    "@vscode/test-electron": "^3.0.0",
+    "@vscode/vsce": "^4.0.0",
+    "typescript": "^5.9.3"
+  }
+}

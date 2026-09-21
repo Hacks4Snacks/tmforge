@@ -132,6 +132,16 @@ namespace ThreatModelForge.Api
                 .WithName("ConvertModel")
                 .WithTags("Model");
             app.MapPost(
+                "/v1/model/save/tm7",
+                (NativeTm7SaveRequest request) => TypedResults.File(
+                    EngineService.SaveTm7(Convert.FromBase64String(request.ContentBase64), request.Model ?? throw new ArgumentException("An edited model is required.")),
+                    "application/xml",
+                    "model.tm7"))
+                .WithName("SaveNativeTm7")
+                .WithSummary("Applies edits while preserving the original native TM7 document.")
+                .ProducesProblem(StatusCodes.Status400BadRequest)
+                .WithTags("Model");
+            app.MapPost(
                 "/v1/model/read",
                 (FileContentDto file) => TypedResults.Ok(
                     EngineService.ReadModel(Convert.FromBase64String(file.ContentBase64), file.FormatId)))

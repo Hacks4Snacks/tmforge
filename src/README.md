@@ -1,7 +1,7 @@
 # `src/`: Threat Model Forge projects
 
 This directory holds the shipping libraries, the `tmforge` CLI, the engine API, and the
-Studio front end. The build is driven by [`dirs.proj`](dirs.proj)
+Studio front end, plus the VS Code extension. The .NET build is driven by [`dirs.proj`](dirs.proj)
 (`Microsoft.Build.Traversal`); every project is also listed in
 [`ThreatModelForge.slnx`](../ThreatModelForge.slnx) for IDE users.
 
@@ -28,6 +28,7 @@ renders it, editing mutates it, and the CLI and API expose it.
 | [`ThreatModelForge.Cli`](ThreatModelForge.Cli) | The `tmforge` command-line tool: inspect, author, lint, report, and convert threat models, with `--json` for machine-readable output. |
 | [`ThreatModelForge.Api`](ThreatModelForge.Api) | The engine API host: a versioned `/v1` HTTP surface over the engine, and the host that serves the Studio SPA from `wwwroot`. |
 | [`ThreatModelForge.Studio`](ThreatModelForge.Studio) | The front end: a React + TypeScript single-page app whose DFD canvas is built on React Flow. It talks to the engine only through the generated `/v1` client. |
+| [`ThreatModelForge.Vscode`](ThreatModelForge.Vscode) | The desktop VS Code extension: Studio editing for canonical JSON, native read-only previews, open/save findings, and JSON schema hints, using a bundled WebAssembly engine. |
 
 ## Tests
 
@@ -38,3 +39,46 @@ application. Build and run everything from the repo root:
 dotnet build ../dirs.proj
 dotnet test  ../dirs.proj --no-build
 ```
+
+## VS Code Extension Development
+
+The extension's [README](ThreatModelForge.Vscode/README.md) covers installation and usage.
+Contributors need Node.js 22+, the repository's .NET SDK, and `wasm-tools` / `wasm-experimental`.
+From the repository root:
+
+```bash
+dotnet publish src/ThreatModelForge.Wasm/ThreatModelForge.Wasm.csproj -c Release -o artifacts/vscode-wasm
+npm --prefix src/ThreatModelForge.Studio ci
+npm --prefix src/ThreatModelForge.Vscode ci
+node src/ThreatModelForge.Vscode/scripts/stage-engine.mjs
+npm --prefix src/ThreatModelForge.Vscode test
+npm --prefix src/ThreatModelForge.Vscode run test:extension
+npm --prefix src/ThreatModelForge.Vscode run package
+```
+
+`stage-engine.mjs` optionally accepts the path to an already-published `_framework` directory.
+Generated runtime assets and VSIX files are ignored by Git. Packaging refuses to proceed if required
+runtime assets or schemas are missing. Tests use an isolated VS Code profile; set
+`VSCODE_EXECUTABLE_PATH` to reuse a specific installation, otherwise the test runner can download
+VS Code. On Linux, run extension-host tests under `xvfb-run -a` when no display is available.
+
+CI builds a VSIX artifact; Marketplace publication is a separate, deliberate release step.
+
+Packaging builds the shared Studio UI through `npm run build:extension` into the extension's ignored
+`media/studio/` directory. `EditorHost` supplies the document, engine, and host actions; the standalone
+browser path remains unchanged. `WasmEngineClient` shares result decoding across local and asynchronous
+worker transports.
+
+Canonical JSON uses `CustomTextEditorProvider`: versioned canvas deltas become `WorkspaceEdit`s,
+preserving unrepresented JSON fields. VS Code owns save, dirty state, undo/redo, and recovery.
+Each open Studio document has an isolated engine/rule session shared by its views. The webview loads
+only packaged assets; CSP blocks network access and arbitrary scripts. Inline styles are needed by
+React Flow. File reads/writes use VS Code dialogs and workspace APIs, not arbitrary webview paths.
+
+Native `.tm7` previews receive SVG images and inert finding text only. Raw-file inspection retains
+line boundaries and geometry without round-tripping through the Studio projection. Native imports
+create new JSON documents; exports never overwrite the currently edited document.
+
+Inspection limits are 8 MiB input, 32 pages, 1,024 elements, 2,048 lines, one million element/line pairs,
+16 MiB results, and 30 seconds per queued inspection. A timeout stops the worker; retry restarts it.
+Native WebAssembly memory is not covered by Node's JavaScript heap limit.

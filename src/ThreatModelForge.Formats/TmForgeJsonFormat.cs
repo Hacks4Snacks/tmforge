@@ -49,6 +49,9 @@ namespace ThreatModelForge.Formats
         /// </summary>
         private static readonly Guid DefaultSurfaceGuid = new Guid("7e3f1d52-0000-4000-8000-000000000001");
 
+        /// <summary>Gets the stable identity of the implicit page in a flat canonical document.</summary>
+        public static Guid DefaultPageId => DefaultSurfaceGuid;
+
         /// <inheritdoc/>
         public string Id => FormatId;
 

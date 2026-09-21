@@ -148,6 +148,30 @@ namespace ThreatModelForge.Api.Tests
             Assert.AreNotEqual(JsonValueKind.Null, body.RootElement.ValueKind);
         }
 
+        /// <summary>The native save endpoint returns unchanged source bytes and rejects incomplete requests.</summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task NativeSave_PreservesBytesAndRejectsMissingModel()
+        {
+            JsonSerializerOptions options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            TmForgeModelDto seed = JsonSerializer.Deserialize<TmForgeModelDto>(Model, options) ?? new TmForgeModelDto();
+            byte[] original = EngineService.Convert(seed, "tm7");
+            NativeTm7SaveRequest input = new NativeTm7SaveRequest
+            {
+                ContentBase64 = Convert.ToBase64String(original),
+                Model = EngineService.ReadModel(original, "tm7"),
+            };
+            string request = JsonSerializer.Serialize(input, options);
+
+            using HttpResponseMessage response = await PostJson("/v1/model/save/tm7", request);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            Assert.AreEqual("application/xml", response.Content.Headers.ContentType?.MediaType);
+            CollectionAssert.AreEqual(original, await response.Content.ReadAsByteArrayAsync());
+            using HttpResponseMessage invalid = await PostJson("/v1/model/save/tm7", "{}");
+            Assert.AreEqual(HttpStatusCode.BadRequest, invalid.StatusCode);
+        }
+
         /// <summary>Verifies a three-way merge is accepted in the shape the Studio posts it.</summary>
         /// <returns>A task.</returns>
         [TestMethod]

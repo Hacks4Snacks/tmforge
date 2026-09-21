@@ -46,6 +46,7 @@ and `/openapi` are matched first.
 | `POST /v1/model/layout` | Model | Return geometry-only updates after preserving every boundary membership and actual flow crossing; unsafe candidates are refused atomically. |
 | `POST /v1/model/convert?to=<format>` | Model | Convert a model to another format. |
 | `POST /v1/model/export/tm7` | Model | Export a model as a `.tm7` file. |
+| `POST /v1/model/save/tm7` | Model | Apply canvas edits to original TM7 bytes without reconstructing the native document. |
 | `POST /v1/model/report?format=<html\|svg>` | Report | Render a model to an HTML or SVG report. |
 | `POST /v1/model/analysis-report?format=<sarif\|html\|json>` | Report | Render the analysis findings as SARIF, HTML, or JSON. |
 | `GET /openapi/v1.json` | n/a | The OpenAPI document. |
@@ -101,6 +102,26 @@ diagnostic budget is exhausted, so a truncated result cannot look successful.
 The WASM `Preflight(contentBase64, formatId, targetFormat)` export returns the same result; empty
 strings omit the two format selections. MCP exposes `preflight(path, format?, to?)` with the existing
 workspace sandbox and archive limits. Neither operation accepts rule content or changes models.
+
+## Native TM7 saving
+
+`POST /v1/model/save/tm7` accepts `{ "contentBase64": "...", "model": { ... } }`: the original
+native bytes and the edited `tmforge-json` projection returned by `/v1/model/read`. The response is
+`application/xml` with a `model.tm7` download name. No server-side file or session is created.
+
+The engine applies changes by stable identities and retains unedited native XML, including the
+embedded knowledge base and full threat register. An unchanged model returns the exact source bytes.
+Edited XML is semantically preserving, not necessarily byte-identical in formatting. It does not
+run analysis, regenerate threats, normalize the original geometry or replace the template.
+
+Malformed sources and edits that cannot be preserved safely return **400** with a reason, not a
+lossy fallback. The native source and output are limited to 8 MiB; XML DTDs are prohibited and XML
+depth is limited to 128. Existing JSON limits also apply to the edited projection. The caller must
+check for external file changes before replacing its local file.
+
+The WASM `SaveTm7(contentBase64, tmforgeJson)` export calls the same engine method and returns
+base64 bytes. `/v1/model/convert` and `/v1/model/export/tm7` remain explicit reconstruction APIs;
+they do not acquire lossless round-trip behavior without an original document.
 
 ## One analysis action
 

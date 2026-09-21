@@ -1,0 +1,27 @@
+:root { color-scheme: light; }
+body.vscode-dark, body.vscode-high-contrast { color-scheme: dark; }
+body { margin: 0; color: var(--vscode-editor-foreground); background: var(--vscode-editor-background); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+header, .diagram-tools, .finding-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--vscode-panel-border); }
+header { position: sticky; top: 0; z-index: 1; background: var(--vscode-editor-background); }
+header strong { overflow-wrap: anywhere; min-width: 0; }
+.spacer { flex: 1; }
+button, select { font: inherit; color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 1px solid var(--vscode-button-border, transparent); border-radius: 3px; padding: 5px 8px; }
+button:hover { background: var(--vscode-button-hoverBackground); }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
+select { max-width: 220px; color: var(--vscode-dropdown-foreground); background: var(--vscode-dropdown-background); }
+label { display: flex; align-items: center; gap: 6px; }
+input[type=range] { width: 110px; accent-color: var(--vscode-focusBorder); }
+#status { padding: 10px 14px; margin: 0; color: var(--vscode-descriptionForeground); }
+#diagram { overflow: auto; min-height: 100px; max-height: 65vh; padding: 14px; }
+#image { display: block; height: auto; max-width: none; }
+#image[hidden] { display: none; }
+h1 { font-size: 14px; margin: 0; letter-spacing: 0; }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--vscode-panel-border); vertical-align: top; overflow-wrap: anywhere; }
+th:nth-child(1) { width: 80px; }
+th:nth-child(2) { width: 100px; }
+.severity { text-transform: capitalize; }
+small { display: block; color: var(--vscode-descriptionForeground); margin-top: 6px; }
+#input-diagnostics { padding: 0 24px; overflow-wrap: anywhere; }
+#input-diagnostics:empty { display: none; }
+@media (max-width: 500px) { th, td { padding: 8px; } th:nth-child(1) { width: 65px; } th:nth-child(2) { width: 75px; } }
