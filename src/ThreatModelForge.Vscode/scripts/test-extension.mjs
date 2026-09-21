@@ -6,14 +6,16 @@ import { runTests } from '@vscode/test-electron';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const directory = await mkdtemp(resolve(tmpdir(), 'tmforge-extension-host-'));
+const version = process.env.VSCODE_TEST_VERSION;
 let executable = process.env.VSCODE_EXECUTABLE_PATH;
-if (!executable && process.platform === 'darwin') {
+if (!executable && !version && process.platform === 'darwin') {
   const local = '/Applications/Visual Studio Code.app/Contents/MacOS/Electron';
   try { await access(local); executable = local; } catch {}
 }
 let passed = false;
 try {
   await runTests({
+    version,
     vscodeExecutablePath: executable,
     extensionDevelopmentPath: root,
     extensionTestsPath: resolve(root, 'out/test/extension.test.js'),

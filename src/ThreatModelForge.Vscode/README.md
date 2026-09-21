@@ -4,9 +4,13 @@ View threat-model diagrams, review security findings, and edit model files witho
 
 ## Get Started
 
-1. Install the downloaded extension package with **Extensions: Install from VSIX...** in the Command Palette.
+1. Install **Threat Model Forge** by **hacks4snacks** from VS Code's Extensions view (`hacks4snacks.tmforge`).
 2. Open a `.tm7` or `.tmforge.json` file to edit it in Studio.
 3. Run **Threat Model Forge: New Model** to start a JSON model, or use **Open File** to open an existing model.
+
+For offline installation, download the VSIX from the
+[GitHub release](https://github.com/Hacks4Snacks/tmforge/releases) and run
+**Extensions: Install from VSIX...** in the Command Palette. Reload the window after updating.
 
 Use **Threat Model Forge: Open Studio** or **Reopen Editor With** to switch a model from the
 text editor to Studio.
@@ -81,3 +85,10 @@ of 8 MiB. More complex models may exceed processing limits. Analysis requests ti
 
 Analysis runs on your computer or, when using remote development, on your remote host. The extension
 does not send model contents to a separate analysis service.
+
+## Support
+
+Report problems or request improvements in
+[GitHub Issues](https://github.com/Hacks4Snacks/tmforge/issues). Include the extension version,
+VS Code version, operating system, and the error message. Use a minimal, sanitized model when a
+reproduction is needed; do not attach confidential architecture or credentials.

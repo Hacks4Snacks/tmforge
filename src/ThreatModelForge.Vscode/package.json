@@ -5,6 +5,18 @@
   "version": "0.11.0",
   "publisher": "hacks4snacks",
   "license": "MIT",
+  "homepage": "https://github.com/Hacks4Snacks/tmforge#readme",
+  "bugs": {
+    "url": "https://github.com/Hacks4Snacks/tmforge/issues"
+  },
+  "keywords": [
+    "threat modeling",
+    "tm7",
+    "STRIDE",
+    "security",
+    "data flow diagram",
+    "Microsoft Threat Modeling Tool"
+  ],
   "icon": "media/icon.png",
   "galleryBanner": {
     "color": "#1A2130",
