@@ -296,10 +296,50 @@ in-browser engine they are generated locally — the model never leaves the page
 
 ## Importing and exporting
 
-Studio round-trips through the canonical **`tmforge-json`** wire model:
+Studio edits a canonical **`tmforge-json`** canvas projection. When the browser opens a `.tm7`, it
+also retains the original native document separately:
+
+- **Save / Save As / Export TM7** apply supported edits to the original document, retaining its
+  embedded template, unaffected threat decisions, native connector geometry and unedited XML extensions.
+  Saving without edits returns the original bytes. Edited XML may have different formatting; its
+  unedited data is preserved. A missing template is supplied automatically; missing stencil and
+  threat definitions and newly authored property values are added without replacing customizations.
+- `.tm7` is an authoring format, not a read-only interchange format. Add, delete, move, resize,
+  reconnect and edit objects, change kinds, and create, rename, reorder or remove pages without
+  leaving tmforge. Existing native objects and their extension data move together.
+- New analysis threats can be triaged and saved using the active rule bundle. Existing manual
+  threats and decisions are retained; saving unrelated diagram edits does not regenerate the entire
+  register. A missing custom pack does not prevent a preserving diagram save, but must be loaded
+  before materializing a new threat from that pack.
+- Deleting an object also deletes its incident flows and threats scoped to any of those objects,
+  including recorded triage and justifications. Deleting a flow leaves its endpoints and their
+  unrelated threats intact. Deleting a page removes its scoped threats; model-wide and unrelated
+  decisions remain. These are intentional deletions, not loss during conversion.
+- Undo restores the deleted objects, flows and decisions together, including after a save during
+  the same editing session. Save and reopen keep the deletion; there is no Retired view or permanent
+  deleted-ID list. Use version history for recovery after closing the editing session.
+- Renaming, moving, changing properties or disabling rules does not delete recorded decisions.
+  Missing rule packs are not evidence that a threat should be removed.
+- Manual label offsets, routing, rule selection and pre-normalization canvas positions are stored
+  in a versioned Studio extension inside the `.tm7`, including on the first export. Native geometry
+  is translated by whole pages for MTMT compatibility without resizing or changing relative layout.
+  Studio restores its layout only while it matches the native document; external edits invalidate
+  stale state. Other tools may discard that extension on save. A diagram larger than MTMT's fixed
+  canvas remains editable in Studio, but MTMT may still adjust it when opened there.
+- The native source and edits survive local workspace recovery when browser storage is available.
+  A storage-quota warning means you must save before reloading. Save refuses to overwrite a bound
+  file that another editor changed on disk.
+- Invalid references, ambiguous native identities and unrecognized extension versions are refused
+  before writing rather than silently losing information. Generated categories and scope remain
+  rule-owned. If a threat has no recorded default, enter an explicit title or priority when editing it.
+- Native line boundaries are retained but are not displayed or analyzed by the canvas projection.
+  Studio analysis still uses tmforge's active rules; retaining a template does not automatically
+  execute its rules. Imports warn about hidden boundaries; deleting their page removes them too.
 
 - **Export tmforge-json**: save the diagram as `.tmforge.json`, which the CLI and API speak
-  natively.
+  natively. This is an explicit conversion: the native backing document is not included. The
+  conversion review identifies the omitted data. Share links likewise contain the canvas snapshot,
+  not the retained native source.
 - **Import JSON**: load a `.tmforge.json` document back onto the canvas.
 
 This is the bridge between visual authoring and the [CLI](cli-reference.md): export from Studio,
@@ -312,11 +352,15 @@ then `tmforge analyze` / `tmforge report` / `tmforge convert` in a pipeline, or 
 ### Preflight review
 
 Before replacing the canvas, **Open File** runs preflight through the active engine. Structural
-errors appear with their source paths and must be corrected in the input. Known import losses appear
-in a review dialog with **Continue** and **Cancel**. Closing or cancelling leaves the current model
+errors appear with their source paths under **Technical details** and must be corrected in the input.
+Import limitations appear in a review dialog with **Continue import** and **Cancel**. Ordinary native
+TM7 files open without a conversion acknowledgement. A file containing objects the canvas cannot
+display still receives a warning; explicit conversions still warn about template and register loss.
+Closing or cancelling leaves the current model
 and undo history unchanged; a delayed import is discarded if the workspace changes while it runs.
 
-**Save** and **Export** also review known conversion losses before writing. Native JSON saves do not
+**Save** and **Export** review known conversion losses before writing a converted model. Native TM7
+saves validate the preserving edit before opening a writable stream. Native JSON saves do not
 perform the engine's structural conversion, so they retain the existing wire state. Importing a new
 file requires the API or WASM engine to be ready; offline authoring and saving the current JSON
 workspace remain available. These diagnostics are separate from **Analyze** and do not accept or

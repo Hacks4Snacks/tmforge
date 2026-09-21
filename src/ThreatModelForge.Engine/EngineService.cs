@@ -373,11 +373,12 @@ namespace ThreatModelForge.Engine
         public static byte[] ExportTm7(TmForgeModelDto dto, EngineRuleOptions? rules)
         {
             ThreatModel model = BuildModelForExport(dto, rules);
-            Tm7ExportPreparer.Prepare(model);
+            using RuleSet ruleSet = LoadRuleSet(rules, null, out _);
+            Tm7ExportPreparer.Prepare(model, ruleSet);
 
             using (MemoryStream stream = new MemoryStream())
             {
-                model.Save(stream);
+                NativeTm7Document.WriteNew(model, dto, stream);
                 return stream.ToArray();
             }
         }
@@ -398,12 +399,124 @@ namespace ThreatModelForge.Engine
 
             ThreatModelFormatRegistry registry = ThreatModelFormatRegistry.CreateDefault();
             ThreatModel model;
+            bool native;
             using (MemoryStream input = new MemoryStream(content))
             {
+                native = string.Equals(formatId, Tm7Format.FormatId, StringComparison.OrdinalIgnoreCase)
+                    || (string.IsNullOrEmpty(formatId) && registry.Sniff(input)?.Id == Tm7Format.FormatId);
                 model = registry.Load(input, string.IsNullOrEmpty(formatId) ? null : formatId);
             }
 
-            return ToDto(model);
+            TmForgeModelDto result = ToDto(model);
+            if (native)
+            {
+                result = NativeTm7Document.RestoreView(content, model, result);
+            }
+
+            if (!native || model.DrawingSurfaceList.Count == 0)
+            {
+                return result;
+            }
+
+            DrawingSurfaceModel page = model.DrawingSurfaceList[0];
+            IReadOnlyList<TmForgeDiagramDto> pages = result.Diagrams
+                ?? new[] { new TmForgeDiagramDto { Id = page.Guid.ToString("D"), Name = string.IsNullOrEmpty(page.Header) ? "Diagram 1" : page.Header, Elements = result.Elements, Flows = result.Flows } };
+            return new TmForgeModelDto
+            {
+                Schema = result.Schema,
+                Version = result.Version,
+                Metadata = result.Metadata,
+                Elements = pages[0].Elements ?? Array.Empty<TmForgeElementDto>(),
+                Flows = pages[0].Flows ?? Array.Empty<TmForgeFlowDto>(),
+                Threats = result.Threats,
+                Analysis = result.Analysis,
+                Diagrams = pages.Select(item => Guid.TryParse(item.Id, out Guid id) && id == TmForgeJsonFormat.DefaultPageId
+                    ? new TmForgeDiagramDto { Id = TmForgeJsonFormat.DefaultPageId.ToString("N"), Name = item.Name, Elements = item.Elements, Flows = item.Flows }
+                    : item).ToArray(),
+            };
+        }
+
+        /// <summary>Saves canvas edits against an original native TM7 document.</summary>
+        /// <param name="original">The original document bytes.</param>
+        /// <param name="edited">The edited canvas model.</param>
+        /// <returns>The edited native document bytes.</returns>
+        public static byte[] SaveTm7(byte[] original, TmForgeModelDto edited) => SaveTm7(original, edited, null);
+
+        /// <summary>Saves native edits using the same rule bundle as analysis.</summary>
+        /// <param name="original">The original document bytes.</param>
+        /// <param name="edited">The edited canvas model.</param>
+        /// <param name="rules">The active custom rule sources.</param>
+        /// <returns>The preserved and edited native document.</returns>
+        public static byte[] SaveTm7(byte[] original, TmForgeModelDto edited, EngineRuleOptions? rules)
+            => SaveTm7(original, edited, rules, Array.Empty<byte>());
+
+        /// <summary>Saves ongoing native edits while preserving decisions materialized by previous saves.</summary>
+        /// <param name="original">The opening document used by undo.</param>
+        /// <param name="edited">The current canvas projection.</param>
+        /// <param name="rules">The active rule bundle.</param>
+        /// <param name="previous">The latest successful native save, or empty.</param>
+        /// <returns>The updated native document.</returns>
+        public static byte[] SaveTm7(byte[] original, TmForgeModelDto edited, EngineRuleOptions? rules, byte[] previous)
+        {
+            ArgumentNullException.ThrowIfNull(original);
+            ArgumentNullException.ThrowIfNull(edited);
+            List<string> diagnostics = new List<string>();
+            using RuleSet ruleSet = LoadRuleSet(rules, diagnostics, out IReadOnlyList<RulePackDefinition> packs);
+            diagnostics.AddRange(VerifyExpectedPacks(edited.Analysis?.ExpectedPacks, MapRulePacks(packs, ruleSet)).Select(finding => finding.Message));
+            ruleSet.Disable(edited.Analysis?.DisabledPacks, edited.Analysis?.DisabledRuleIds);
+            return NativeTm7Document.Save(original, edited, ruleSet, diagnostics, previous);
+        }
+
+        /// <summary>Preflights, renders and analyzes a document without projecting away native geometry.</summary>
+        /// <param name="content">The raw source bytes.</param>
+        /// <param name="formatId">An optional explicit source format.</param>
+        /// <returns>Source-faithful pages, findings and diagnostics; no files are changed.</returns>
+        public static FileInspectionDto InspectFile(byte[] content, string? formatId = null)
+        {
+            PreflightResultDto preflight = DocumentPreflight.Inspect(content, formatId);
+            if (!preflight.Success)
+            {
+                return new FileInspectionDto { Format = preflight.Format, Diagnostics = preflight.Diagnostics };
+            }
+
+            ThreatModel model;
+            TmForgeModelDto dto;
+            bool canonical = preflight.Format == TmForgeJsonFormat.FormatId;
+            if (canonical)
+            {
+                using MemoryStream json = new MemoryStream(content);
+                dto = JsonSerializer.Deserialize<TmForgeModelDto>(JsonDocumentPreflight.ReadText(json), CanonicalJsonOptions)
+                    ?? throw new InvalidDataException("Expected a canonical threat model.");
+                model = BuildModel(dto, out _);
+            }
+            else
+            {
+                using MemoryStream input = new MemoryStream(content);
+                model = ThreatModelFormatRegistry.CreateDefault().Load(input, preflight.Format);
+                dto = new TmForgeModelDto();
+            }
+
+            int elements = model.DrawingSurfaceList.Sum(page => page.Borders.Count);
+            int flows = model.DrawingSurfaceList.Sum(page => page.Lines.Count);
+            if (model.DrawingSurfaceList.Count > 32 || elements > 1024 || flows > 2048
+                || (long)elements * flows > 1000000)
+            {
+                throw new InvalidDataException("Read-only inspection is limited to 32 pages, 1024 elements, 2048 lines and one million element/line pairs.");
+            }
+
+            DiagramSvgRenderer renderer = new DiagramSvgRenderer();
+            return new FileInspectionDto
+            {
+                Format = preflight.Format,
+                Diagnostics = preflight.Diagnostics,
+                Pages = model.DrawingSurfaceList.Select(page => new DiagramPreviewDto
+                {
+                    Id = page.Guid.ToString("D"),
+                    Name = page.Header ?? "Diagram",
+                    Svg = renderer.Render(page).ToString(),
+                }).ToArray(),
+                Analysis = RunAnalysis(dto, null, AnalysisProjection.Findings, loadedModel: canonical ? null : model),
+            };
         }
 
         /// <summary>
@@ -467,7 +580,10 @@ namespace ThreatModelForge.Engine
             if (string.Equals(formatId, Tm7Format.FormatId, StringComparison.OrdinalIgnoreCase))
             {
                 model = BuildModelForExport(dto, rules);
-                Tm7ExportPreparer.Prepare(model);
+                using RuleSet ruleSet = LoadRuleSet(rules, null, out _);
+                Tm7ExportPreparer.Prepare(model, ruleSet);
+                NativeTm7Document.WriteNew(model, dto, output);
+                return;
             }
             else
             {
@@ -903,7 +1019,8 @@ namespace ThreatModelForge.Engine
             AnalysisProjection projections,
             List<AnalysisFindingDto>? evidence = null,
             Action<RuleSet>? onRuleSet = null,
-            Action<ThreatRegisterSummary>? onRegister = null)
+            Action<ThreatRegisterSummary>? onRegister = null,
+            ThreatModel? loadedModel = null)
         {
             bool wantFindings = (projections & AnalysisProjection.Findings) != 0;
             bool wantThreats = (projections & AnalysisProjection.Threats) != 0;
@@ -915,10 +1032,22 @@ namespace ThreatModelForge.Engine
             IReadOnlyList<RulePackInfoDto> effectivePacks = Array.Empty<RulePackInfoDto>();
             try
             {
-                ThreatModel model = BuildModel(
-                    dto,
-                    out Dictionary<string, List<string>> nameToIds,
-                    out Dictionary<Guid, string> originalIds);
+                Dictionary<string, List<string>> nameToIds = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+                Dictionary<Guid, string> originalIds = new Dictionary<Guid, string>();
+                ThreatModel model = loadedModel ?? BuildModel(dto, out nameToIds, out originalIds);
+                if (loadedModel != null)
+                {
+                    foreach (DrawingSurfaceModel page in model.DrawingSurfaceList)
+                    {
+                        originalIds[page.Guid] = page.Guid.ToString("D");
+                        foreach (Entity entity in page.Borders.Values.Concat(page.Lines.Values).OfType<Entity>())
+                        {
+                            originalIds[entity.Guid] = entity.Guid.ToString("D");
+                            AddName(nameToIds, DiagramElementHelper.GetName(entity), entity.Guid.ToString("D"));
+                        }
+                    }
+                }
+
                 using (RuleSet ruleSet = LoadRuleSet(rules, diagnostics, out IReadOnlyList<RulePackDefinition> packs))
                 {
                     effectivePacks = MapRulePacks(packs, ruleSet);
@@ -933,7 +1062,7 @@ namespace ThreatModelForge.Engine
 
                         // A pack mismatch is a problem with the analysis rather than a risk in the
                         // model, so it is recorded as hygiene: it must not land in the threat register.
-                        foreach (FindingDto mismatch in mismatches)
+                        foreach (FindingDto mismatch in wantEvidence ? mismatches : Array.Empty<FindingDto>())
                         {
                             evidence!.Add(new AnalysisFindingDto
                             {

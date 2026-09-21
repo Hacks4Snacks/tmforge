@@ -306,6 +306,7 @@ See the [CLI reference](cli-reference.md#convert).
 ```http
 POST /v1/model/convert?to=<format>     # convert to any format
 POST /v1/model/export/tm7              # export a .tm7 specifically
+POST /v1/model/save/tm7                # preserve an original .tm7 while applying edits
 POST /v1/detect                        # sniff a file's format from its bytes
 ```
 
@@ -313,7 +314,27 @@ See the [API reference](api-reference.md).
 
 ### Studio
 
-Studio round-trips through `tmforge-json`. **Open File** uses the active API or in-browser WASM
+Studio uses `tmforge-json` for the canvas. Browser-opened `.tm7` files retain a separate native
+backing document: Save applies supported edits to that document instead of reconstructing it from
+the canvas. Unchanged saves return the original bytes; edited saves preserve unedited XML data,
+existing template customizations and unaffected threat decisions. Missing definitions are added as
+needed, and new generated-threat decisions use the active rules. Deleting an object or flow also
+deletes its scoped threats and decisions. Unrelated and model-wide threats remain; undo restores
+the deleted graph and decisions together during the editing session. No retirement state or
+permanent deleted-ID list is required. Studio-only layout and analysis settings are
+retained in a versioned, fingerprinted XML extension; this is also written on new exports when
+needed. Native geometry can be translated for MTMT while Studio restores the authored positions.
+Invalid references and unrecognized extension versions fail before writing. Explicit JSON/diagram exports and URL shares remain
+structural conversions and do not carry the native backing document.
+
+Native XML preservation validates the `ThreatModel` root name and namespace against a trusted,
+compiled envelope schema. The body remains extensible so unknown native XML can survive edits;
+the typed model reader and structural preflight validate the data used by the engine. Both the
+original document and any previous-save input reject DTDs, external resource resolution, and XML
+deeper than 128 levels, with an 8 MiB input limit. Inline schemas and `xsi:schemaLocation` values
+never replace the trusted schema or cause resource retrieval.
+
+**Open File** uses the active API or in-browser WASM
 engine to read `.tm7`, `.drawio`, `.vsdx`, supported Threat Dragon JSON, Mermaid and DOT. Read-only inputs save
 as new tmforge files, not back to their original format. The browser canvas itself does not parse
 foreign file formats. See the [Studio guide](studio-guide.md#importing-and-exporting).

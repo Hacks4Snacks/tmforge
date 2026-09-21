@@ -1,0 +1,148 @@
+{
+  "name": "tmforge",
+  "displayName": "Threat Model Forge",
+  "description": "Edit and analyze native TM7 and JSON threat models in Studio within VS Code",
+  "version": "0.11.0",
+  "publisher": "hacks4snacks",
+  "license": "MIT",
+  "homepage": "https://github.com/Hacks4Snacks/tmforge#readme",
+  "bugs": {
+    "url": "https://github.com/Hacks4Snacks/tmforge/issues"
+  },
+  "keywords": [
+    "threat modeling",
+    "tm7",
+    "STRIDE",
+    "security",
+    "data flow diagram",
+    "Microsoft Threat Modeling Tool"
+  ],
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#1A2130",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Hacks4Snacks/tmforge",
+    "directory": "src/ThreatModelForge.Vscode"
+  },
+  "engines": {
+    "vscode": "^1.103.0"
+  },
+  "categories": [
+    "Visualization",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
+  },
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "tm7",
+        "extensions": [
+          ".tm7"
+        ],
+        "aliases": [
+          "Threat Model (TM7)"
+        ],
+        "icon": {
+          "light": "media/icons/tm7-file-light.svg",
+          "dark": "media/icons/tm7-file-dark.svg"
+        }
+      }
+    ],
+    "commands": [
+      {
+        "command": "tmforge.openStudio",
+        "title": "Threat Model Forge: Open Studio",
+        "icon": {
+          "light": "media/icons/open-studio-light.svg",
+          "dark": "media/icons/open-studio-dark.svg"
+        }
+      },
+      {
+        "command": "tmforge.newModel",
+        "title": "Threat Model Forge: New Model"
+      },
+      {
+        "command": "tmforge.analyze",
+        "title": "Threat Model Forge: Analyze Model"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "tmforge.studio",
+        "displayName": "Threat Model Forge Studio",
+        "selector": [
+          { "filenamePattern": "*.tm7" },
+          { "filenamePattern": "*.tmforge.json" }
+        ],
+        "priority": "default"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "tmforge.openStudio",
+          "when": "resourceFilename =~ /\\.(tm7|tmforge\\.json)$/",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "tmforge.openStudio",
+          "when": "resourceFilename =~ /\\.(tm7|tmforge\\.json)$/"
+        }
+      ]
+    },
+    "jsonValidation": [
+      {
+        "fileMatch": "*.tmrules.json",
+        "url": "./schemas/rules.schema.json"
+      },
+      {
+        "fileMatch": "*.suppressions.json",
+        "url": "./schemas/suppressions.schema.json"
+      },
+      {
+        "fileMatch": [
+          "*.manifest.json",
+          "*.tm.json"
+        ],
+        "url": "./schemas/manifest.schema.json"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile && npm run build:studio && node scripts/check-package.mjs",
+    "build:studio": "npm --prefix ../ThreatModelForge.Studio run build:extension",
+    "compile": "tsc -p ./ && node -e \"require('node:fs').copyFileSync('src/engine-worker.mjs','out/engine-worker.mjs')\"",
+    "watch": "tsc -watch -p ./",
+    "stage:engine": "node scripts/stage-engine.mjs",
+    "pretest": "npm run compile",
+    "test": "node --test out/test/*.unit.test.js",
+    "test:extension": "npm run compile && npm run build:studio && node scripts/test-extension.mjs",
+    "package": "vsce package --no-dependencies --changelog-path out/CHANGELOG.md"
+  },
+  "devDependencies": {
+    "@types/node": "22.x",
+    "@types/vscode": "^1.103.0",
+    "@vscode/test-electron": "^3.0.0",
+    "@vscode/vsce": "^4.0.0",
+    "typescript": "^5.9.3"
+  }
+}

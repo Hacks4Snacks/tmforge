@@ -46,6 +46,7 @@ and `/openapi` are matched first.
 | `POST /v1/model/layout` | Model | Return geometry-only updates after preserving every boundary membership and actual flow crossing; unsafe candidates are refused atomically. |
 | `POST /v1/model/convert?to=<format>` | Model | Convert a model to another format. |
 | `POST /v1/model/export/tm7` | Model | Export a model as a `.tm7` file. |
+| `POST /v1/model/save/tm7` | Model | Apply canvas edits to original TM7 bytes without reconstructing the native document. |
 | `POST /v1/model/report?format=<html\|svg>` | Report | Render a model to an HTML or SVG report. |
 | `POST /v1/model/analysis-report?format=<sarif\|html\|json>` | Report | Render the analysis findings as SARIF, HTML, or JSON. |
 | `GET /openapi/v1.json` | n/a | The OpenAPI document. |
@@ -101,6 +102,45 @@ diagnostic budget is exhausted, so a truncated result cannot look successful.
 The WASM `Preflight(contentBase64, formatId, targetFormat)` export returns the same result; empty
 strings omit the two format selections. MCP exposes `preflight(path, format?, to?)` with the existing
 workspace sandbox and archive limits. Neither operation accepts rule content or changes models.
+
+## Native TM7 saving
+
+`POST /v1/model/save/tm7` accepts `{ "contentBase64": "...", "model": { ... } }`: the original
+native bytes and the edited `tmforge-json` projection returned by `/v1/model/read`. The response is
+`application/xml` with a `model.tm7` download name. No server-side file or session is created.
+Clients that keep the opening bytes as an undo baseline may also send `previousContentBase64`, the
+latest successful save. This retains newly materialized decisions and definitions across successive
+saves. Undo must retain the pre-deletion native snapshot as well as the canvas and decisions; use
+that snapshot as `contentBase64` when restoring deleted data. Clients that instead advance their
+source to the last saved document can omit `previousContentBase64`.
+
+The engine applies changes by stable identities and retains unedited native XML, including custom
+knowledge-base definitions and threat decisions. An unchanged valid model with a template returns
+the exact source bytes. Edited XML is semantically preserving, not necessarily byte-identical in
+formatting. Missing templates and definitions are supplied additively. Graph edits, page moves and
+kind changes preserve the remaining native data. Removing objects or flows deletes register entries
+whose native scope depends on them, including their triage and justifications. Page deletion removes
+page-scoped entries while retaining model-wide decisions. Unrelated threats remain unchanged.
+The saved canvas overlay is filtered to match; no deleted-ID list or retired register is persisted.
+Renames, page moves, property changes and unavailable or disabled rules do not trigger this cascade.
+
+Changed generated-threat decisions are materialized with the host's active rule bundle. Missing or
+mismatched expected packs block new generated threats, not unrelated preserving edits. Existing
+native/manual threats are never wholesale replaced by analysis. Studio view fields (`labelOffset`,
+`sourceHandle`, `targetHandle`) and analysis selections are retained in a versioned
+`urn:tmforge:studio:v1` XML extension. Whole-page normalization prepares native coordinates for MTMT;
+the extension restores the author's original canvas positions. A fingerprint and projection check
+invalidate stale state after external edits. Other editors may discard the extension.
+
+Malformed sources and edits that cannot be preserved safely return **400** with a reason, not a
+lossy fallback. The native source and output are limited to 8 MiB; XML DTDs are prohibited and XML
+depth is limited to 128. Existing JSON limits also apply to the edited projection. The caller must
+check for external file changes before replacing its local file.
+
+The WASM `SaveTm7(contentBase64, tmforgeJson)` export calls the same engine method and returns
+base64 bytes. `SaveTm7WithPrevious(contentBase64, tmforgeJson, previousBase64)` supports the retained
+undo-baseline workflow. `/v1/model/convert` and `/v1/model/export/tm7` create new native documents with the active
+template and Studio presentation state; they cannot recover foreign data absent from their input.
 
 ## One analysis action
 
