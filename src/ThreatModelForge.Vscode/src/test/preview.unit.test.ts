@@ -1,16 +1,19 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { test } from 'node:test';
-import { previewHtml, studioHtml } from '../preview';
+import { studioHtml } from '../preview';
 
-test('webview has no network or workspace capability and escapes resource attributes', () => {
-  const html = previewHtml('vscode-webview:', 'https://local/script.js?x="bad"', 'https://local/style.css', 'testNonce');
-  assert.match(html, /default-src 'none'/);
-  assert.match(html, /connect-src 'none'/);
-  assert.match(html, /img-src blob:/);
-  assert.match(html, /script-src 'nonce-testNonce'/);
-  assert.ok(!html.includes('unsafe-eval') && !html.includes('unsafe-inline'));
-  assert.match(html, /x=&quot;bad&quot;/);
-  assert.ok(!html.includes('acquireVsCodeApi()'));
+test('Studio replaces preview commands and is the sole default editor for both formats', () => {
+  const manifest = JSON.parse(readFileSync(resolve(__dirname, '../../package.json'), 'utf8')) as {
+    contributes: { customEditors: { viewType: string; priority: string; selector: { filenamePattern: string }[] }[] };
+  };
+  assert.equal(manifest.contributes.customEditors.length, 1);
+  const editor = manifest.contributes.customEditors[0];
+  assert.equal(editor.viewType, 'tmforge.studio');
+  assert.equal(editor.priority, 'default');
+  assert.deepEqual(editor.selector.map(item => item.filenamePattern), ['*.tm7', '*.tmforge.json']);
+  assert.ok(!JSON.stringify(manifest.contributes).includes('Preview'));
 });
 
 test('Studio allows local UI assets and dynamic styles but no network or arbitrary scripts', () => {

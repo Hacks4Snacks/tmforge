@@ -23,7 +23,7 @@ Microsoft Threat Modeling Tool (MTMT).
 | [Installation](installation.md) | Prebuilt binaries, container images, the .NET global tool, and building from source. |
 | [CLI reference](cli-reference.md) | Every `tmforge` command, its options, exit codes, and JSON output. |
 | [Studio guide](studio-guide.md) | Browser-based diagram authoring with the React Studio SPA. |
-| [VS Code extension](../src/ThreatModelForge.Vscode/README.md) | Studio editing for JSON models, native previews, local analysis, Problems diagnostics, and JSON schemas. |
+| [VS Code extension](../src/ThreatModelForge.Vscode/README.md) | Studio editing for native TM7 and JSON models, local analysis, Problems diagnostics, and JSON schemas. |
 | [Engine API reference](api-reference.md) | The versioned `/v1` HTTP surface and its endpoints. |
 | [Formats & interoperability](formats.md) | `.tm7`, `tmforge-json`, draw.io, and Visio import/export and fidelity. |
 | [Analysis rules & CI](analysis-rules.md) | The built-in rule set, rule packs, suppressions, and gating a build. |
@@ -37,7 +37,7 @@ Threat Model Forge shares its engine across command-line, browser, HTTP, and edi
 - **Studio**: a React single-page app for drawing data-flow diagrams, served by the API.
 - **Engine API** (`/v1`): a versioned HTTP surface that hosts Studio and exposes the engine to
   any client.
-- **VS Code extension**: Studio editing for `.tmforge.json`, read-only `.tm7` previews, and local
+- **VS Code extension**: Studio editing for `.tm7` and `.tmforge.json`, with local
   analysis integrated with VS Code's document and Problems workflows.
 
 ## Reference material

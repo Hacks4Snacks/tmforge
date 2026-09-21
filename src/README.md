@@ -28,7 +28,7 @@ renders it, editing mutates it, and the CLI and API expose it.
 | [`ThreatModelForge.Cli`](ThreatModelForge.Cli) | The `tmforge` command-line tool: inspect, author, lint, report, and convert threat models, with `--json` for machine-readable output. |
 | [`ThreatModelForge.Api`](ThreatModelForge.Api) | The engine API host: a versioned `/v1` HTTP surface over the engine, and the host that serves the Studio SPA from `wwwroot`. |
 | [`ThreatModelForge.Studio`](ThreatModelForge.Studio) | The front end: a React + TypeScript single-page app whose DFD canvas is built on React Flow. It talks to the engine only through the generated `/v1` client. |
-| [`ThreatModelForge.Vscode`](ThreatModelForge.Vscode) | The desktop VS Code extension: Studio editing for canonical JSON, native read-only previews, open/save findings, and JSON schema hints, using a bundled WebAssembly engine. |
+| [`ThreatModelForge.Vscode`](ThreatModelForge.Vscode) | The desktop VS Code extension: Studio editing for native TM7 and canonical JSON, open/save findings, and JSON schema hints, using a bundled WebAssembly engine. |
 
 ## Tests
 
@@ -69,15 +69,19 @@ Packaging builds the shared Studio UI through `npm run build:extension` into the
 browser path remains unchanged. `WasmEngineClient` shares result decoding across local and asynchronous
 worker transports.
 
-Canonical JSON uses `CustomTextEditorProvider`: versioned canvas deltas become `WorkspaceEdit`s,
-preserving unrepresented JSON fields. VS Code owns save, dirty state, undo/redo, and recovery.
+Both formats use `CustomTextEditorProvider`: versioned canvas deltas become `WorkspaceEdit`s,
+preserving unrepresented JSON fields or patching native XML through `SaveTm7`. The current text
+document is the native baseline for each edit, including after undo or external changes; native
+state does not depend on a webview-only copy. VS Code owns save, dirty state, undo/redo, and recovery.
 Each open Studio document has an isolated engine/rule session shared by its views. The webview loads
 only packaged assets; CSP blocks network access and arbitrary scripts. Inline styles are needed by
 React Flow. File reads/writes use VS Code dialogs and workspace APIs, not arbitrary webview paths.
 
-Native `.tm7` previews receive SVG images and inert finding text only. Raw-file inspection retains
-line boundaries and geometry without round-tripping through the Studio projection. Native imports
-create new JSON documents; exports never overwrite the currently edited document.
+Native `.tm7` opens directly in Studio without conversion. The canvas uses the engine projection,
+while saves retain the native source. Hidden line boundaries are reported as a persistent warning.
+Native export reads the current document after queued edits; other formats use explicit conversion
+review. Exports never overwrite the currently edited document. Read-only preview registrations,
+commands, and assets have been removed.
 
 Inspection limits are 8 MiB input, 32 pages, 1,024 elements, 2,048 lines, one million element/line pairs,
 16 MiB results, and 30 seconds per queued inspection. A timeout stops the worker; retry restarts it.

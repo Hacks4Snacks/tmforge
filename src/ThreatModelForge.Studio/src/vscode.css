@@ -16,6 +16,8 @@ body { padding: 0; font-family: var(--vscode-font-family, sans-serif); }
 .host-bar { display: flex; align-items: center; gap: 12px; padding: 4px 12px; border-bottom: 1px solid var(--border); }
 .host-bar [role='alert'] { color: var(--vscode-errorForeground, #dc2626); white-space: pre-wrap; overflow-wrap: anywhere; }
 .host-status { padding: 16px; white-space: pre-wrap; }
+.host-warnings { padding: 4px 12px; border-bottom: 1px solid var(--border); color: var(--vscode-editorWarning-foreground, var(--ink)); overflow-wrap: anywhere; }
+.host-warnings p { margin: 4px 0; }
 .toolbar-brand { letter-spacing: 0; }
 .toolbar-group { flex-wrap: wrap; }
 

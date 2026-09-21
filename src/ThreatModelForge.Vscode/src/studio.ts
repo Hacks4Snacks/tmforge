@@ -98,38 +98,48 @@ export class StudioEditors implements vscode.CustomTextEditorProvider, vscode.Di
 
 	private documentStatus(document: vscode.TextDocument) {
 		return { version: document.version, dirty: document.isDirty, fileName: basename(document.uri.path),
+			format: document.uri.path.toLowerCase().endsWith('.tm7') ? 'tm7' : 'tmforge-json',
 			theme: vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark || vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrast ? 'dark' : 'light' };
 	}
 
-	private async preflight(engine: EngineWorker, text: string): Promise<void> {
+	private async preflight(engine: EngineWorker, text: string, format = 'tmforge-json'): Promise<{ model: Record<string, unknown>; warnings: string[] }> {
 		if (Buffer.byteLength(text, 'utf8') > MAX_DOCUMENT_BYTES) throw new Error('Model documents are limited to 8 MiB.');
-		const result = JSON.parse(await engine.invoke('Preflight', [Buffer.from(text).toString('base64'), 'tmforge-json', ''])) as {
-			success: boolean; diagnostics: { severity: string; path: string; message: string }[];
+		const content = Buffer.from(text).toString('base64');
+		const result = JSON.parse(await engine.invoke('Preflight', [content, format, format === 'tm7' ? 'tmforge-json' : ''])) as {
+			success: boolean; diagnostics: { code: string; severity: string; path: string; message: string }[];
 		};
 		if (!result.success) throw new Error(result.diagnostics.filter(item => item.severity === 'error').map(item => `${item.path}: ${item.message}`).join('\n') || 'The model is invalid.');
-		const model = JSON.parse(text) as { diagrams?: { elements?: unknown[]; flows?: unknown[] }[]; elements?: unknown[]; flows?: unknown[] };
+		const model = JSON.parse(format === 'tm7' ? await engine.invoke('ReadFile', [content, 'tm7']) : text) as Record<string, unknown> & {
+			diagrams?: { elements?: unknown[]; flows?: unknown[] }[]; elements?: unknown[]; flows?: unknown[];
+		};
 		const pages = model.diagrams?.length ? model.diagrams : [model];
 		const elements = pages.reduce((count, page) => count + (page.elements?.length ?? 0), 0);
 		const flows = pages.reduce((count, page) => count + (page.flows?.length ?? 0), 0);
 		if (pages.length > 32 || elements > 1024 || flows > 2048 || elements * flows > 1000000) {
 			throw new Error('Studio is limited to 32 pages, 1024 elements, 2048 flows and one million element/flow pairs.');
 		}
+		return {
+			model: { ...model, elements: model.elements ?? [], flows: model.flows ?? [] },
+			warnings: result.diagnostics.filter(item => item.code !== 'conversion.knowledge-base' && item.code !== 'conversion.generated-register')
+				.map(item => item.code === 'conversion.line-boundaries'
+					? 'Native line trust boundaries are retained on save but are not shown on the canvas. Canvas analysis may omit their crossings. Deleting a page also removes its hidden objects.'
+					: item.message),
+		};
 	}
 
 	private async publish(session: Session, except?: vscode.WebviewPanel): Promise<void> {
 		const version = session.document.version;
 		let model: unknown;
+		let warnings: string[] = [];
 		let error: string | undefined;
 		try {
 			if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace before editing models.');
 			const text = session.document.getText();
-			await this.preflight(session.engine, text);
-			const parsed = JSON.parse(text);
-			model = { ...parsed, elements: parsed.elements ?? [], flows: parsed.flows ?? [] };
+			({ model, warnings } = await this.preflight(session.engine, text, this.documentStatus(session.document).format));
 		} catch (failure) { error = failure instanceof Error ? failure.message : String(failure); }
 		if (session.document.isClosed || session.document.version !== version) return;
 		for (const panel of session.panels) {
-			if (panel !== except) void panel.webview.postMessage({ type: 'document', ...this.documentStatus(session.document), model, error });
+			if (panel !== except) void panel.webview.postMessage({ type: 'document', ...this.documentStatus(session.document), model, warnings, error });
 		}
 	}
 
@@ -137,14 +147,20 @@ export class StudioEditors implements vscode.CustomTextEditorProvider, vscode.Di
 		const session = this.session(document);
 		const operation = session.queue.then(async () => {
 			if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace before editing models.');
-			if (!document.uri.path.toLowerCase().endsWith('.tmforge.json')) throw new Error('Studio edits only .tmforge.json documents.');
+			const native = document.uri.path.toLowerCase().endsWith('.tm7');
+			if (!native && !document.uri.path.toLowerCase().endsWith('.tmforge.json')) throw new Error('Studio edits only .tm7 and .tmforge.json documents.');
 			const ensureCurrent = () => {
 				if (document.isClosed || version !== document.version) throw new Error('The document changed in another editor. Reloaded the current source; retry your edit.');
 			};
 			ensureCurrent();
 			const text = document.getText();
-			const updated = applyModelChange(text, previous, next);
-			await this.preflight(session.engine, updated);
+			const baseline = native ? JSON.stringify((await this.preflight(session.engine, text, 'tm7')).model) : text;
+			const model = applyModelChange(baseline, previous, next);
+			ensureCurrent();
+			if (model === baseline) return { version: document.version, dirty: document.isDirty };
+			await this.preflight(session.engine, model);
+			const updated = native ? Buffer.from(await session.engine.invoke('SaveTm7', [Buffer.from(text).toString('base64'), model]), 'base64').toString('utf8') : model;
+			if (native) await this.preflight(session.engine, updated, 'tm7');
 			ensureCurrent();
 			if (text !== updated) {
 				const change = textChange(text, updated);
@@ -159,6 +175,19 @@ export class StudioEditors implements vscode.CustomTextEditorProvider, vscode.Di
 		});
 		session.queue = operation.then(() => {}, () => {});
 		return operation;
+	}
+
+	async nativeSource(document: vscode.TextDocument): Promise<string> {
+		const session = this.session(document);
+		await session.queue;
+		if (!vscode.workspace.isTrusted || document.isClosed || !document.uri.path.toLowerCase().endsWith('.tm7')) {
+			throw new Error('Open a trusted native TM7 document before exporting it.');
+		}
+		const text = document.getText();
+		const version = document.version;
+		await this.preflight(session.engine, text, 'tm7');
+		if (document.isClosed || document.version !== version) throw new Error('The native document changed before export completed. Retry the export.');
+		return Buffer.from(text).toString('base64');
 	}
 
 	async create(model: unknown = { schema: 'tmforge-json', version: '0.1', elements: [], flows: [] }, name = 'model.tmforge.json'): Promise<void> {
@@ -188,6 +217,7 @@ export class StudioEditors implements vscode.CustomTextEditorProvider, vscode.Di
 	private async action(session: Session, panel: vscode.WebviewPanel, method: string, params: Record<string, unknown>): Promise<unknown> {
 		const document = session.document;
 		switch (method) {
+			case 'nativeSource': return this.nativeSource(document);
 			case 'engine': {
 				if (typeof params.method !== 'string' || !Array.isArray(params.args)) throw new Error('Invalid engine request.');
 				const result = await session.engine.invoke(params.method, params.args as string[]);
@@ -211,7 +241,7 @@ export class StudioEditors implements vscode.CustomTextEditorProvider, vscode.Di
 			case 'open': {
 				const picked = await vscode.window.showOpenDialog({ canSelectMany: false, openLabel: 'Open Model' });
 				if (!picked?.length) return null;
-				if (picked[0].path.toLowerCase().endsWith('.tmforge.json')) {
+				if (/\.(tm7|tmforge\.json)$/i.test(picked[0].path)) {
 					await vscode.commands.executeCommand('vscode.openWith', picked[0], 'tmforge.studio');
 					return null;
 				}

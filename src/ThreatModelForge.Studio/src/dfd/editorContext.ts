@@ -15,6 +15,7 @@ export interface EditorHost {
   open(): Promise<{ name: string; bytes: Uint8Array } | undefined>;
   create(model: TmForgeModel, name: string): Promise<void>;
   download(blob: Blob, name: string): Promise<void>;
+  readNative?(): Promise<Uint8Array>;
   confirm(message: string): Promise<boolean>;
   undo(): void;
   redo(): void;

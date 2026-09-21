@@ -5,6 +5,8 @@ export interface StudioDocument {
   dirty: boolean;
   fileName: string;
   theme: 'light' | 'dark';
+  format?: 'tm7' | 'tmforge-json';
+  warnings?: string[];
   model?: TmForgeModel;
   error?: string;
 }
@@ -65,9 +67,13 @@ export class StudioBridge {
     });
   }
 
-  async command(method: string): Promise<void> {
+  async afterEdits<Result>(method: string): Promise<Result> {
     await this.edits;
-    await this.request(method);
+    return this.request<Result>(method);
+  }
+
+  async command(method: string): Promise<void> {
+    await this.afterEdits(method);
   }
 
   dispose(): void {

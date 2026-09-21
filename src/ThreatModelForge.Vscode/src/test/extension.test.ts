@@ -10,6 +10,7 @@ export async function run(): Promise<void> {
 		inspect(document: vscode.TextDocument): Promise<Inspection>;
 		diagnostics: vscode.DiagnosticCollection;
 		edit(document: vscode.TextDocument, version: number, previous: unknown, next: unknown): Promise<{ version: number; dirty: boolean }>;
+		nativeSource(document: vscode.TextDocument): Promise<string>;
 		waitUntilRendered(document: vscode.TextDocument): Promise<void>;
 	}>('hacks4snacks.tmforge');
 	assert.ok(extension, 'Extension was not loaded');
@@ -24,9 +25,93 @@ export async function run(): Promise<void> {
 		const result = await api.inspect(document);
 		assert.equal(result.pages.length, 1);
 		assert.ok(api.diagnostics.get(uri)?.some(diagnostic => diagnostic.code === 'TM1029'));
-		await vscode.commands.executeCommand('tmforge.openPreview', uri);
-		assert.ok(vscode.window.tabGroups.all.flatMap(group => group.tabs).some(tab => tab.input instanceof vscode.TabInputCustom && tab.input.viewType === 'tmforge.preview'));
-		assert.deepEqual(await readFile(path), source, 'Preview mutated the source');
+		await vscode.commands.executeCommand('vscode.open', uri);
+		assert.ok(vscode.window.tabGroups.all.flatMap(group => group.tabs).some(tab => tab.input instanceof vscode.TabInputCustom && tab.input.viewType === 'tmforge.studio'));
+		assert.deepEqual(await readFile(path), source, 'Opening Studio mutated the source');
+		await vscode.commands.executeCommand('tmforge.openStudio', uri);
+		await api.waitUntilRendered(document);
+		const worker = new EngineWorker(resolve(__dirname, '../../engine/_framework'));
+		try {
+			const originalText = document.getText();
+			const baseline = JSON.parse(await worker.invoke('ReadFile', [source.toString('base64'), 'tm7']));
+			await api.edit(document, document.version, baseline, baseline);
+			assert.equal(document.getText(), originalText, 'A no-op native edit changed the XML');
+			assert.equal(document.isDirty, false);
+			const renamed = structuredClone(baseline);
+			renamed.diagrams[0].elements.find((element: { name: string }) => element.name === 'Orders API').name = 'Native VS Code API';
+			renamed.elements = renamed.diagrams[0].elements;
+			const nativeVersion = document.version;
+			await api.edit(document, nativeVersion, baseline, renamed);
+			assert.equal(document.isDirty, true);
+			const changed = document.getText();
+			assert.match(changed, /Native VS Code API/);
+			assert.equal(Buffer.from(await api.nativeSource(document), 'base64').toString(), changed, 'Native export did not include unsaved edits');
+			assert.deepEqual(await readFile(path), source, 'An unsaved native edit wrote to disk');
+			await assert.rejects(api.edit(document, nativeVersion, baseline, renamed), /another editor/);
+			await vscode.commands.executeCommand('undo');
+			await waitForText(document, originalText);
+			await vscode.commands.executeCommand('redo');
+			await waitForText(document, changed);
+			await document.save();
+			assert.equal(await readFile(path, 'utf8'), changed);
+			const savedModel = JSON.parse(await worker.invoke('ReadFile', [Buffer.from(changed).toString('base64'), 'tm7']));
+			await api.edit(document, document.version, savedModel, savedModel);
+			assert.equal(document.getText(), changed, 'A repeated native save changed the document');
+			await vscode.commands.executeCommand('undo');
+			await waitForText(document, originalText);
+			await document.save();
+			assert.deepEqual(await readFile(path), source, 'Undo and save did not restore the native bytes');
+
+			const auditId = baseline.elements.find((element: { name: string }) => element.name === 'Audit Log').id;
+			const triaged = structuredClone(baseline);
+			triaged.threats = [...(triaged.threats ?? []), {
+				id: 'manual:vscode-native-decision', manual: true, state: 'Accepted', category: 'Tampering',
+				title: 'Native scoped decision', justification: 'Regression decision', elementIds: [auditId],
+			}];
+			await api.edit(document, document.version, baseline, triaged);
+			await document.save();
+			const beforeDelete = document.getText();
+			const withDecision = JSON.parse(await worker.invoke('ReadFile', [Buffer.from(beforeDelete).toString('base64'), 'tm7']));
+			assert.ok(withDecision.threats.some((threat: { id: string }) => threat.id === 'manual:vscode-native-decision'));
+			const removed = structuredClone(withDecision);
+			const page = removed.diagrams[0];
+			const deletedIds = new Set([auditId, ...page.flows.filter((flow: { source: string; target: string }) => flow.source === auditId || flow.target === auditId).map((flow: { id: string }) => flow.id)]);
+			page.elements = page.elements.filter((element: { id: string }) => element.id !== auditId);
+			page.flows = page.flows.filter((flow: { id: string }) => !deletedIds.has(flow.id));
+			removed.elements = page.elements;
+			removed.flows = page.flows;
+			removed.threats = removed.threats.filter((threat: { elementIds?: string[] }) => !threat.elementIds?.some(id => deletedIds.has(id)));
+			await api.edit(document, document.version, withDecision, removed);
+			await document.save();
+			const deletedText = document.getText();
+			const afterDelete = JSON.parse(await worker.invoke('ReadFile', [Buffer.from(deletedText).toString('base64'), 'tm7']));
+			assert.ok(!afterDelete.threats?.some((threat: { id: string }) => threat.id === 'manual:vscode-native-decision'));
+			assert.ok(!afterDelete.elements.some((element: { id: string }) => element.id === auditId));
+			await vscode.commands.executeCommand('undo');
+			await waitForText(document, beforeDelete);
+			await document.save();
+			assert.equal(await readFile(path, 'utf8'), beforeDelete, 'Undo after save failed to restore deleted native decisions');
+			await vscode.commands.executeCommand('redo');
+			await waitForText(document, deletedText);
+			await document.save();
+
+			await vscode.commands.executeCommand('workbench.action.splitEditorRight');
+			await api.waitUntilRendered(document);
+			const sourceEdit = new vscode.WorkspaceEdit();
+			sourceEdit.replace(uri, new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)), originalText.replace('Orders API', 'Source-edited API'));
+			await vscode.workspace.applyEdit(sourceEdit);
+			await api.waitUntilRendered(document);
+			const externalModel = JSON.parse(await worker.invoke('ReadFile', [Buffer.from(document.getText()).toString('base64'), 'tm7']));
+			assert.ok(externalModel.elements.some((element: { name: string }) => element.name === 'Source-edited API'));
+			const restore = new vscode.WorkspaceEdit();
+			restore.replace(uri, new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)), originalText);
+			await vscode.workspace.applyEdit(restore);
+			await document.save();
+			await api.waitUntilRendered(document);
+			assert.deepEqual(await readFile(path), source);
+			await vscode.commands.executeCommand('tmforge.analyze');
+			assert.ok(api.diagnostics.get(uri)?.some(diagnostic => diagnostic.code === 'TM1029'), 'Analyze Model did not use the active native Studio tab');
+		} finally { worker.dispose(); }
 		const jsonPath = join(directory, 'save.tmforge.json');
 		const invalid = '{"schema":"tmforge-json","elements":[],"flows":[{"id":"broken","source":"missing","target":"missing"}]}';
 		await writeFile(jsonPath, invalid);
@@ -48,8 +133,6 @@ export async function run(): Promise<void> {
 		await jsonDocument.save();
 		await updated;
 		assert.ok(!api.diagnostics.get(jsonDocument.uri)?.some(diagnostic => String(diagnostic.code).startsWith('model.')));
-		await vscode.commands.executeCommand('tmforge.openPreview', jsonDocument.uri);
-		assert.ok(vscode.window.tabGroups.all.flatMap(group => group.tabs).some(tab => tab.input instanceof vscode.TabInputCustom && tab.input.viewType === 'tmforge.jsonPreview'));
 		await vscode.commands.executeCommand('tmforge.openStudio', jsonDocument.uri);
 		await api.waitUntilRendered(jsonDocument);
 		assert.ok(vscode.window.tabGroups.all.flatMap(group => group.tabs).some(tab => tab.input instanceof vscode.TabInputCustom && tab.input.viewType === 'tmforge.studio'));
@@ -90,7 +173,6 @@ export async function run(): Promise<void> {
 		await api.waitUntilRendered(jsonDocument);
 		await jsonDocument.save();
 		assert.equal(JSON.parse(await readFile(jsonPath, 'utf8')).elements[0].name, 'Changed from source');
-		await assert.rejects(api.edit(document, document.version, previous, next), /only .tmforge.json/);
 		assert.deepEqual(await readFile(path), source, 'Studio modified the native TM7');
 		await vscode.commands.executeCommand('tmforge.newModel');
 		const newModel = vscode.workspace.textDocuments.find(candidate => candidate.isUntitled && candidate.uri.path.endsWith('.tmforge.json'));
@@ -134,7 +216,7 @@ export async function run(): Promise<void> {
 			await vscode.window.showTextDocument(document);
 			await waitForDiagnostics(document.uri, messages => messages.some(message => message.message.includes(expected)));
 		}
-		console.log('Extension-host tests passed: native preview, canonical Studio, unchanged open, dirty edits, undo/redo, save, invalid/stale-edit rejection, TM7 protection, save diagnostics, and local schemas.');
+		console.log('Extension-host tests passed: native and JSON Studio, unchanged open, native byte-preserving undo/save, dirty edits, history, source synchronization, invalid/stale-edit rejection, save diagnostics, and local schemas.');
 	} catch (error) {
 		console.error('Tmforge extension test failure:', error);
 		throw error;

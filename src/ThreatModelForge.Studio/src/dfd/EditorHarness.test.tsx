@@ -218,6 +218,32 @@ describe('Hosted Studio documents', () => {
     };
   }
 
+  it('exports the host native document without converting or rebuilding it', async () => {
+    const { Editor } = await import('./Editor');
+    const host = await makeHost();
+    const original = new TextEncoder().encode('<native-source><opaque>kept</opaque></native-source>');
+    host.readNative = vi.fn(async () => original);
+    host.engine.getFormats = async () => [{ id: 'tm7', displayName: 'Native TM7', extensions: ['.tm7'], canRead: true, canWrite: true }];
+    host.engine.convert = vi.fn();
+    render(<ReactFlowProvider><Editor host={host} /></ReactFlowProvider>);
+    await screen.findByText('Alpha');
+    const exportButton = screen.getByRole('button', { name: /^Export/ });
+    await waitFor(() => expect(exportButton).toBeEnabled());
+    fireEvent.click(exportButton);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Native TM7' }));
+    await waitFor(() => expect(host.download).toHaveBeenCalledOnce());
+    expect(host.readNative).toHaveBeenCalledOnce();
+    expect(host.engine.convert).not.toHaveBeenCalled();
+    const blob = vi.mocked(host.download).mock.calls[0][0];
+    const text = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = reject;
+      reader.readAsText(blob);
+    });
+    expect(text).toBe(new TextDecoder().decode(original));
+  });
+
   it('edits the host document without restoring or overwriting the browser workspace', async () => {
     const browserModel = chain();
     browserModel.elements[0].name = 'Browser-only model';

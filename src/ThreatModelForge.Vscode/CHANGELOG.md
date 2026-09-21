@@ -2,8 +2,9 @@
 
 ## [Unreleased]
 
-- Studio editing for `.tmforge.json`, with VS Code save, undo/redo, source synchronization, and new models.
+- Studio editing for `.tm7` and `.tmforge.json`, with VS Code save, undo/redo, source synchronization, and new models.
+- Native saves preserve source content, apply cascading deletion, and support exact undo after saving.
+- Studio replaces the read-only preview editors and commands for both formats.
 - Shared Studio analysis, triage, custom rule sessions, imports, exports, comparison, and reports.
-- Read-only `.tm7` and canonical JSON diagram previews.
 - Local bundled-WASM analysis and Problems diagnostics on open/save.
 - Local schemas for rule packs, suppressions and authoring manifests.

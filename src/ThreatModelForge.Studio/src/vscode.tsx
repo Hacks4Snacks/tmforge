@@ -55,6 +55,7 @@ function Studio() {
     },
     create: (model, name) => bridge.request('create', { model, name }),
     download: async (blob, name) => { await bridge.request('download', { name, content: await encode(blob) }); },
+    readNative: document.format === 'tm7' ? async () => decode(await bridge.afterEdits<string>('nativeSource')) : undefined,
     confirm: message => bridge.request('confirm', { message }),
   } : undefined;
   return <>
@@ -62,6 +63,7 @@ function Studio() {
       <button className="btn" onClick={() => command('source')}>Open source</button>
       {error && <span role="alert">{error}</span>}
     </div>
+    {document?.warnings?.length ? <div className="host-warnings" role="status">{document.warnings.map(message => <p key={message}>{message}</p>)}</div> : null}
     {host && !document?.error ? <ReactFlowProvider><Editor host={host} /></ReactFlowProvider>
       : <p role="status" className="host-status">{document?.error ?? 'Loading model...'}</p>}
   </>;

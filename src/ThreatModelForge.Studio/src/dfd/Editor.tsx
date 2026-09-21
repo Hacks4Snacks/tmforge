@@ -950,6 +950,12 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
   const serializeModel = useCallback(
     async (formatId: string): Promise<Blob> => {
       const baseline = layoutStateRef.current.workspaceJson;
+      if (host?.readNative) {
+        const source = await host.readNative();
+        if (baseline !== layoutStateRef.current.workspaceJson) throw new DOMException('The model changed before export completed.', 'AbortError');
+        if (formatId === 'tm7') return new Blob([new Uint8Array(source)], { type: 'application/xml' });
+        await checkDocument(source, 'tm7', formatId, 'export');
+      }
       if (nativeSource && formatId === 'tm7') {
         const blob = nativeSource.saved?.model === currentJson
           ? new Blob([fromBase64(nativeSource.saved.contentBase64)], { type: 'application/xml' })
@@ -969,7 +975,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
       }
       return blob;
     },
-    [engine, currentModel, currentJson, nativeSource, checkDocument],
+    [engine, currentModel, currentJson, nativeSource, checkDocument, host],
   );
 
   const rememberNativeSave = useCallback(async (blob: Blob, name: string) => {

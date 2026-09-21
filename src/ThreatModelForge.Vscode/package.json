@@ -1,10 +1,15 @@
 {
   "name": "tmforge",
   "displayName": "Threat Model Forge",
-  "description": "Edit JSON threat models in Studio and preview native models locally in VS Code",
+  "description": "Edit and analyze native TM7 and JSON threat models in Studio within VS Code",
   "version": "0.11.0",
   "publisher": "hacks4snacks",
   "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#1A2130",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/Hacks4Snacks/tmforge",
@@ -33,18 +38,33 @@
   },
   "main": "./out/extension.js",
   "contributes": {
+    "languages": [
+      {
+        "id": "tm7",
+        "extensions": [
+          ".tm7"
+        ],
+        "aliases": [
+          "Threat Model (TM7)"
+        ],
+        "icon": {
+          "light": "media/icons/tm7-file-light.svg",
+          "dark": "media/icons/tm7-file-dark.svg"
+        }
+      }
+    ],
     "commands": [
       {
         "command": "tmforge.openStudio",
-        "title": "Threat Model Forge: Open Studio"
+        "title": "Threat Model Forge: Open Studio",
+        "icon": {
+          "light": "media/icons/open-studio-light.svg",
+          "dark": "media/icons/open-studio-dark.svg"
+        }
       },
       {
         "command": "tmforge.newModel",
         "title": "Threat Model Forge: New Model"
-      },
-      {
-        "command": "tmforge.openPreview",
-        "title": "Threat Model Forge: Open Preview"
       },
       {
         "command": "tmforge.analyze",
@@ -55,34 +75,17 @@
       {
         "viewType": "tmforge.studio",
         "displayName": "Threat Model Forge Studio",
-        "selector": [{ "filenamePattern": "*.tmforge.json" }],
-        "priority": "default"
-      },
-      {
-        "viewType": "tmforge.preview",
-        "displayName": "Threat Model Forge Preview",
         "selector": [
-          {
-            "filenamePattern": "*.tm7"
-          }
+          { "filenamePattern": "*.tm7" },
+          { "filenamePattern": "*.tmforge.json" }
         ],
         "priority": "default"
-      },
-      {
-        "viewType": "tmforge.jsonPreview",
-        "displayName": "Threat Model Forge Preview",
-        "selector": [
-          {
-            "filenamePattern": "*.tmforge.json"
-          }
-        ],
-        "priority": "option"
       }
     ],
     "menus": {
       "editor/title": [
         {
-          "command": "tmforge.openPreview",
+          "command": "tmforge.openStudio",
           "when": "resourceFilename =~ /\\.(tm7|tmforge\\.json)$/",
           "group": "navigation"
         }
@@ -90,10 +93,6 @@
       "explorer/context": [
         {
           "command": "tmforge.openStudio",
-          "when": "resourceFilename =~ /\\.tmforge\\.json$/"
-        },
-        {
-          "command": "tmforge.openPreview",
           "when": "resourceFilename =~ /\\.(tm7|tmforge\\.json)$/"
         }
       ]
