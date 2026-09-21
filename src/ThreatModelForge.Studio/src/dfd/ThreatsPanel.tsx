@@ -351,7 +351,6 @@ export function ThreatsPanel({
 }: ThreatsPanelProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-
   const byCategory = new Map<string, Threat[]>();
   const categoryLabels = new Map<string, string>();
   const categoryStride = new Map<string, string>();
@@ -377,10 +376,8 @@ export function ThreatsPanel({
     );
   const ordered = [...known, ...unknown];
 
-  const currentThreats = threats.filter((threat) => !threat.source?.retiredReason);
-  const retiredCount = threats.length - currentThreats.length;
-  const openCount = currentThreats.filter((threat) => threat.state === 'Open').length;
-  const triagedCount = currentThreats.length - openCount;
+  const openCount = threats.filter((threat) => threat.state === 'Open').length;
+  const triagedCount = threats.length - openCount;
 
   return (
     <div className="threats">
@@ -388,7 +385,6 @@ export function ThreatsPanel({
         <h3>
           {openCount} open threat{openCount === 1 ? '' : 's'}
           {triagedCount > 0 ? <span className="threats-accepted-count"> · {triagedCount} triaged</span> : null}
-          {retiredCount > 0 ? <span className="threats-accepted-count"> · {retiredCount} retired</span> : null}
         </h3>
         <button
           type="button"
@@ -448,7 +444,6 @@ export function ThreatsPanel({
                         <div className="threat-title">
                           {threat.ruleId ? <code className="rule-id">{threat.ruleId}</code> : null} {threat.title}
                           {threat.manual ? <span className="threat-badge threat-badge-manual">Manual</span> : null}
-                          {threat.source?.retiredReason ? <span className="threat-badge" title={threat.source.retiredReason}>Retired</span> : null}
                           {badge ? <span className="threat-badge">{badge}</span> : null}
                           {offPage ? <span className="finding-page">{offPage}</span> : null}
                         </div>

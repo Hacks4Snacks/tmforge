@@ -264,6 +264,29 @@ describe('Hosted Studio documents', () => {
     await waitFor(() => expect(host.onChange).toHaveBeenCalledOnce());
   });
 
+  it.each(['keyboard', 'inspector'])('publishes %s cascade deletion as one host edit with graph and decisions together', async method => {
+    const { Editor } = await import('./Editor');
+    const host = await makeHost();
+    host.model.threats = [
+      { id: 'manual:dependent', manual: true, state: 'Accepted', elementIds: ['b'], justification: 'Recorded decision' },
+      { id: 'manual:flow', manual: true, state: 'Open', elementIds: ['ab'] },
+      { id: 'manual:model-wide', manual: true, state: 'Open' },
+    ];
+    const onChange = vi.fn<EditorHost['onChange']>();
+    render(<ReactFlowProvider><Editor host={{ ...host, onChange }} /><FlowHandle /></ReactFlowProvider>);
+    await screen.findByText('Alpha');
+    selectNodes('b');
+    if (method === 'inspector') fireEvent.click(within(inspector()).getByRole('button', { name: /Delete/ }));
+    else fireEvent.keyDown(document.querySelector('.react-flow')!, { key: 'Backspace' });
+    await waitFor(() => expect(canvasNodeIds()).toEqual(['a', 'c']));
+    await waitFor(() => expect(onChange).toHaveBeenCalledOnce());
+    const [before, after] = onChange.mock.calls[0];
+    expect(before.threats).toHaveLength(3);
+    expect(after.threats?.map(threat => threat.id)).toEqual(['manual:model-wide']);
+    expect(after.elements.map(element => element.id)).toEqual(['a', 'c']);
+    expect(after.flows).toEqual([]);
+  });
+
   it('groups node dragging into one host edit', async () => {
     const { Editor } = await import('./Editor');
     const host = await makeHost();
@@ -786,6 +809,92 @@ describe('Editor — guarded Tidy', () => {
 });
 
 describe('Editor — deleting from the canvas', () => {
+  it.each(['rename', 'reorder'])('records page %s independently when undo includes page state', async operation => {
+    const model = chain() as TmForgeModel;
+    model.diagrams = [
+      { id: 'one', name: 'First', elements: model.elements, flows: model.flows },
+      { id: 'two', name: 'Second', elements: [], flows: [] },
+    ];
+    await mountEditor(model);
+    selectNodes('a');
+    addCustomProperty('Owner', 'Reviewer');
+    const first = screen.getByRole('tab', { name: /^First/ });
+    if (operation === 'rename') {
+      fireEvent.doubleClick(first);
+      const input = within(first).getByRole('textbox');
+      fireEvent.change(input, { target: { value: 'Renamed' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(screen.getByRole('tab', { name: /^Renamed/ })).toBeInTheDocument();
+    } else {
+      fireEvent.dragStart(first);
+      fireEvent.drop(screen.getByRole('tab', { name: /^Second/ }));
+      expect(screen.getAllByRole('tab')[0]).toHaveTextContent('Second');
+    }
+    fireEvent.click(undoButton());
+    expect(screen.getAllByRole('tab')[0]).toHaveTextContent('First');
+    expect(flow!.getNode('a')!.data.properties).toMatchObject({ Owner: 'Reviewer' });
+    fireEvent.click(undoButton());
+    expect(flow!.getNode('a')!.data.properties ?? {}).not.toHaveProperty('Owner');
+    expect(undoButton()).toBeDisabled();
+  });
+
+  it('deletes a page and scoped decisions together while preserving model-wide risks and one-step undo', async () => {
+    const model = chain() as TmForgeModel;
+    model.diagrams = [
+      { id: 'page-one', name: 'First', elements: model.elements, flows: model.flows },
+      { id: 'page-two', name: 'Second', elements: [{ id: 'other', kind: 'process', name: 'Other', x: 40, y: 40 }], flows: [] },
+    ];
+    model.threats = [
+      { id: 'manual:dependent', manual: true, state: 'Accepted', elementIds: ['b'], justification: 'Saved decision' },
+      { id: 'manual:flow', manual: true, state: 'Open', elementIds: ['ab'] },
+      { id: 'manual:other', manual: true, state: 'Open', elementIds: ['other'] },
+      { id: 'manual:model-wide', manual: true, state: 'Open' },
+    ];
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    try {
+      await mountEditor(model);
+      fireEvent.click(screen.getByRole('button', { name: 'Delete First' }));
+      expect(canvasNodeIds()).toEqual(['a', 'b', 'c']);
+      expect(undoButton()).toBeDisabled();
+      confirm.mockReturnValue(true);
+      fireEvent.click(screen.getByRole('button', { name: 'Delete First' }));
+      await waitFor(() => expect(canvasNodeIds()).toEqual(['other']));
+      await waitFor(() => {
+        const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY)!);
+        expect(saved.model.threats.map((threat: { id: string }) => threat.id)).toEqual(['manual:other', 'manual:model-wide']);
+        expect(saved.model.diagrams).toHaveLength(1);
+      }, { timeout: 3000 });
+      fireEvent.click(undoButton());
+      await waitFor(() => expect(canvasNodeIds()).toEqual(['a', 'b', 'c']));
+      expect(undoButton()).toBeDisabled();
+      await waitFor(() => {
+        const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY)!);
+        expect(saved.model.threats).toEqual(model.threats);
+        expect(saved.model.diagrams).toHaveLength(2);
+      }, { timeout: 3000 });
+    } finally {
+      confirm.mockRestore();
+    }
+  });
+
+  it('deletes only a flow and its decisions while retaining both endpoint decisions', async () => {
+    const model = chain() as TmForgeModel;
+    model.threats = [
+      { id: 'manual:source', manual: true, state: 'Accepted', elementIds: ['a'] },
+      { id: 'manual:target', manual: true, state: 'Accepted', elementIds: ['b'] },
+      { id: 'manual:flow', manual: true, state: 'Accepted', elementIds: ['a', 'b', 'ab'] },
+    ];
+    await mountEditor(model);
+    act(() => flow!.setEdges(edges => edges.map(edge => ({ ...edge, selected: edge.id === 'ab' }))));
+    fireEvent.click(await within(inspector()).findByRole('button', { name: /Delete/ }));
+    await expectPersisted({ elements: ['a', 'b', 'c'], flows: ['bc'] });
+    expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY)!).model.threats.map((threat: { id: string }) => threat.id))
+      .toEqual(['manual:source', 'manual:target']);
+    fireEvent.click(undoButton());
+    await expectPersisted({ elements: ['a', 'b', 'c'], flows: ['ab', 'bc'] });
+    expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY)!).model.threats).toEqual(model.threats);
+  });
+
   it('takes an element and its flows together, and restores both in one undo', async () => {
     // The bug this guards: React Flow raises a delete callback for nodes AND one for edges, so
     // snapshotting in both charged two undo steps for a single Backspace.
@@ -1321,7 +1430,7 @@ describe('Editor native TM7 saves', () => {
     Reflect.deleteProperty(window, 'showSaveFilePicker');
   });
 
-  async function prepareNative() {
+  async function prepareNative(model: TmForgeModel = chain() as TmForgeModel) {
     const { offlineEngine } = await import('./engineClient');
     const original = new TextEncoder().encode('<native-source/>');
     let disk = original;
@@ -1334,7 +1443,7 @@ describe('Editor native TM7 saves', () => {
       label: 'native test engine', saveTm7, convert,
       detect: async () => ({ id: 'tm7', canRead: true, canWrite: true, extensions: ['.tm7'] }),
       preflight: async () => ({ success: true, format: 'tm7', diagnostics: [] }),
-      readFile: async () => offlineEngine.read(JSON.stringify(chain())),
+      readFile: async () => offlineEngine.read(JSON.stringify(model)),
     });
     Object.defineProperty(window, 'showOpenFilePicker', { configurable: true, value: async () => [handle] });
     await mountEditor(chain());
@@ -1343,6 +1452,66 @@ describe('Editor native TM7 saves', () => {
     await screen.findByText('source.tm7');
     return { original, saveTm7, convert, write, writable, changeDisk: () => { disk = new TextEncoder().encode('<external-edit/>'); } };
   }
+
+  it.each(['inspector', 'keyboard'])('cascades %s deletion to decisions and restores them in one undo after saving', async method => {
+    const model = chain() as TmForgeModel;
+    const removedId = '11111111-2222-4333-8444-555555555555';
+    model.elements[1].id = removedId;
+    model.flows[0].target = removedId;
+    model.flows[1].source = removedId;
+    model.threats = [
+      { id: '11111111222243338444555555555555:TM1000', state: 'Accepted', justification: 'Generated decision' },
+      { id: 'manual:scoped', title: 'Scoped risk', state: 'Mitigated', manual: true, category: 'Tampering', elementIds: [removedId] },
+      { id: 'manual:flow', title: 'Flow risk', state: 'Accepted', justification: 'Flow decision', manual: true, category: 'Tampering', elementIds: ['ab'] },
+      { id: 'manual:unrelated', title: 'Unrelated risk', state: 'Open', manual: true, category: 'Tampering', elementIds: ['a'] },
+      { id: 'manual:model-wide', title: 'Model-wide risk', state: 'Open', manual: true, category: 'Tampering' },
+    ];
+    const { saveTm7, write, convert } = await prepareNative(model);
+    saveTm7.mockResolvedValueOnce(new Blob(['<before-deletion/>']));
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTitle('All changes saved')).toBeInTheDocument());
+    selectNodes(removedId);
+    if (method === 'inspector') fireEvent.click(within(inspector()).getByRole('button', { name: /Delete/ }));
+    else fireEvent.keyDown(document.querySelector('.react-flow')!, { key: 'Backspace' });
+    await waitFor(() => expect(canvasNodeIds()).toEqual(['a', 'c']));
+    await expectPersisted({ elements: ['a', 'c'], flows: [] });
+    expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY)!).model.threats.map((threat: { id: string }) => threat.id))
+      .toEqual(['manual:unrelated', 'manual:model-wide']);
+    saveTm7.mockResolvedValueOnce(new Blob(['<after-deletion/>']));
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTitle('All changes saved')).toBeInTheDocument());
+    expect(saveTm7.mock.calls[1][1].threats?.map(threat => threat.id)).toEqual(['manual:unrelated', 'manual:model-wide']);
+
+    fireEvent.click(undoButton());
+    await waitFor(() => expect(canvasNodeIds()).toEqual(['a', removedId, 'c']));
+    expect(undoButton()).toBeDisabled();
+    saveTm7.mockResolvedValueOnce(new Blob(['<undo-deletion/>']));
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.getByTitle('All changes saved')).toBeInTheDocument());
+    expect(new TextDecoder().decode(saveTm7.mock.calls[2][0])).toBe('<before-deletion/>');
+    expect(new TextDecoder().decode(saveTm7.mock.calls[2][2])).toBe('<after-deletion/>');
+    expect(saveTm7.mock.calls[2][1].threats).toEqual(model.threats);
+    expect(saveTm7.mock.calls[2][1].flows).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('button', { name: /^Redo$/ }));
+    await waitFor(() => expect(canvasNodeIds()).toEqual(['a', 'c']));
+    await expectPersisted({ elements: ['a', 'c'], flows: [] });
+    cleanup();
+    vi.resetModules();
+    const { Editor } = await import('./Editor');
+    const recoveredWrite = vi.fn(async () => undefined);
+    Object.defineProperty(window, 'showSaveFilePicker', { configurable: true,
+      value: async () => ({ name: 'deleted.tm7', createWritable: async () => ({ write: recoveredWrite, close: async () => undefined }) }) });
+    render(<ReactFlowProvider><Editor /></ReactFlowProvider>);
+    await waitFor(() => expect(document.querySelector('.engine-pill')).toHaveTextContent('native test engine'));
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(recoveredWrite).toHaveBeenCalledOnce());
+    expect(saveTm7.mock.calls.at(-1)![1].threats?.map(threat => threat.id)).toEqual(['manual:unrelated', 'manual:model-wide']);
+    expect(convert).not.toHaveBeenCalled();
+  });
 
   it('saves edits against the original bytes, caches a repeated save, and retains the backing source for undo', async () => {
     const { original, saveTm7, convert, write } = await prepareNative();

@@ -1394,22 +1394,6 @@ namespace ThreatModelForge.Engine
             }
 
             AppendManualThreats(threats, dto.Threats, seen, nameToIds, diagnostics);
-            foreach (ThreatStateDto entry in dto.Threats ?? Array.Empty<ThreatStateDto>())
-            {
-                if (entry.Source?.ContainsKey("retiredReason") != true || !seen.Add(entry.Id))
-                {
-                    continue;
-                }
-
-                threats.Add(new ThreatDto
-                {
-                    Id = entry.Id, RuleId = entry.Id.Contains(':') ? entry.Id.Substring(entry.Id.IndexOf(':') + 1) : string.Empty,
-                    Title = entry.Title ?? "Retained threat decision", Category = entry.Category ?? string.Empty,
-                    State = NormalizeState(entry.State), Justification = entry.Justification, Description = entry.Description,
-                    Mitigation = entry.Mitigation, Priority = entry.Priority, Source = entry.Source,
-                    Severity = "info", Interaction = "Retired: " + entry.Source["retiredReason"], ElementIds = Array.Empty<string>(),
-                });
-            }
         }
 
         private static IReadOnlyList<string> BuildElementIds(GeneratedThreat threat)

@@ -300,7 +300,7 @@ Studio edits a canonical **`tmforge-json`** canvas projection. When the browser 
 also retains the original native document separately:
 
 - **Save / Save As / Export TM7** apply supported edits to the original document, retaining its
-  embedded template, complete threat register, native connector geometry and unedited XML extensions.
+  embedded template, unaffected threat decisions, native connector geometry and unedited XML extensions.
   Saving without edits returns the original bytes. Edited XML may have different formatting; its
   unedited data is preserved. A missing template is supplied automatically; missing stencil and
   threat definitions and newly authored property values are added without replacing customizations.
@@ -311,11 +311,15 @@ also retains the original native document separately:
   threats and decisions are retained; saving unrelated diagram edits does not regenerate the entire
   register. A missing custom pack does not prevent a preserving diagram save, but must be loaded
   before materializing a new threat from that pack.
-- Deleting a scoped object or page retains its threat decisions as **Retired**, recording the former
-  scope instead of leaving dangling references or deleting the decision. Retired entries remain
-  editable and are counted separately from current open threats when the saved model is reopened
-  and analyzed. They keep their lifecycle state; retirement does not claim the risk was mitigated.
-  Restoring the object with undo reattaches its retained decision on the next save.
+- Deleting an object also deletes its incident flows and threats scoped to any of those objects,
+  including recorded triage and justifications. Deleting a flow leaves its endpoints and their
+  unrelated threats intact. Deleting a page removes its scoped threats; model-wide and unrelated
+  decisions remain. These are intentional deletions, not loss during conversion.
+- Undo restores the deleted objects, flows and decisions together, including after a save during
+  the same editing session. Save and reopen keep the deletion; there is no Retired view or permanent
+  deleted-ID list. Use version history for recovery after closing the editing session.
+- Renaming, moving, changing properties or disabling rules does not delete recorded decisions.
+  Missing rule packs are not evidence that a threat should be removed.
 - Manual label offsets, routing, rule selection and pre-normalization canvas positions are stored
   in a versioned Studio extension inside the `.tm7`, including on the first export. Native geometry
   is translated by whole pages for MTMT compatibility without resizing or changing relative layout.

@@ -423,6 +423,39 @@ export function deleteFromGraph(
   };
 }
 
+export async function threatIdsForDeletedObjects(
+  threats: readonly Pick<ThreatTriage, 'id' | 'manual' | 'elementIds'>[],
+  objectIds: readonly string[],
+  pageId?: string,
+): Promise<Set<string>> {
+  if (threats.length === 0) return new Set();
+  const scopeKey = (id: string) => {
+    const unwrapped = (id.startsWith('{') && id.endsWith('}')) || (id.startsWith('(') && id.endsWith(')')) ? id.slice(1, -1) : id;
+    return /^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(unwrapped)
+      ? unwrapped.replaceAll('-', '').toLowerCase() : id;
+  };
+  const scopes = new Set(objectIds.map(scopeKey));
+  const inputs = objectIds.map(id => ({ id, namespace: 'tmforge-alias:' }));
+  if (pageId) {
+    scopes.add(scopeKey(pageId));
+    inputs.push({ id: pageId, namespace: 'tmforge-page:' });
+  }
+  await Promise.all(inputs.map(async ({ id, namespace }) => {
+    if (/^[0-9a-f]{32}$/.test(scopeKey(id))) return;
+    const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(namespace + id)));
+    bytes[7] = (bytes[7] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const guidByteOrder = [3, 2, 1, 0, 5, 4, 7, 6, 8, 9, 10, 11, 12, 13, 14, 15];
+    scopes.add(guidByteOrder.map(index => bytes[index].toString(16).padStart(2, '0')).join(''));
+  }));
+  return new Set(threats.filter(threat => {
+    if (threat.elementIds?.some(id => scopes.has(scopeKey(id)))) return true;
+    const separator = threat.id.indexOf(':');
+    return !threat.manual && !threat.id.toLowerCase().startsWith('manual:') && separator > 0
+      && scopes.has(scopeKey(threat.id.slice(0, separator)));
+  }).map(threat => threat.id));
+}
+
 export function Editor({ host }: { host?: EditorHost } = {}) {
   const [initialWorkspace] = useState<StoredWorkspace>(() => {
     if (!host) return INITIAL_WORKSPACE;
@@ -477,13 +510,26 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
   const [outlineCrossingOnly, setOutlineCrossingOnly] = useState(false);
   const analysisActiveRef = useRef(false);
   const analysisRequestRef = useRef(0);
+  const deletionPendingRef = useRef(false);
   useEffect(() => () => { analysisRequestRef.current++; }, []);
   const fileRef = useRef<HTMLInputElement>(null);
   const fileHandleRef = useRef<WritableFileHandle | null>(null);
   const fileFormatRef = useRef<string>(initialWorkspace.nativeSource ? 'tm7' : 'tmforge-json');
   const [fileName, setFileName] = useState<string | null>(initialWorkspace.nativeSource?.fileName ?? null);
   const { screenToFlowPosition, fitView } = useReactFlow();
-  const history = useUndoRedo(nodes, edges, setNodes, setEdges);
+  const history = useUndoRedo(nodes, edges, setNodes, setEdges, {
+    value: { pages, activePageId, threatTriage, threats, findings, nativeSource },
+    restore: snapshot => {
+      analysisRequestRef.current++;
+      setPages(snapshot.pages);
+      setActivePageId(snapshot.activePageId);
+      setThreatTriage(snapshot.threatTriage);
+      setThreats(snapshot.threats);
+      setFindings(snapshot.findings);
+      const source = snapshot.nativeSource;
+      if (source) setNativeSource(current => current ? { ...current, contentBase64: source.saved?.contentBase64 ?? source.contentBase64 } : current);
+    },
+  });
   const takeSnapshot = useCallback(() => { if (!host) history.takeSnapshot(); }, [host, history.takeSnapshot]);
   const undo = host?.undo ?? history.undo;
   const redo = host?.redo ?? history.redo;
@@ -695,7 +741,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
   const dirty = host?.dirty ?? (currentJson !== savedJson);
   const publishedModel = useRef(currentModel);
   useEffect(() => {
-    if (!host || nodes.some(node => node.dragging || node.resizing) || JSON.stringify(publishedModel.current) === currentJson) return;
+    if (!host || deletionPendingRef.current || nodes.some(node => node.dragging || node.resizing) || JSON.stringify(publishedModel.current) === currentJson) return;
     const previous = publishedModel.current;
     publishedModel.current = currentModel;
     host.onChange(previous, currentModel);
@@ -727,6 +773,23 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
     }, 600);
     return () => window.clearTimeout(id);
   }, [workspaceJson, host, nativeSource]);
+
+  const prepareDeletion = useCallback(async (objectIds: string[], pageId?: string) => {
+    const baseline = layoutStateRef.current.workspaceJson;
+    const review = reviewVersionRef.current;
+    const request = analysisRequestRef.current;
+    const deleted = await threatIdsForDeletedObjects([...threatTriage, ...threats], objectIds, pageId);
+    if (reviewActiveRef.current || baseline !== layoutStateRef.current.workspaceJson
+      || review !== reviewVersionRef.current || request !== analysisRequestRef.current) return false;
+    deletionPendingRef.current = true;
+    analysisRequestRef.current++;
+    takeSnapshot();
+    setThreatTriage(previous => previous.filter(threat => !deleted.has(threat.id)));
+    setThreats(previous => previous.filter(threat => !deleted.has(threat.id)));
+    const removedObjects = new Set(objectIds);
+    setFindings(previous => previous.filter(finding => !finding.elementIds.some(id => removedObjects.has(id))));
+    return true;
+  }, [threatTriage, threats, takeSnapshot]);
 
   // ---- pages: switch, add, rename, delete, reorder ----
   const switchPage = useCallback(
@@ -764,8 +827,9 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
   }, [allPages, pages.length, setNodes, setEdges, reset]);
 
   const renamePage = useCallback((id: string, name: string) => {
+    takeSnapshot();
     setPages((prev) => prev.map((p) => (p.id === id ? { ...p, name } : p)));
-  }, []);
+  }, [takeSnapshot]);
 
   const deletePage = useCallback(
     async (id: string) => {
@@ -781,6 +845,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
         if (!accepted || baseline !== layoutStateRef.current.workspaceJson) return;
       }
       const index = committed.findIndex((p) => p.id === id);
+      if (!victim || !await prepareDeletion([...victim.nodes.map(node => node.id), ...victim.edges.map(edge => edge.id)], id)) return;
       const remaining = committed.filter((p) => p.id !== id);
       setPages(remaining);
       if (id === activePageId) {
@@ -792,24 +857,25 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
         setNodes(applied.nodes);
         setEdges(applied.edges);
         setSelection({ nodes: [], edges: [] });
-        reset();
       }
+      deletionPendingRef.current = false;
     },
-    [allPages, pages.length, activePageId, setNodes, setEdges, reset, host],
+    [allPages, pages.length, activePageId, setNodes, setEdges, prepareDeletion, host],
   );
 
   const reorderPage = useCallback(
     (from: number, to: number) => {
       const committed = allPages;
-      if (from < 0 || to < 0 || from >= committed.length || to >= committed.length) {
+      if (from === to || from < 0 || to < 0 || from >= committed.length || to >= committed.length) {
         return;
       }
+      takeSnapshot();
       const next = [...committed];
       const [moved] = next.splice(from, 1);
       next.splice(to, 0, moved);
       setPages(next);
     },
-    [allPages],
+    [allPages, takeSnapshot],
   );
 
   // Which page each element id lives on, and which pages currently carry a finding (for tab badges).
@@ -1350,15 +1416,19 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
     [setNodes, takeSnapshot],
   );
 
-  const deleteSelected = useCallback(() => {
+  const deleteSelected = useCallback(async () => {
     if (selection.nodes.length === 0 && selection.edges.length === 0) {
       return;
     }
-    takeSnapshot();
-    setNodes((nds) => deleteFromGraph(nds, [], selection.nodes, selection.edges).nodes);
-    setEdges((eds) => deleteFromGraph([], eds, selection.nodes, selection.edges).edges);
+    const next = deleteFromGraph(nodes, edges, selection.nodes, selection.edges);
+    const keptEdges = new Set(next.edges.map(edge => edge.id));
+    const removedIds = [...selection.nodes, ...edges.filter(edge => !keptEdges.has(edge.id)).map(edge => edge.id)];
+    if (!await prepareDeletion(removedIds)) return;
+    setNodes(next.nodes);
+    setEdges(next.edges);
     setSelection({ nodes: [], edges: [] });
-  }, [selection, setNodes, setEdges, takeSnapshot]);
+    deletionPendingRef.current = false;
+  }, [selection, nodes, edges, setNodes, setEdges, prepareDeletion]);
 
   // React Flow fires onNodesDelete AND onEdgesDelete for a single deletion (removing an element takes
   // its flows with it), so snapshotting in both would cost two undos for one Backspace. onBeforeDelete
@@ -1366,11 +1436,11 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
   const beforeDelete = useCallback(
     ({ nodes: doomedNodes, edges: doomedEdges }: { nodes: DfdNode[]; edges: DfdEdge[] }) => {
       if (doomedNodes.length > 0 || doomedEdges.length > 0) {
-        takeSnapshot();
+        return prepareDeletion([...doomedNodes.map(node => node.id), ...doomedEdges.map(edge => edge.id)]);
       }
       return Promise.resolve(true);
     },
-    [takeSnapshot],
+    [prepareDeletion],
   );
 
   const clearFlags = useCallback(() => {
@@ -1426,6 +1496,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
   // Apply an author edit (state / priority / mitigation / description / justification) to a threat:
   // record it on the model's overlay (so it persists and round-trips) and reflect it in the panel.
   const editThreat = useCallback((threat: Threat, edit: ThreatEdit) => {
+    takeSnapshot();
     setThreatTriage((prev) => {
       const existing = prev.find((t) => t.id === threat.id);
       const base: ThreatTriage = existing ?? {
@@ -1473,13 +1544,14 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
           : t,
       ),
     );
-  }, []);
+  }, [takeSnapshot]);
 
   // Delete a manually-authored threat from the overlay and the panel.
   const deleteThreat = useCallback((threat: Threat) => {
+    takeSnapshot();
     setThreatTriage((prev) => prev.filter((t) => t.id !== threat.id));
     setThreats((prev) => prev.filter((t) => t.id !== threat.id));
-  }, []);
+  }, [takeSnapshot]);
 
   // Narrows the canvas highlights to one threat / finding, then navigates to its first referenced page.
   const jumpToElements = useCallback(
@@ -1539,6 +1611,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
   // round-trips), and show it in the panel immediately.
   const addThreat = useCallback(
     (draft: NewThreatDraft) => {
+      takeSnapshot();
       const id = `manual:${crypto.randomUUID()}`;
       const elementIds = draft.scopeId ? [draft.scopeId] : [];
       const scope = scopeOptions.find((option) => option.id === draft.scopeId);
@@ -1580,7 +1653,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
         },
       ]);
     },
-    [scopeOptions],
+    [scopeOptions, takeSnapshot],
   );
 
   // Selects one element or flow, highlights it on the canvas the way a picked finding is highlighted,
@@ -2045,6 +2118,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
             onReconnect={onReconnect}
             onNodeDragStart={takeSnapshot}
             onBeforeDelete={beforeDelete}
+            onDelete={() => { deletionPendingRef.current = false; }}
             onSelectionChange={onSelectionChange}
             onPaneClick={clearFlags}
             nodeTypes={nodeTypes}

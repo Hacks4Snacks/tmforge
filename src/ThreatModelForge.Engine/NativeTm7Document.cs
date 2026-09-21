@@ -45,7 +45,7 @@ namespace ThreatModelForge.Engine
             ThreatModel native = ThreatModel.Load(input);
             XDocument before = Serialize(native);
             StudioState? state = ReadState(retained, native);
-            TmForgeModelDto baseline = state?.Model ?? ModelDtoMapper.ToDto(native);
+            TmForgeModelDto baseline = WithNativeThreatScopes(state?.Model ?? ModelDtoMapper.ToDto(native), native);
             TranslateCoordinates(native, state, -1);
             XDocument editableBefore = Serialize(native);
             ThreatModel beforeProjection = ModelDtoMapper.ToModel(baseline);
@@ -71,7 +71,7 @@ namespace ThreatModelForge.Engine
 
                 originalIds.UnionWith(prior.DrawingSurfaceList.SelectMany(page => page.Borders.Keys.Concat(page.Lines.Keys).Append(page.Guid)));
                 previousThreats = (baseline.Threats ?? Array.Empty<ThreatStateDto>()).Concat(
-                    (savedState?.AuthoredThreats ?? savedState?.Model?.Threats ?? ModelDtoMapper.ToDto(prior).Threats ?? Array.Empty<ThreatStateDto>())
+                    (savedState?.Model?.Threats ?? ModelDtoMapper.ToDto(prior).Threats ?? Array.Empty<ThreatStateDto>())
                     .Where(threat => introduced.Contains(threat.Id))).ToArray();
                 PreserveAddedDefinitions(native, prior);
             }
@@ -82,8 +82,9 @@ namespace ThreatModelForge.Engine
                 native.MetaInformation = edited.Metadata;
             }
 
-            ApplyThreats(native, previousThreats, edited.Threats, requested, rules, ruleErrors);
-            RetireDeletedScopes(native, originalIds);
+            HashSet<string> deletedThreatIds = RemoveDeletedScopes(native, originalIds);
+            edited = WithoutDeletedThreats(edited, deletedThreatIds);
+            ApplyThreats(native, previousThreats, edited.Threats, requested, rules, ruleErrors, deletedThreatIds);
 
             bool viewChanged = !Same(View(baseline), View(edited));
             if (XNode.DeepEquals(editableBefore, Serialize(native)) && !viewChanged && native.KnowledgeBase != null)
@@ -101,7 +102,7 @@ namespace ThreatModelForge.Engine
             Tm7ExportPreparer.ExtendNativeTemplate(native, rules);
             XDocument after = Serialize(native);
             Patch(retained.Root!, before.Root!, after.Root!);
-            StudioState next = new StudioState { Fingerprint = Fingerprint(native), Model = WithRetiredThreats(edited, native), AuthoredThreats = edited.Threats, Offsets = offsets };
+            StudioState next = new StudioState { Fingerprint = Fingerprint(native), Model = edited, Offsets = offsets };
             retained.Root!.Element(StudioStateName)?.Remove();
             retained.Root.Add(new XElement(StudioStateName, JsonSerializer.Serialize(next, StateOptions)));
             using MemoryStream output = new MemoryStream();
@@ -132,7 +133,7 @@ namespace ThreatModelForge.Engine
         /// <param name="fallback">The native canvas projection.</param>
         /// <returns>The current Studio projection or the native projection after an external edit.</returns>
         internal static TmForgeModelDto RestoreView(byte[] content, ThreatModel native, TmForgeModelDto fallback)
-            => WithRetiredThreats(ReadState(ReadXml(content), native)?.Model ?? fallback, native);
+            => WithNativeThreatScopes(ReadState(ReadXml(content), native)?.Model ?? fallback, native);
 
         /// <summary>Writes a new TM7 while retaining presentation unavailable in MTMT's model.</summary>
         /// <param name="model">The prepared native document.</param>
@@ -203,35 +204,60 @@ namespace ThreatModelForge.Engine
             }
         }
 
-        private static TmForgeModelDto WithRetiredThreats(TmForgeModelDto canvas, ThreatModel native)
+        private static TmForgeModelDto WithNativeThreatScopes(TmForgeModelDto canvas, ThreatModel native)
         {
-            Dictionary<string, ThreatStateDto> retired = native.AllThreatsDictionary
-                .Where(pair => pair.Value.Properties?.ContainsKey("Source.retiredReason") == true)
-                .ToDictionary(pair => pair.Key, pair => RetiredEntry(pair.Key, pair.Value), StringComparer.Ordinal);
-            if (retired.Count == 0)
+            if (canvas.Threats == null)
             {
                 return canvas;
             }
 
+            Dictionary<string, Threat> register = native.AllThreatsDictionary.Values.Where(threat => !string.IsNullOrEmpty(threat.InteractionKey))
+                .GroupBy(threat => threat.InteractionKey!, StringComparer.OrdinalIgnoreCase)
+                .Where(group => group.Count() == 1).ToDictionary(group => group.Key, group => group.Single(), StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, Threat> entry in native.AllThreatsDictionary)
+            {
+                register.TryAdd(entry.Key, entry.Value);
+            }
+
+            return WithThreats(canvas, canvas.Threats.Select(entry =>
+            {
+                if (entry.Manual == true || ManualThreatId.IsManual(entry.Id) || !register.TryGetValue(entry.Id, out Threat? threat))
+                {
+                    return entry;
+                }
+
+                return new ThreatStateDto
+                {
+                    Id = entry.Id, State = entry.State, Manual = entry.Manual, Justification = entry.Justification,
+                    Title = entry.Title, Category = entry.Category, Priority = entry.Priority, Description = entry.Description,
+                    Mitigation = entry.Mitigation, Source = entry.Source,
+                    ElementIds = ThreatScope(threat),
+                };
+            }).ToArray());
+        }
+
+        private static string[] ThreatScope(Threat threat) => new[] { threat.SourceGuid, threat.TargetGuid, threat.FlowGuid }
+            .Where(id => id != Guid.Empty).Select(id => id.ToString("D")).ToArray();
+
+        private static TmForgeModelDto WithoutDeletedThreats(TmForgeModelDto canvas, HashSet<string> deleted)
+        {
+            if (deleted.Count == 0)
+            {
+                return canvas;
+            }
+
+            return WithThreats(canvas, canvas.Threats?.Where(threat => !deleted.Contains(threat.Id)).ToArray());
+        }
+
+        private static TmForgeModelDto WithThreats(TmForgeModelDto canvas, IReadOnlyList<ThreatStateDto>? threats)
+        {
             return new TmForgeModelDto
             {
                 Schema = canvas.Schema, Version = canvas.Version, Metadata = canvas.Metadata,
                 Diagrams = canvas.Diagrams, Elements = canvas.Elements, Flows = canvas.Flows, Analysis = canvas.Analysis,
-                Threats = (canvas.Threats ?? Array.Empty<ThreatStateDto>()).Where(threat => !retired.ContainsKey(threat.Id)).Concat(retired.Values).ToArray(),
+                Threats = threats,
             };
         }
-
-        private static ThreatStateDto RetiredEntry(string id, Threat threat) => new ThreatStateDto
-        {
-            Id = id, Manual = ManualThreatId.IsManual(id) ? true : null,
-            Title = threat.Title, Category = threat.UserThreatCategory, Priority = threat.Priority,
-            State = ThreatStateWire.ToWire(threat.State), Justification = threat.StateInformation,
-            Description = threat.UserThreatDescription,
-            Mitigation = threat.Properties?.GetValueOrDefault("Mitigation"),
-            Source = threat.Properties?.Where(pair => pair.Key.StartsWith("Source.", StringComparison.Ordinal))
-                .ToDictionary(pair => pair.Key.Substring("Source.".Length), pair => pair.Value, StringComparer.Ordinal),
-            ElementIds = Array.Empty<string>(),
-        };
 
         private static StudioState? ReadState(XDocument document, ThreatModel native)
         {
@@ -432,55 +458,42 @@ namespace ThreatModelForge.Engine
             }
         }
 
-        private static void RetireDeletedScopes(ThreatModel model, HashSet<Guid> originalIds)
+        private static HashSet<string> RemoveDeletedScopes(ThreatModel model, HashSet<Guid> originalIds)
         {
             Dictionary<Guid, Guid> owners = model.DrawingSurfaceList.SelectMany(page => page.Borders.Keys.Concat(page.Lines.Keys)
                 .Select(id => (Id: id, Page: page.Guid))).ToDictionary(item => item.Id, item => item.Page);
             originalIds.ExceptWith(owners.Keys.Concat(model.DrawingSurfaceList.Select(page => page.Guid)));
-            HashSet<Guid> present = owners.Keys.Concat(model.DrawingSurfaceList.Select(page => page.Guid)).ToHashSet();
             Guid fallbackPage = model.DrawingSurfaceList.FirstOrDefault()?.Guid ?? Guid.Empty;
-            foreach (Threat threat in model.AllThreatsDictionary.Values)
+            HashSet<string> deleted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, Threat> entry in model.AllThreatsDictionary.ToArray())
             {
-                Guid Retire(Guid id, string member)
+                Threat threat = entry.Value;
+                Guid[] scope = new[] { threat.SourceGuid, threat.TargetGuid, threat.FlowGuid };
+                Guid scoped = scope.FirstOrDefault(owners.ContainsKey);
+                if (scope.Any(originalIds.Contains)
+                    || (scoped == Guid.Empty && !threat.Wide && originalIds.Contains(threat.DrawingSurfaceGuid)))
                 {
-                    string key = "Source.retired" + member;
-                    if (threat.Properties?.TryGetValue(key, out string? previousId) == true && Guid.TryParse(previousId, out Guid restoredId) && present.Contains(restoredId))
+                    model.AllThreatsDictionary.Remove(entry.Key);
+                    deleted.Add(entry.Key);
+                    if (!string.IsNullOrEmpty(threat.InteractionKey))
                     {
-                        SetThreatProperty(threat, key, null);
-                        return restoredId;
+                        deleted.Add(threat.InteractionKey);
                     }
 
-                    if (!originalIds.Contains(id))
-                    {
-                        return id;
-                    }
-
-                    SetThreatProperty(threat, key, id.ToString("D"));
-                    SetThreatProperty(threat, "Source.retiredReason", "The scoped object or page was deleted.");
-                    return Guid.Empty;
+                    continue;
                 }
 
-                threat.SourceGuid = Retire(threat.SourceGuid, "SourceGuid");
-                threat.TargetGuid = Retire(threat.TargetGuid, "TargetGuid");
-                threat.FlowGuid = Retire(threat.FlowGuid, "FlowGuid");
-                threat.DrawingSurfaceGuid = Retire(threat.DrawingSurfaceGuid, "DrawingSurfaceGuid");
-                if (threat.Properties?.ContainsKey("Source.retiredReason") == true && !threat.Properties.Keys.Any(key => key.StartsWith("Source.retired", StringComparison.Ordinal) && key != "Source.retiredReason"))
-                {
-                    SetThreatProperty(threat, "Source.retiredReason", null);
-                    threat.Wide = threat.SourceGuid == Guid.Empty && threat.TargetGuid == Guid.Empty && threat.FlowGuid == Guid.Empty;
-                }
-
-                Guid scoped = new[] { threat.FlowGuid, threat.SourceGuid, threat.TargetGuid }.FirstOrDefault(owners.ContainsKey);
                 if (owners.TryGetValue(scoped, out Guid page))
                 {
                     threat.DrawingSurfaceGuid = page;
                 }
-                else if (threat.DrawingSurfaceGuid == Guid.Empty)
+                else if (threat.DrawingSurfaceGuid == Guid.Empty || originalIds.Contains(threat.DrawingSurfaceGuid))
                 {
                     threat.DrawingSurfaceGuid = fallbackPage;
-                    threat.Wide = true;
                 }
             }
+
+            return deleted;
         }
 
         private static void UpdateConnectors(DrawingSurfaceModel native, IDictionary<Guid, object> baseline, DrawingSurfaceModel requested)
@@ -593,7 +606,7 @@ namespace ThreatModelForge.Engine
             }
         }
 
-        private static void ApplyThreats(ThreatModel native, IReadOnlyList<ThreatStateDto>? baseline, IReadOnlyList<ThreatStateDto>? edited, ThreatModel requested, RuleSet rules, IReadOnlyList<string> ruleErrors)
+        private static void ApplyThreats(ThreatModel native, IReadOnlyList<ThreatStateDto>? baseline, IReadOnlyList<ThreatStateDto>? edited, ThreatModel requested, RuleSet rules, IReadOnlyList<string> ruleErrors, HashSet<string> removals)
         {
             if (Same(baseline, edited))
             {
@@ -603,7 +616,6 @@ namespace ThreatModelForge.Engine
             Dictionary<string, ThreatStateDto> before = (baseline ?? Array.Empty<ThreatStateDto>()).ToDictionary(threat => threat.Id, StringComparer.Ordinal);
             Dictionary<string, ThreatStateDto> after = (edited ?? Array.Empty<ThreatStateDto>()).ToDictionary(threat => threat.Id, StringComparer.Ordinal);
             HashSet<string> generatedEdits = after.Values.Where(entry => !ManualThreatId.IsManual(entry.Id)
-                && entry.Source?.ContainsKey("retiredReason") != true
                 && (!before.TryGetValue(entry.Id, out ThreatStateDto? previous) || !Same(previous, entry)))
                 .Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
             if (generatedEdits.Count > 0)
@@ -624,7 +636,7 @@ namespace ThreatModelForge.Engine
                 }
             }
 
-            foreach (string id in before.Keys.Union(after.Keys, StringComparer.Ordinal))
+            foreach (string id in before.Keys.Union(after.Keys, StringComparer.Ordinal).Where(id => !removals.Contains(id)))
             {
                 before.TryGetValue(id, out ThreatStateDto? oldEntry);
                 after.TryGetValue(id, out ThreatStateDto? newEntry);
@@ -668,7 +680,7 @@ namespace ThreatModelForge.Engine
                 }
 
                 Threat target = matches[0].Value;
-                oldEntry ??= newEntry.Source?.ContainsKey("retiredReason") == true ? RetiredEntry(id, target) : new ThreatStateDto { Id = id };
+                oldEntry ??= new ThreatStateDto { Id = id };
                 if (oldEntry.State != newEntry.State)
                 {
                     target.State = ThreatStateWire.Parse(newEntry.State);
@@ -711,13 +723,13 @@ namespace ThreatModelForge.Engine
                     SetThreatProperty(target, "Mitigation", newEntry.Mitigation);
                 }
 
-                if (!Same(oldEntry.ElementIds, newEntry.ElementIds))
+                if (!manual && newEntry.ElementIds?.Count > 0 && !Same(newEntry.ElementIds, ThreatScope(target)))
                 {
-                    if (!manual)
-                    {
-                        throw new InvalidDataException("The scope of a generated threat belongs to the rule that detected it.");
-                    }
+                    throw new InvalidDataException("The scope of a generated threat belongs to the rule that detected it.");
+                }
 
+                if (manual && !Same(oldEntry.ElementIds, newEntry.ElementIds))
+                {
                     Threat scoped = requested.AllThreatsDictionary[id];
                     ValidateThreatScope(native, scoped);
                     target.SourceGuid = scoped.SourceGuid;
@@ -1028,8 +1040,6 @@ namespace ThreatModelForge.Engine
             public string Fingerprint { get; init; } = string.Empty;
 
             public TmForgeModelDto? Model { get; init; }
-
-            public IReadOnlyList<ThreatStateDto>? AuthoredThreats { get; init; }
 
             public Dictionary<Guid, TmForgePointDto> Offsets { get; init; } = new Dictionary<Guid, TmForgePointDto>();
         }

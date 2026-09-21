@@ -105,19 +105,16 @@ namespace ThreatModelForge.Api.Tests
                 Schema = baseline.Schema, Version = baseline.Version, Metadata = baseline.Metadata,
                 Diagrams = baseline.Diagrams, Elements = baseline.Elements, Flows = baseline.Flows, Threats = new[] { decision },
             };
-            byte[] retiredBytes = EngineService.SaveTm7(original, deleted, null, saved);
-            using MemoryStream retiredInput = new MemoryStream(retiredBytes);
-            Threat retired = ThreatModel.Load(retiredInput).AllThreatsDictionary[generated.Id];
-            Assert.AreEqual(ThreatState.NotApplicable, retired.State);
-            Assert.AreEqual("Reviewed in tmforge", retired.StateInformation);
-            Assert.IsTrue(retired.Properties!.ContainsKey("Source.retiredReason"));
-            Assert.AreEqual(Guid.Empty, retired.SourceGuid);
-            byte[] undone = EngineService.SaveTm7(original, WithThreats(new[] { decision }), null, retiredBytes);
+            byte[] deletedBytes = EngineService.SaveTm7(original, deleted, null, saved);
+            using MemoryStream deletedInput = new MemoryStream(deletedBytes);
+            Assert.IsFalse(ThreatModel.Load(deletedInput).AllThreatsDictionary.ContainsKey(generated.Id));
+            Assert.IsFalse(EngineService.ReadModel(deletedBytes, "tm7").Threats?.Any(threat => threat.Id == generated.Id) == true);
+            byte[] undone = EngineService.SaveTm7(saved, WithThreats(new[] { decision }), null, deletedBytes);
             using MemoryStream undoneInput = new MemoryStream(undone);
             Threat reattached = ThreatModel.Load(undoneInput).AllThreatsDictionary[generated.Id];
             Assert.AreEqual(Guid.Parse(added.Id), reattached.SourceGuid);
             Assert.AreEqual(ThreatState.NotApplicable, reattached.State);
-            Assert.IsFalse(reattached.Properties!.ContainsKey("Source.retiredReason"));
+            Assert.AreEqual("Reviewed in tmforge", reattached.StateInformation);
         }
 
         /// <summary>Moving an object and changing its kind keeps its identity, foreign properties and extension XML.</summary>
@@ -229,9 +226,9 @@ namespace ThreatModelForge.Api.Tests
             CollectionAssert.AreEqual(saved, EngineService.SaveTm7(saved, restored));
         }
 
-        /// <summary>Deleting scoped objects retains native decisions and records their former scope.</summary>
+        /// <summary>Deleting scoped objects removes their threats without resurrecting them on save or reopen.</summary>
         [TestMethod]
-        public void SaveTm7RetiresDeletedScopesWithoutLosingDecisions()
+        public void SaveTm7DeletesScopedThreatsAndRestoresThemOnUndo()
         {
             byte[] original = EngineService.Convert(ConnectedModel(), "tm7");
             TmForgeModelDto baseline = EngineService.ReadModel(original, "tm7");
@@ -242,23 +239,123 @@ namespace ThreatModelForge.Api.Tests
             using MemoryStream output = new MemoryStream(saved);
             ThreatModel initial = ThreatModel.Load(source);
             ThreatModel result = ThreatModel.Load(output);
-            Assert.AreEqual(initial.AllThreatsDictionary.Count, result.AllThreatsDictionary.Count);
-            foreach (KeyValuePair<string, Threat> pair in initial.AllThreatsDictionary)
-            {
-                Threat retained = result.AllThreatsDictionary[pair.Key];
-                Assert.AreEqual(pair.Value.State, retained.State);
-                Assert.AreEqual(pair.Value.Title, retained.Title);
-                Assert.AreEqual(Guid.Empty, retained.SourceGuid);
-                Assert.AreEqual(Guid.Empty, retained.TargetGuid);
-                Assert.AreEqual(Guid.Empty, retained.FlowGuid);
-                Assert.IsTrue(retained.Properties!.ContainsKey("Source.retiredReason"));
-            }
+            Assert.IsTrue(initial.AllThreatsDictionary.Count > 0);
+            Assert.AreEqual(0, result.AllThreatsDictionary.Count);
 
             TmForgeModelDto reopened = EngineService.ReadModel(saved, "tm7");
-            ThreatDto[] retired = EngineService.GenerateThreats(reopened).Where(threat => threat.Source?.ContainsKey("retiredReason") == true).ToArray();
-            Assert.AreEqual(initial.AllThreatsDictionary.Count, retired.Length);
-            Assert.IsTrue(retired.All(threat => !string.IsNullOrEmpty(threat.Title) && threat.ElementIds.Count == 0));
+            Assert.AreEqual(0, reopened.Threats?.Count ?? 0);
             CollectionAssert.AreEqual(saved, EngineService.SaveTm7(saved, reopened));
+            byte[] repeated = EngineService.SaveTm7(original, reopened, null, saved);
+            using MemoryStream repeatedInput = new MemoryStream(repeated);
+            Assert.AreEqual(0, ThreatModel.Load(repeatedInput).AllThreatsDictionary.Count);
+            CollectionAssert.AreEqual(original, EngineService.SaveTm7(original, EngineService.ReadModel(original, "tm7"), null, saved));
+        }
+
+        /// <summary>Object deletion removes generated and manual scoped threats but preserves unrelated and model-wide decisions.</summary>
+        [TestMethod]
+        public void SaveTm7DeletionKeepsUnrelatedAndModelWideThreats()
+        {
+            byte[] original = EngineService.Convert(ConnectedModel(), "tm7");
+            using MemoryStream input = new MemoryStream(original);
+            ThreatModel native = ThreatModel.Load(input);
+            DrawingSurfaceModel page = native.DrawingSurfaceList[0];
+            Guid removedId = page.Borders.Keys.First();
+            native.AllThreatsDictionary["manual:model-wide"] = new Threat
+            {
+                Id = 100, InteractionKey = "manual:model-wide", Title = "Model-wide risk", Wide = true,
+                UserThreatCategory = "Tampering", DrawingSurfaceGuid = page.Guid, State = ThreatState.NotApplicable, StateInformation = "Keep this decision",
+            };
+            native.AllThreatsDictionary["manual:scoped"] = new Threat
+            {
+                Id = 101, InteractionKey = "manual:scoped", Title = "Scoped risk", SourceGuid = removedId,
+                UserThreatCategory = "Tampering", DrawingSurfaceGuid = page.Guid, State = ThreatState.NotApplicable, StateInformation = "Remove this decision",
+            };
+            native.AllThreatsDictionary["manual:unrelated"] = new Threat
+            {
+                Id = 102, InteractionKey = "manual:unrelated", Title = "Unrelated risk", SourceGuid = page.Borders.Keys.First(id => id != removedId),
+                UserThreatCategory = "Tampering", DrawingSurfaceGuid = page.Guid, State = ThreatState.NotApplicable, StateInformation = "Unrelated decision",
+            };
+            using MemoryStream prepared = new MemoryStream();
+            native.Save(prepared);
+            original = prepared.ToArray();
+            TmForgeModelDto baseline = EngineService.ReadModel(original, "tm7");
+            TmForgeElementDto[] remaining = baseline.Elements!.Where(element => Guid.Parse(element.Id) != removedId).ToArray();
+            TmForgeModelDto edited = new TmForgeModelDto
+            {
+                Schema = baseline.Schema, Version = baseline.Version, Metadata = baseline.Metadata,
+                Diagrams = new[] { new TmForgeDiagramDto { Id = page.Guid.ToString("D"), Name = page.Header ?? "Page 1", Elements = remaining } },
+                Threats = baseline.Threats,
+            };
+            string[] expected = native.AllThreatsDictionary.Where(entry => entry.Value.SourceGuid != removedId && entry.Value.TargetGuid != removedId
+                && !page.Lines.ContainsKey(entry.Value.FlowGuid)).Select(entry => entry.Key).OrderBy(id => id).ToArray();
+            byte[] saved = EngineService.SaveTm7(original, edited);
+            using MemoryStream output = new MemoryStream(saved);
+            ThreatModel result = ThreatModel.Load(output);
+            CollectionAssert.AreEqual(expected, result.AllThreatsDictionary.Keys.OrderBy(id => id).ToArray());
+            Assert.IsTrue(expected.Length > 1);
+            Assert.AreEqual("Keep this decision", result.AllThreatsDictionary["manual:model-wide"].StateInformation);
+            Assert.AreEqual("Unrelated decision", result.AllThreatsDictionary["manual:unrelated"].StateInformation);
+            Assert.IsFalse(EngineService.ReadModel(saved, "tm7").Threats!.Any(threat => threat.Id == "manual:scoped"));
+        }
+
+        /// <summary>Deleting a whole page retains true model-wide decisions without retaining its scoped register entries.</summary>
+        [TestMethod]
+        public void SaveTm7PageDeletionKeepsModelWideDecisions()
+        {
+            byte[] original = EngineService.Convert(ConnectedModel(), "tm7");
+            using MemoryStream input = new MemoryStream(original);
+            ThreatModel native = ThreatModel.Load(input);
+            Guid oldPage = native.DrawingSurfaceList[0].Guid;
+            native.AllThreatsDictionary["manual:model-wide"] = new Threat
+            {
+                Id = 100, InteractionKey = "manual:model-wide", Title = "Model-wide risk", Wide = true,
+                UserThreatCategory = "Tampering", DrawingSurfaceGuid = oldPage, State = ThreatState.NotApplicable, StateInformation = "Keep this decision",
+            };
+            native.AllThreatsDictionary["page-rule"] = new Threat
+            {
+                Id = 101, InteractionKey = "page-rule", Title = "Page risk", DrawingSurfaceGuid = oldPage,
+            };
+            using MemoryStream prepared = new MemoryStream();
+            native.Save(prepared);
+            original = prepared.ToArray();
+            TmForgeModelDto baseline = EngineService.ReadModel(original, "tm7");
+            string nextPage = Guid.NewGuid().ToString("D");
+            TmForgeModelDto edited = new TmForgeModelDto
+            {
+                Schema = baseline.Schema, Version = baseline.Version, Metadata = baseline.Metadata,
+                Diagrams = new[] { new TmForgeDiagramDto { Id = nextPage, Name = "Remaining page" } },
+                Threats = baseline.Threats,
+            };
+            byte[] saved = EngineService.SaveTm7(original, edited);
+            using MemoryStream output = new MemoryStream(saved);
+            ThreatModel restored = ThreatModel.Load(output);
+            CollectionAssert.AreEqual(new[] { "manual:model-wide" }, restored.AllThreatsDictionary.Keys.ToArray());
+            Assert.AreEqual(Guid.Parse(nextPage), restored.AllThreatsDictionary["manual:model-wide"].DrawingSurfaceGuid);
+            Assert.AreEqual("Keep this decision", restored.AllThreatsDictionary["manual:model-wide"].StateInformation);
+            CollectionAssert.AreEqual(original, EngineService.SaveTm7(original, baseline, null, saved));
+        }
+
+        /// <summary>Opaque imported register keys expose existing scope for deletion without changing a no-op save.</summary>
+        [TestMethod]
+        public void SaveTm7ExposesImportedThreatScopeWithoutRewritingIt()
+        {
+            byte[] original = EngineService.Convert(ConnectedModel(), "tm7");
+            using MemoryStream input = new MemoryStream(original);
+            ThreatModel native = ThreatModel.Load(input);
+            Threat target = native.AllThreatsDictionary.Values.First();
+            target.State = ThreatState.NotApplicable;
+            target.InteractionKey = "opaque-imported-identity";
+            target.StateInformation = "Keep the imported decision";
+            using MemoryStream prepared = new MemoryStream();
+            native.Save(prepared);
+            original = prepared.ToArray();
+            TmForgeModelDto opened = EngineService.ReadModel(original, "tm7");
+            ThreatStateDto decision = opened.Threats!.Single(entry => entry.Id == target.InteractionKey);
+            string[] expected = new[] { target.SourceGuid, target.TargetGuid, target.FlowGuid }.Where(id => id != Guid.Empty)
+                .Select(id => id.ToString("D")).ToArray();
+            CollectionAssert.AreEqual(expected, decision.ElementIds!.ToArray());
+            Assert.IsTrue(expected.Length > 0);
+            CollectionAssert.AreEqual(original, EngineService.SaveTm7(original, opened));
         }
 
         /// <summary>Editing one native threat keeps all other threats and their native metadata unchanged.</summary>

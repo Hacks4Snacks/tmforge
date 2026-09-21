@@ -110,15 +110,19 @@ native bytes and the edited `tmforge-json` projection returned by `/v1/model/rea
 `application/xml` with a `model.tm7` download name. No server-side file or session is created.
 Clients that keep the opening bytes as an undo baseline may also send `previousContentBase64`, the
 latest successful save. This retains newly materialized decisions and definitions across successive
-saves, including deleting and then restoring a newly added object. Clients that instead advance
-their source to the last saved document can omit it.
+saves. Undo must retain the pre-deletion native snapshot as well as the canvas and decisions; use
+that snapshot as `contentBase64` when restoring deleted data. Clients that instead advance their
+source to the last saved document can omit `previousContentBase64`.
 
 The engine applies changes by stable identities and retains unedited native XML, including custom
 knowledge-base definitions and threat decisions. An unchanged valid model with a template returns
 the exact source bytes. Edited XML is semantically preserving, not necessarily byte-identical in
 formatting. Missing templates and definitions are supplied additively. Graph edits, page moves and
-kind changes preserve the remaining native data. Deleted scopes are recorded on retained threats
-as `Source.retired*` metadata, and dangling object references are cleared without changing triage.
+kind changes preserve the remaining native data. Removing objects or flows deletes register entries
+whose native scope depends on them, including their triage and justifications. Page deletion removes
+page-scoped entries while retaining model-wide decisions. Unrelated threats remain unchanged.
+The saved canvas overlay is filtered to match; no deleted-ID list or retired register is persisted.
+Renames, page moves, property changes and unavailable or disabled rules do not trigger this cascade.
 
 Changed generated-threat decisions are materialized with the host's active rule bundle. Missing or
 mismatched expected packs block new generated threats, not unrelated preserving edits. Existing

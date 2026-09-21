@@ -74,16 +74,15 @@ function renderPanel(overrides: Partial<ThreatsPanelProps> = {}): ThreatsPanelPr
 }
 
 describe('ThreatsPanel', () => {
-  it('keeps retired decisions editable without counting them as current open threats', () => {
-    const retired = threat({ id: 'retired:TM1000', source: { retiredReason: 'The scoped object was deleted.' } });
-    const { onEditThreat } = renderPanel({ threats: [retired] });
+  it('keeps triaged decisions editable alongside current open threats', () => {
+    const accepted = threat({ id: 'reviewed:TM1000', state: 'Accepted' });
+    const { onEditThreat } = renderPanel({ threats: [accepted] });
     expect(screen.getByText('0 open threats')).toBeInTheDocument();
-    expect(screen.getByText(/1 retired/)).toBeInTheDocument();
-    expect(screen.getByText('Retired')).toHaveAttribute('title', 'The scoped object was deleted.');
+    expect(screen.getByText(/1 triaged/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Decision retained.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    expect(onEditThreat).toHaveBeenCalledWith(retired, { state: 'Open', description: 'Decision retained.' });
+    expect(onEditThreat).toHaveBeenCalledWith(accepted, { state: 'Accepted', description: 'Decision retained.' });
   });
 
   it('groups threats by STRIDE category, in canonical order, with per-group counts', () => {
