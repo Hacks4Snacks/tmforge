@@ -136,7 +136,7 @@
     "pretest": "npm run compile",
     "test": "node --test out/test/*.unit.test.js",
     "test:extension": "npm run compile && npm run build:studio && node scripts/test-extension.mjs",
-    "package": "vsce package --no-dependencies"
+    "package": "vsce package --no-dependencies --changelog-path out/CHANGELOG.md"
   },
   "devDependencies": {
     "@types/node": "22.x",
