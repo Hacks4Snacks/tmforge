@@ -42,14 +42,17 @@ test('Copilot ships an invocable extension-only skill and tools without a custom
   for (const contribution of manifest.contributes.chatSkills) {
     assert.match(contribution.path, /^\.\/copilot\//);
     const content = await readFile(resolve(root, contribution.path), 'utf8');
-    assert.match(content, /^---\n/);
+    for (const newline of ['\n', '\r\n']) {
+      const skill = content.replace(/\r?\n/g, newline);
+      assert.match(skill, /^---\r?\n/);
+      assert.match(skill, /name: tmforge-vscode\r?\n/);
+      assert.match(skill, /user-invocable: true\r?\n/);
+    }
     assert.doesNotMatch(content, /scripts\/|threat-modeling-tmforge|name: Strider|plugins\/tmforge/);
     assert.ok(content.split('\n').length < 150, 'Keep the extension workflow focused');
     assert.match(contribution.when, /config\.tmforge\.copilot\.enabled/);
   }
   const skill = await readFile(resolve(root, manifest.contributes.chatSkills[0].path), 'utf8');
-  assert.match(skill, /name: tmforge-vscode\n/);
-  assert.match(skill, /user-invocable: true\n/);
   assert.doesNotMatch(skill, /disable-model-invocation: true/);
   assert.match(skill, /only tmforge tools to create or modify models/);
   assert.match(skill, /## Completion/);
