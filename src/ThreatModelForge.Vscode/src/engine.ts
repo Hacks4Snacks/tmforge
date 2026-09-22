@@ -54,6 +54,48 @@ export class EngineWorker {
     return this.request<Inspection>({ bytes, format });
   }
 
+  async readModel(text: string, format = 'tmforge-json'): Promise<{ model: Record<string, unknown>; warnings: string[] }> {
+    if (Buffer.byteLength(text, 'utf8') > MAX_DOCUMENT_BYTES) throw new Error('Model documents are limited to 8 MiB.');
+    const content = Buffer.from(text).toString('base64');
+    const result = JSON.parse(await this.invoke('Preflight', [content, format, format === 'tm7' ? 'tmforge-json' : ''])) as {
+      success: boolean; diagnostics: InputDiagnostic[];
+    };
+    if (!result.success) throw new Error(result.diagnostics.filter(item => item.severity === 'error').map(item => `${item.path}: ${item.message}`).join('\n') || 'The model is invalid.');
+    const model = JSON.parse(format === 'tm7' ? await this.invoke('ReadFile', [content, 'tm7']) : text) as Record<string, unknown> & {
+      diagrams?: { elements?: unknown[]; flows?: unknown[] }[]; elements?: unknown[]; flows?: unknown[];
+    };
+    const pages = model.diagrams?.length ? model.diagrams : [model];
+    const elements = pages.reduce((count, page) => count + (page.elements?.length ?? 0), 0);
+    const flows = pages.reduce((count, page) => count + (page.flows?.length ?? 0), 0);
+    if (pages.length > 32 || elements > 1024 || flows > 2048 || elements * flows > 1000000) {
+      throw new Error('Studio is limited to 32 pages, 1024 elements, 2048 flows and one million element/flow pairs.');
+    }
+    return {
+      model: { ...model, elements: model.elements ?? [], flows: model.flows ?? [] },
+      warnings: result.diagnostics.filter(item => item.code !== 'conversion.knowledge-base' && item.code !== 'conversion.generated-register')
+        .map(item => item.code === 'conversion.line-boundaries'
+          ? 'Native line trust boundaries are retained on save but are not shown on the canvas. Canvas analysis may omit their crossings. Deleting a page also removes its hidden objects.'
+          : item.message),
+    };
+  }
+
+  async applyManifest(manifest: unknown): Promise<{ model: Record<string, unknown>; warnings: string[] }> {
+    const text = JSON.stringify(manifest);
+    if (!text || Buffer.byteLength(text, 'utf8') > MAX_DOCUMENT_BYTES) throw new Error('Manifests are limited to 8 MiB.');
+    const preflight = JSON.parse(await this.invoke('Preflight', [Buffer.from(text).toString('base64'), 'tmforge-manifest', ''])) as {
+      success: boolean; diagnostics: InputDiagnostic[];
+    };
+    if (!preflight.success) throw new Error(preflight.diagnostics.map(item => `${item.path}: ${item.message}`).join('\n'));
+    const result = JSON.parse(await this.invoke('ApplyManifest', [text])) as {
+      success: boolean; error?: string; model: Record<string, unknown>; warnings?: string[];
+    };
+    if (!result.success) throw new Error(result.error || 'The manifest could not be applied.');
+    const candidate = JSON.stringify(result.model);
+    if (!candidate) throw new Error('The engine returned no model.');
+    const checked = await this.readModel(candidate);
+    return { model: checked.model, warnings: [...preflight.diagnostics.map(item => item.message), ...checked.warnings, ...(result.warnings ?? [])] };
+  }
+
   invoke(method: string, args: string[] = []): Promise<string> {
     if (this.disposed) return Promise.reject(new Error('The analysis engine is closed.'));
     if (!Object.hasOwn(ENGINE_METHODS, method) || !Array.isArray(args) || args.length !== ENGINE_METHODS[method]

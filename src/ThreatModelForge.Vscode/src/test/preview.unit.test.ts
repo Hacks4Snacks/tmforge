@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
@@ -28,6 +28,39 @@ test('Studio allows local UI assets and dynamic styles but no network or arbitra
   assert.ok(!html.includes('unsafe-eval'));
   assert.match(html, /style-src vscode-webview: 'unsafe-inline'/);
   assert.match(html, /x=&quot;bad&quot;/);
+});
+
+test('Copilot ships an invocable extension-only skill and tools without a custom agent', async () => {
+  const root = resolve(__dirname, '../..');
+  const manifest = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
+  assert.equal(manifest.engines.vscode, '^1.138.0');
+  assert.equal(manifest.extensionDependencies, undefined, 'Editing must not depend on a Copilot installation');
+  assert.equal(manifest.enabledApiProposals, undefined, 'Marketplace builds must not require proposed APIs');
+  assert.equal(manifest.contributes.chatAgents, undefined);
+  assert.ok(!(await readdir(resolve(root, 'copilot'), { recursive: true })).some(path => path.endsWith('.agent.md')));
+  assert.equal(manifest.contributes.chatSkills.length, 1);
+  for (const contribution of manifest.contributes.chatSkills) {
+    assert.match(contribution.path, /^\.\/copilot\//);
+    const content = await readFile(resolve(root, contribution.path), 'utf8');
+    assert.match(content, /^---\n/);
+    assert.doesNotMatch(content, /scripts\/|threat-modeling-tmforge|name: Strider|plugins\/tmforge/);
+    assert.ok(content.split('\n').length < 150, 'Keep the extension workflow focused');
+    assert.match(contribution.when, /config\.tmforge\.copilot\.enabled/);
+  }
+  const skill = await readFile(resolve(root, manifest.contributes.chatSkills[0].path), 'utf8');
+  assert.match(skill, /name: tmforge-vscode\n/);
+  assert.match(skill, /user-invocable: true\n/);
+  assert.doesNotMatch(skill, /disable-model-invocation: true/);
+  assert.match(skill, /only tmforge tools to create or modify models/);
+  assert.match(skill, /## Completion/);
+  assert.ok((await readFile(resolve(root, '.vscodeignore'), 'utf8')).includes('out/copilot/**'), 'Exclude any obsolete staged plugin assets');
+  assert.equal(manifest.contributes.languageModelTools.length, 4);
+  for (const tool of manifest.contributes.languageModelTools) {
+    assert.ok(skill.includes(tool.toolReferenceName));
+    assert.ok(skill.includes(tool.name));
+    assert.equal(tool.canBeReferencedInPrompt, true);
+    assert.equal(tool.inputSchema.additionalProperties, false);
+  }
 });
 
 test('packaging scopes release-please notes by changed files and rejects stale or unverifiable notes', async () => {
@@ -98,6 +131,6 @@ test('packaging scopes release-please notes by changed files and rejects stale o
     await writeFile(resolve(shallow, 'CHANGELOG.md'), notes);
     await assert.rejects(stageChangelog(shallowExtension), /complete Git history/);
     for (const path of ['src/ThreatModelForge.Vscode/src/extension.ts', 'src/ThreatModelForge.Wasm/Engine.cs', 'src/ThreatModelForge.Analysis.Rules/Rule.cs', 'src/ThreatModelForge.Analysis.Reporting/Report.cs', 'Directory.Packages.props']) assert.equal(affectsExtension(path), true, path);
-    for (const path of ['src/ThreatModelForge.Api/Program.cs', 'src/ThreatModelForge.Cli/Program.cs', 'plugins/tmforge/plugin.json', '.github/plugin/marketplace.json', 'docs/deployment.md']) assert.equal(affectsExtension(path), false, path);
+    for (const path of ['src/ThreatModelForge.Api/Program.cs', 'src/ThreatModelForge.Cli/Program.cs', 'plugins/tmforge/plugin.json', 'plugins/tmforge/skills/threat-modeling/SKILL.md', 'plugins/tmforge/com.github.copilot/agents/strider.agent.md', '.github/plugin/marketplace.json', 'docs/deployment.md']) assert.equal(affectsExtension(path), false, path);
   } finally { await rm(repository, { recursive: true, force: true }); }
 });
