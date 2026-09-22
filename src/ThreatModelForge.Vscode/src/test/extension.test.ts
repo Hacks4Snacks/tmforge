@@ -4,11 +4,13 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import * as vscode from 'vscode';
 import { EngineWorker, type Inspection } from '../engine';
+import type { createCopilotTools } from '../copilot';
 
 export async function run(): Promise<void> {
 	const extension = vscode.extensions.getExtension<{
 		inspect(document: vscode.TextDocument): Promise<Inspection>;
 		diagnostics: vscode.DiagnosticCollection;
+		tools: ReturnType<typeof createCopilotTools>;
 		edit(document: vscode.TextDocument, version: number, previous: unknown, next: unknown): Promise<{ version: number; dirty: boolean }>;
 		nativeSource(document: vscode.TextDocument): Promise<string>;
 		waitUntilRendered(document: vscode.TextDocument): Promise<void>;
@@ -17,6 +19,8 @@ export async function run(): Promise<void> {
 	const api = await extension.activate();
 	const directory = await mkdtemp(join(tmpdir(), 'tmforge-vscode-test-'));
 	try {
+		await verifyCopilotTools(api, directory);
+		if (process.env.TMFORGE_TEST_COPILOT === '1') return;
 		const source = await readFile(resolve(__dirname, '../../../../examples/webshop.tm7'));
 		const path = join(directory, 'webshop.tm7');
 		await writeFile(path, source);
@@ -174,9 +178,11 @@ export async function run(): Promise<void> {
 		await jsonDocument.save();
 		assert.equal(JSON.parse(await readFile(jsonPath, 'utf8')).elements[0].name, 'Changed from source');
 		assert.deepEqual(await readFile(path), source, 'Studio modified the native TM7');
+		const documentsBeforeNew = new Set(vscode.workspace.textDocuments);
 		await vscode.commands.executeCommand('tmforge.newModel');
-		const newModel = vscode.workspace.textDocuments.find(candidate => candidate.isUntitled && candidate.uri.path.endsWith('.tmforge.json'));
+		const newModel = vscode.workspace.textDocuments.find(candidate => candidate.isUntitled && !documentsBeforeNew.has(candidate));
 		assert.ok(newModel, 'New Model did not create an untitled JSON document');
+		assert.match(newModel.uri.path, /^Untitled-\d+$/, 'New drafts must not have an associated filesystem path');
 		await api.waitUntilRendered(newModel);
 		assert.equal(newModel.isDirty, true);
 		assert.deepEqual(JSON.parse(newModel.getText()).elements, []);
@@ -224,6 +230,136 @@ export async function run(): Promise<void> {
 		await vscode.commands.executeCommand('workbench.action.closeAllEditors');
 		await rm(directory, { recursive: true, force: true });
 	}
+}
+
+async function verifyCopilotTools(api: { tools: ReturnType<typeof createCopilotTools>; diagnostics: vscode.DiagnosticCollection; waitUntilRendered(document: vscode.TextDocument): Promise<void> }, directory: string): Promise<void> {
+	const cancellation = new vscode.CancellationTokenSource();
+	const invoke = async (name: string, input: object) => {
+		const result = await vscode.lm.invokeTool(name, { input, toolInvocationToken: undefined }, cancellation.token);
+		assert.ok(result.content[0] instanceof vscode.LanguageModelTextPart);
+		return JSON.parse(result.content[0].value);
+	};
+	try {
+		for (const name of Object.keys(api.tools)) assert.ok(vscode.lm.tools.some(tool => tool.name === name), `Missing registered tool: ${name}`);
+		const manifestSchema = await invoke('tmforge_catalog', { section: 'manifest' });
+		assert.ok(manifestSchema.properties.elements);
+		assert.ok((await invoke('tmforge_catalog', { section: 'properties' })).some((property: { values?: string[] }) => property.values?.includes('Unknown')));
+		const unrelated = await vscode.workspace.openTextDocument({ language: 'json', content: '{}' });
+		await assert.rejects(invoke('tmforge_inspect_model', { uri: unrelated.uri.toString() }), /Open/i);
+		await vscode.window.showTextDocument(unrelated);
+		await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+		const manifest = {
+			schema: 'tmforge-manifest', version: 1, name: 'Copilot draft',
+			elements: [
+				{ alias: 'api', kind: 'process', name: 'API', props: { AuthenticationScheme: 'Unknown' } },
+				{ alias: 'data', kind: 'store', name: 'Data', props: { StoresCredentials: 'Yes', Encrypted: 'Unknown' } },
+			],
+			flows: [{ alias: 'write', from: 'api', to: 'data', name: 'Write', props: { Protocol: 'Unknown' } }],
+		};
+		const beforeCreate = vscode.workspace.textDocuments.filter(document => document.isUntitled).length;
+		await assert.rejects(invoke('tmforge_create_model', { manifest: { ...manifest, flows: [{ from: 'api', to: 'missing' }] } }), /missing/i);
+		assert.equal(vscode.workspace.textDocuments.filter(document => document.isUntitled).length, beforeCreate, 'Invalid creation opened a draft');
+		const created = await invoke('tmforge_create_model', { manifest, name: 'copilot-draft' });
+		assert.equal(created.lifecycle, 'draft');
+		const document = vscode.workspace.textDocuments.find(document => document.uri.toString() === created.uri);
+		assert.ok(document?.isUntitled);
+		assert.match(document.uri.path, /^Untitled-\d+$/, 'Copilot drafts must not have an associated filesystem path');
+		await api.waitUntilRendered(document);
+		assert.equal(document.isDirty, true, `Created draft must retain unsaved content: ${JSON.stringify({ created, version: document.version, text: document.getText() })}`);
+		await vscode.commands.executeCommand('tmforge.analyze', document.uri);
+		assert.ok(api.diagnostics.get(document.uri)?.some(diagnostic => diagnostic.code === 'TM1003'));
+		await vscode.commands.executeCommand('tmforge.openStudio', document.uri);
+		await api.waitUntilRendered(document);
+		const snapshot = await invoke('tmforge_inspect_model', { uri: created.uri });
+		assert.ok(snapshot.analysis.findings.length > 0);
+		assert.ok(snapshot.analysis.findings.some((finding: { message: string }) => /not evidenced/.test(finding.message)));
+		assert.equal(snapshot.model.elements.length, 2);
+		const preserved = { ...snapshot.model, extension: { owner: 'security' }, threats: [{
+			id: 'manual:existing-decision', manual: true, state: 'Accepted', title: 'Existing decision',
+			category: 'Tampering', justification: 'Approved by the reviewer', elementIds: [snapshot.model.elements[0].id],
+		}] };
+		const authorEdit = new vscode.WorkspaceEdit();
+		authorEdit.replace(document.uri, new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)), JSON.stringify(preserved, null, 2));
+		await vscode.workspace.applyEdit(authorEdit);
+		const beforeRename = await invoke('tmforge_inspect_model', { uri: created.uri });
+		const original = document.getText();
+		const renamed = structuredClone(beforeRename.model);
+		renamed.elements[0].name = 'Copilot renamed API';
+		if (renamed.diagrams?.length) renamed.diagrams[0].elements[0].name = 'Copilot renamed API';
+		const updated = await invoke('tmforge_update_model', { uri: created.uri, revision: beforeRename.revision, model: renamed });
+		assert.notEqual(updated.revision, snapshot.revision);
+		assert.equal(JSON.parse(document.getText()).elements[0].name, 'Copilot renamed API');
+		assert.deepEqual(JSON.parse(document.getText()).threats, preserved.threats);
+		assert.deepEqual(JSON.parse(document.getText()).extension, preserved.extension);
+		assert.deepEqual(JSON.parse(document.getText()).elements.map((element: { id: string }) => element.id), snapshot.model.elements.map((element: { id: string }) => element.id));
+		const changed = document.getText();
+		await assert.rejects(invoke('tmforge_update_model', { uri: created.uri, revision: snapshot.revision, model: snapshot.model }), /changed/i);
+		assert.equal(document.getText(), changed);
+		const invalid = { ...renamed, flows: [{ id: 'broken', source: renamed.elements[0].id, target: 'missing' }] };
+		if (invalid.diagrams?.length) invalid.diagrams[0].flows = invalid.flows;
+		await assert.rejects(invoke('tmforge_update_model', { uri: created.uri, revision: updated.revision, model: invalid }), /missing/i);
+		assert.equal(document.getText(), changed, 'Invalid topology changed the model');
+		await vscode.commands.executeCommand('undo');
+		await waitForText(document, original);
+		await api.waitUntilRendered(document);
+		await vscode.commands.executeCommand('redo');
+		await waitForText(document, changed);
+		await api.waitUntilRendered(document);
+		await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+		await assert.rejects(invoke('tmforge_inspect_model', { uri: vscode.Uri.file(join(directory, 'not-open.tm7')).toString() }), /open/i);
+		await assert.rejects(invoke('tmforge_catalog', { section: 'constructor' }), /Choose/);
+
+		const nativePath = join(directory, 'copilot-native.tm7');
+		const source = (await readFile(resolve(__dirname, '../../../../examples/webshop.tm7'), 'utf8')).replace('</ThreatModel>', '<Extension xmlns="urn:tmforge:test">kept</Extension></ThreatModel>');
+		await writeFile(nativePath, source);
+		const native = await vscode.workspace.openTextDocument(nativePath);
+		await vscode.commands.executeCommand('vscode.openWith', native.uri, 'tmforge.studio');
+		await api.waitUntilRendered(native);
+		const baseline = await invoke('tmforge_inspect_model', { uri: native.uri.toString() });
+		const next = structuredClone(baseline.model);
+		next.elements.find((element: { name: string }) => element.name === 'Orders API').name = 'Copilot native API';
+		next.diagrams[0].elements.find((element: { name: string }) => element.name === 'Orders API').name = 'Copilot native API';
+		await invoke('tmforge_update_model', { uri: native.uri.toString(), revision: baseline.revision, model: next });
+		assert.match(native.getText(), /Copilot native API/);
+		assert.match(native.getText(), /<Extension xmlns="urn:tmforge:test">kept<\/Extension>/);
+		assert.equal(await readFile(nativePath, 'utf8'), source, 'Tool saved native edits without a save request');
+		await vscode.commands.executeCommand('undo');
+		await waitForText(native, source);
+		await native.save();
+		assert.equal(await readFile(nativePath, 'utf8'), source);
+
+		const cancelled = new vscode.CancellationTokenSource();
+		cancelled.cancel();
+		try {
+			await assert.rejects(async () => api.tools.tmforge_create_model.invoke({ input: { manifest }, toolInvocationToken: undefined }, cancelled.token), /Cancel/i);
+		} finally { cancelled.dispose(); }
+		const during = new vscode.CancellationTokenSource();
+		const applyManifest = EngineWorker.prototype.applyManifest;
+		EngineWorker.prototype.applyManifest = async function (input) {
+			const candidate = await applyManifest.call(this, input);
+			during.cancel();
+			return candidate;
+		};
+		try {
+			const untitledCount = vscode.workspace.textDocuments.filter(document => document.isUntitled && !document.isClosed).length;
+			await assert.rejects(async () => api.tools.tmforge_create_model.invoke({ input: { manifest }, toolInvocationToken: undefined }, during.token), /Cancel/i);
+			assert.equal(vscode.workspace.textDocuments.filter(document => document.isUntitled && !document.isClosed).length, untitledCount);
+		} finally { EngineWorker.prototype.applyManifest = applyManifest; during.dispose(); }
+		const configuration = vscode.workspace.getConfiguration('tmforge');
+		await configuration.update('copilot.enabled', false, vscode.ConfigurationTarget.Global);
+		try {
+			await assert.rejects(async () => api.tools.tmforge_catalog.invoke({ input: { section: 'properties' }, toolInvocationToken: undefined }, cancellation.token), /disabled/);
+			await vscode.commands.executeCommand('tmforge.newModel');
+			const ordinary = vscode.workspace.textDocuments.find(document => document.isUntitled && !document.isClosed);
+			assert.ok(ordinary, 'Disabling Copilot must not disable ordinary model creation');
+			await api.waitUntilRendered(ordinary);
+			await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+		} finally { await configuration.update('copilot.enabled', undefined, vscode.ConfigurationTarget.Global); }
+		const confirmation = await api.tools.tmforge_update_model.prepareInvocation?.({ input: { uri: native.uri.toString(), revision: baseline.revision, model: next } }, cancellation.token);
+		assert.match(String(confirmation?.confirmationMessages?.message), /undoable/);
+		await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+		console.log('Copilot tools passed: real tool registration/invocation, catalogs, invalid-create refusal, unsaved draft, analysis, stable IDs, stale/invalid-edit rejection, undo/redo, native preservation, and cancellation.');
+	} finally { cancellation.dispose(); }
 }
 
 function waitForText(document: vscode.TextDocument, expected: string): Promise<void> {

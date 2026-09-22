@@ -98,3 +98,32 @@ commands, and assets have been removed.
 Inspection limits are 8 MiB input, 32 pages, 1,024 elements, 2,048 lines, one million element/line pairs,
 16 MiB results, and 30 seconds per queued inspection. A timeout stops the worker; retry restarts it.
 Native WebAssembly memory is not covered by Node's JavaScript heap limit.
+
+### Copilot Integration
+
+The extension owns a [tmforge-vscode skill](ThreatModelForge.Vscode/copilot/skills/tmforge-vscode/SKILL.md),
+contributed directly through `chatSkills` with `user-invocable: true`. Copilot's normal agent can load it
+on demand or through `/tmforge-vscode`; no custom agent is bundled. Keep it independent of
+`plugins/tmforge`: Strider's CLI workflow must not acquire editor-specific branches or dependencies.
+No resources are copied into the user's workspace or profile, and the CLI plugin is not bundled in the VSIX.
+
+Four `languageModelTools` use the existing worker and document lifecycle: catalog, create, inspect,
+and update. Catalogs come from the bundled engine/schema; creation preflights and applies a manifest
+before opening a separate draft. Inspection uses current open-document text. Updates require an
+opaque version/content token and pass through Studio's queued, validating `WorkspaceEdit` path.
+Cancellation is checked before mutation. Tool inputs are capped at 8 MiB and chat results at 1 MiB.
+No Copilot extension dependency, proposed API, model request, shell command, or new runtime dependency
+is needed. `tmforge.copilot.enabled` controls contributions and is also checked at invocation.
+The skill's instruction to use tmforge tools is behavioral guidance, not a tool allowlist. The current
+agent retains its other tools; only tmforge tool calls receive these validation and revision checks.
+
+The supported host minimum is 1.138.0. A 1.109.5 trial exposed untitled custom-editor dirty/render
+failures even though its contribution APIs exist; do not lower the minimum based on API availability
+alone. The release matrix reads the declared minimum from the manifest.
+
+The existing extension-host suite invokes the actual registered tools in an isolated profile, without
+a signed-in Copilot session or CLI plugin. Set `TMFORGE_TEST_COPILOT=1` for the focused tool checks.
+This verifies deterministic tool behavior, not an LLM's adherence or discovery in a signed-in chat.
+Before publishing, also verify the `/tmforge-vscode` entry, automatic skill loading, confirmation UI,
+and a synthetic create/inspect/update conversation in a clean Copilot-enabled profile. Do not use
+confidential input.

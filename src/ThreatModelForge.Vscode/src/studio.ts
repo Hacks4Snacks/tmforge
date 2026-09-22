@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
+import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { EngineWorker, MAX_DOCUMENT_BYTES, MAX_REQUEST_BYTES } from './engine';
 import { applyModelChange, textChange } from './document';
@@ -14,13 +15,14 @@ interface Session {
 	rendered: Map<vscode.WebviewPanel, number>;
 	ready?: boolean;
 	error?: string;
+	name?: string;
 }
 
 export class StudioEditors implements vscode.CustomTextEditorProvider, vscode.Disposable {
 	private readonly sessions = new Map<string, Session>();
 	private readonly subscriptions: vscode.Disposable[];
 
-	constructor(private readonly context: vscode.ExtensionContext, private readonly reanalyze: (document: vscode.TextDocument) => void) {
+	constructor(private readonly context: vscode.ExtensionContext, private readonly reanalyze: (document: vscode.TextDocument) => void, private readonly creationEngine: EngineWorker) {
 		this.subscriptions = [
 			vscode.workspace.onDidChangeTextDocument(event => {
 				const session = this.sessions.get(event.document.uri.toString());
@@ -45,6 +47,10 @@ export class StudioEditors implements vscode.CustomTextEditorProvider, vscode.Di
 
 	engineFor(document: vscode.TextDocument): EngineWorker | undefined {
 		return this.sessions.get(document.uri.toString())?.engine;
+	}
+
+	isDraft(document: vscode.TextDocument): boolean {
+		return document.isUntitled && this.sessions.has(document.uri.toString());
 	}
 
 	private session(document: vscode.TextDocument): Session {
@@ -97,34 +103,9 @@ export class StudioEditors implements vscode.CustomTextEditorProvider, vscode.Di
 	}
 
 	private documentStatus(document: vscode.TextDocument) {
-		return { version: document.version, dirty: document.isDirty, fileName: basename(document.uri.path),
+		return { version: document.version, dirty: document.isDirty, fileName: document.isUntitled ? this.sessions.get(document.uri.toString())?.name ?? 'model.tmforge.json' : basename(document.uri.path),
 			format: document.uri.path.toLowerCase().endsWith('.tm7') ? 'tm7' : 'tmforge-json',
 			theme: vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark || vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrast ? 'dark' : 'light' };
-	}
-
-	private async preflight(engine: EngineWorker, text: string, format = 'tmforge-json'): Promise<{ model: Record<string, unknown>; warnings: string[] }> {
-		if (Buffer.byteLength(text, 'utf8') > MAX_DOCUMENT_BYTES) throw new Error('Model documents are limited to 8 MiB.');
-		const content = Buffer.from(text).toString('base64');
-		const result = JSON.parse(await engine.invoke('Preflight', [content, format, format === 'tm7' ? 'tmforge-json' : ''])) as {
-			success: boolean; diagnostics: { code: string; severity: string; path: string; message: string }[];
-		};
-		if (!result.success) throw new Error(result.diagnostics.filter(item => item.severity === 'error').map(item => `${item.path}: ${item.message}`).join('\n') || 'The model is invalid.');
-		const model = JSON.parse(format === 'tm7' ? await engine.invoke('ReadFile', [content, 'tm7']) : text) as Record<string, unknown> & {
-			diagrams?: { elements?: unknown[]; flows?: unknown[] }[]; elements?: unknown[]; flows?: unknown[];
-		};
-		const pages = model.diagrams?.length ? model.diagrams : [model];
-		const elements = pages.reduce((count, page) => count + (page.elements?.length ?? 0), 0);
-		const flows = pages.reduce((count, page) => count + (page.flows?.length ?? 0), 0);
-		if (pages.length > 32 || elements > 1024 || flows > 2048 || elements * flows > 1000000) {
-			throw new Error('Studio is limited to 32 pages, 1024 elements, 2048 flows and one million element/flow pairs.');
-		}
-		return {
-			model: { ...model, elements: model.elements ?? [], flows: model.flows ?? [] },
-			warnings: result.diagnostics.filter(item => item.code !== 'conversion.knowledge-base' && item.code !== 'conversion.generated-register')
-				.map(item => item.code === 'conversion.line-boundaries'
-					? 'Native line trust boundaries are retained on save but are not shown on the canvas. Canvas analysis may omit their crossings. Deleting a page also removes its hidden objects.'
-					: item.message),
-		};
 	}
 
 	private async publish(session: Session, except?: vscode.WebviewPanel): Promise<void> {
@@ -135,7 +116,7 @@ export class StudioEditors implements vscode.CustomTextEditorProvider, vscode.Di
 		try {
 			if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace before editing models.');
 			const text = session.document.getText();
-			({ model, warnings } = await this.preflight(session.engine, text, this.documentStatus(session.document).format));
+			({ model, warnings } = await session.engine.readModel(text, this.documentStatus(session.document).format));
 		} catch (failure) { error = failure instanceof Error ? failure.message : String(failure); }
 		if (session.document.isClosed || session.document.version !== version) return;
 		for (const panel of session.panels) {
@@ -143,24 +124,25 @@ export class StudioEditors implements vscode.CustomTextEditorProvider, vscode.Di
 		}
 	}
 
-	async edit(document: vscode.TextDocument, version: number, previous: unknown, next: unknown, origin?: vscode.WebviewPanel): Promise<{ version: number; dirty: boolean }> {
+	async edit(document: vscode.TextDocument, version: number, previous: unknown, next: unknown, origin?: vscode.WebviewPanel, token?: vscode.CancellationToken): Promise<{ version: number; dirty: boolean }> {
 		const session = this.session(document);
 		const operation = session.queue.then(async () => {
 			if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace before editing models.');
 			const native = document.uri.path.toLowerCase().endsWith('.tm7');
-			if (!native && !document.uri.path.toLowerCase().endsWith('.tmforge.json')) throw new Error('Studio edits only .tm7 and .tmforge.json documents.');
+			if (!native && !this.isDraft(document) && !document.uri.path.toLowerCase().endsWith('.tmforge.json')) throw new Error('Studio edits only .tm7 and .tmforge.json documents.');
 			const ensureCurrent = () => {
+				if (token?.isCancellationRequested) throw new vscode.CancellationError();
 				if (document.isClosed || version !== document.version) throw new Error('The document changed in another editor. Reloaded the current source; retry your edit.');
 			};
 			ensureCurrent();
 			const text = document.getText();
-			const baseline = native ? JSON.stringify((await this.preflight(session.engine, text, 'tm7')).model) : text;
+			const baseline = native ? JSON.stringify((await session.engine.readModel(text, 'tm7')).model) : text;
 			const model = applyModelChange(baseline, previous, next);
 			ensureCurrent();
 			if (model === baseline) return { version: document.version, dirty: document.isDirty };
-			await this.preflight(session.engine, model);
+			await session.engine.readModel(model);
 			const updated = native ? Buffer.from(await session.engine.invoke('SaveTm7', [Buffer.from(text).toString('base64'), model]), 'base64').toString('utf8') : model;
-			if (native) await this.preflight(session.engine, updated, 'tm7');
+			if (native) await session.engine.readModel(updated, 'tm7');
 			ensureCurrent();
 			if (text !== updated) {
 				const change = textChange(text, updated);
@@ -185,20 +167,23 @@ export class StudioEditors implements vscode.CustomTextEditorProvider, vscode.Di
 		}
 		const text = document.getText();
 		const version = document.version;
-		await this.preflight(session.engine, text, 'tm7');
+		await session.engine.readModel(text, 'tm7');
 		if (document.isClosed || document.version !== version) throw new Error('The native document changed before export completed. Retry the export.');
 		return Buffer.from(text).toString('base64');
 	}
 
-	async create(model: unknown = { schema: 'tmforge-json', version: '0.1', elements: [], flows: [] }, name = 'model.tmforge.json'): Promise<void> {
+	async create(model: unknown = { schema: 'tmforge-json', version: '0.1', elements: [], flows: [] }, name = 'model.tmforge.json', token?: vscode.CancellationToken): Promise<vscode.TextDocument> {
+		if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace before creating models.');
+		await this.creationEngine.readModel(JSON.stringify(model));
+		if (token?.isCancellationRequested) throw new vscode.CancellationError();
 		const safeName = basename(name).replace(/[^a-zA-Z0-9._-]/g, '-').replace(/\.tmforge\.json$/i, '');
-		const uri = vscode.Uri.from({ scheme: 'untitled', path: `${safeName}-${randomUUID().slice(0, 8)}.tmforge.json` });
-		const document = await vscode.workspace.openTextDocument(uri);
-		const edits = new vscode.WorkspaceEdit();
-		edits.insert(uri, new vscode.Position(0, 0), JSON.stringify(model, null, 2) + '\n');
-		await vscode.workspace.applyEdit(edits);
-		await vscode.languages.setTextDocumentLanguage(document, 'json');
+		const document = await vscode.workspace.openTextDocument({ language: 'json', content: JSON.stringify(model, null, 2) + '\n' });
+		const uri = document.uri;
+		if (token?.isCancellationRequested) throw new vscode.CancellationError();
+		this.session(document).name = `${safeName}.tmforge.json`;
 		await vscode.commands.executeCommand('vscode.openWith', uri, 'tmforge.studio');
+		if (token?.isCancellationRequested) throw new vscode.CancellationError();
+		return document;
 	}
 
 	private async receive(session: Session, panel: vscode.WebviewPanel, message: Record<string, unknown>): Promise<void> {
@@ -207,9 +192,9 @@ export class StudioEditors implements vscode.CustomTextEditorProvider, vscode.Di
 			if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace before editing models.');
 			if (Buffer.byteLength(JSON.stringify(message), 'utf8') > MAX_REQUEST_BYTES) throw new Error('Studio requests are limited to 16 MiB.');
 			const result = await this.action(session, panel, message.method, message.params as Record<string, unknown> ?? {});
-			void panel.webview.postMessage({ type: 'response', id: message.id, result });
+			if (session.panels.has(panel)) void panel.webview.postMessage({ type: 'response', id: message.id, result });
 		} catch (failure) {
-			void panel.webview.postMessage({ type: 'response', id: message.id, error: failure instanceof Error ? failure.message : String(failure) });
+			if (session.panels.has(panel)) void panel.webview.postMessage({ type: 'response', id: message.id, error: failure instanceof Error ? failure.message : String(failure) });
 			if (message.method === 'edit') void this.publish(session);
 		}
 	}
@@ -249,13 +234,14 @@ export class StudioEditors implements vscode.CustomTextEditorProvider, vscode.Di
 				return { name: basename(picked[0].path), content: Buffer.from(await vscode.workspace.fs.readFile(picked[0])).toString('base64') };
 			}
 			case 'create':
-				await this.preflight(session.engine, JSON.stringify(params.model));
+				await session.engine.readModel(JSON.stringify(params.model));
 				await this.create(params.model, typeof params.name === 'string' ? params.name : undefined);
 				return null;
 			case 'download': {
 				if (typeof params.content !== 'string' || typeof params.name !== 'string') throw new Error('Invalid export.');
 				const content = Buffer.from(params.content, 'base64');
-				const target = await vscode.window.showSaveDialog({ defaultUri: vscode.Uri.joinPath(document.uri.with({ scheme: document.isUntitled ? 'file' : document.uri.scheme }), '..', basename(params.name)), saveLabel: 'Export' });
+				const directory = document.isUntitled ? vscode.workspace.workspaceFolders?.[0]?.uri ?? vscode.Uri.file(homedir()) : vscode.Uri.joinPath(document.uri, '..');
+				const target = await vscode.window.showSaveDialog({ defaultUri: vscode.Uri.joinPath(directory, basename(params.name)), saveLabel: 'Export' });
 				if (!target) return null;
 				if (target.toString() === document.uri.toString()) throw new Error('Use Save to update the open model, or export to a separate file.');
 				await vscode.workspace.fs.writeFile(target, content);

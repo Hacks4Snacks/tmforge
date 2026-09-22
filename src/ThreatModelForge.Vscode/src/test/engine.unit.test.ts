@@ -66,6 +66,33 @@ test('bundled worker supports Studio catalogs, analysis and native export', asyn
   } finally { worker.dispose(); }
 });
 
+test('Copilot manifest candidates have stable identities and reject invalid topology without a CLI', async () => {
+  const worker = new EngineWorker(runtime, 30000, sourceWorker);
+  const manifest = {
+    schema: 'tmforge-manifest', version: 1, name: 'Copilot draft',
+    elements: [
+      { alias: 'api', kind: 'process', name: 'API', props: { AuthenticationScheme: 'Unknown' } },
+      { alias: 'data', kind: 'store', name: 'Data', props: { StoresCredentials: 'Yes', Encrypted: 'Unknown' } },
+    ],
+    flows: [{ alias: 'write', from: 'api', to: 'data', name: 'Write', props: { Protocol: 'Unknown' } }],
+  };
+  try {
+    const first = await worker.applyManifest(manifest);
+    assert.deepEqual(await worker.applyManifest(manifest), first);
+    const elements = first.model.elements as { id: string; properties: Record<string, string> }[];
+    assert.equal(elements.length, 2);
+    assert.equal(new Set(elements.map(element => element.id)).size, 2);
+    assert.ok(elements.some(element => element.properties.Encrypted === 'Unknown'));
+    const inspection = await worker.inspect(Buffer.from(JSON.stringify(first.model)), 'tmforge-json');
+    assert.equal(inspection.pages.length, 1);
+    assert.ok(inspection.analysis?.findings.some(finding => /not evidenced/.test(finding.message)));
+    await assert.rejects(worker.applyManifest({ ...manifest, flows: [{ from: 'api', to: 'missing' }] }), /missing/i);
+    await assert.rejects(worker.applyManifest({ ...manifest, elements: [{ alias: 'api', kind: 'process', properties: {} }] }), /properties/i);
+    await assert.rejects(worker.applyManifest({ schema: 'tmforge-rules', version: 2 }), /schema|manifest/i);
+    await assert.rejects(worker.applyManifest({ name: 'x'.repeat(MAX_DOCUMENT_BYTES) }), /8 MiB/);
+  } finally { worker.dispose(); }
+});
+
 test('native saves retain source bytes, opaque XML and previous native edits', async () => {
   const worker = new EngineWorker(runtime, 30000, sourceWorker);
   try {

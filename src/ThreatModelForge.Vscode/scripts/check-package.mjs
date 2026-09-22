@@ -80,13 +80,13 @@ export async function stageChangelog(extensionRoot = root) {
 
 async function checkPackage() {
   const manifest = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
-  for (const path of [manifest.main, 'out/engine-worker.mjs', 'engine/package.json', 'engine/_framework/dotnet.js', 'engine/_framework/dotnet.native.wasm', 'engine/_framework/ThreatModelForge.Wasm.wasm', 'engine/_framework/ThreatModelForge.Engine.wasm', 'media/studio/studio.js', 'media/studio/studio.css', 'schemas/tmforge-rules-v2.schema.json', 'LICENSE.md', 'NOTICE', ...manifest.contributes.jsonValidation.map(entry => entry.url)]) {
+  for (const path of [manifest.main, 'out/engine-worker.mjs', 'engine/package.json', 'engine/_framework/dotnet.js', 'engine/_framework/dotnet.native.wasm', 'engine/_framework/ThreatModelForge.Wasm.wasm', 'engine/_framework/ThreatModelForge.Engine.wasm', 'media/studio/studio.js', 'media/studio/studio.css', 'schemas/tmforge-rules-v2.schema.json', 'LICENSE.md', 'NOTICE', ...manifest.contributes.jsonValidation.map(entry => entry.url), ...manifest.contributes.chatSkills.map(entry => entry.path)]) {
     await access(resolve(root, path));
   }
   if (manifest.dependencies && Object.keys(manifest.dependencies).length) throw new Error('Runtime dependencies require explicit VSIX packaging support.');
   if (/process\.env/.test(await readFile(resolve(root, 'media/studio/studio.js'), 'utf8'))) throw new Error('Studio must be bundled for the browser, without Node globals.');
   await stageChangelog();
-  console.log('VSIX inputs verified; bundled WASM runtime, Studio, and version-matched extension release notes are present.');
+  console.log('VSIX inputs verified; bundled WASM, Studio, Copilot resources, and version-matched extension release notes are present.');
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

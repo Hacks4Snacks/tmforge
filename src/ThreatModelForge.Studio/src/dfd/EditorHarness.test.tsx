@@ -290,6 +290,27 @@ describe('Hosted Studio documents', () => {
     await waitFor(() => expect(host.onChange).toHaveBeenCalledOnce());
   });
 
+  it('publishes Tidy on the first page with its mirrored geometry', async () => {
+    const { Editor } = await import('./Editor');
+    const host = await makeHost();
+    host.model.diagrams = [
+      { id: 'first', name: 'First', elements: host.model.elements, flows: host.model.flows },
+      { id: 'second', name: 'Second', elements: [], flows: [] },
+    ];
+    host.engine.layout = vi.fn(async (_model, positions) => positions!);
+    render(<ReactFlowProvider><Editor host={host} /><FlowHandle /></ReactFlowProvider>);
+    await screen.findByText('Alpha');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Tidy' })).toBeEnabled());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tidy' }));
+
+    await waitFor(() => expect(host.onChange).toHaveBeenCalledOnce());
+    const [before, after] = vi.mocked(host.onChange).mock.calls[0];
+    expect(after.elements).not.toEqual(before.elements);
+    expect(after.elements).toEqual(after.diagrams?.[0].elements);
+    expect(after.diagrams?.[1]).toEqual(before.diagrams?.[1]);
+  });
+
   it.each(['keyboard', 'inspector'])('publishes %s cascade deletion as one host edit with graph and decisions together', async method => {
     const { Editor } = await import('./Editor');
     const host = await makeHost();
@@ -734,6 +755,21 @@ describe('Editor — guarded Tidy', () => {
     }
     await waitFor(() => expect(flow!.getNode('a')?.position.x).toBe(candidate[0].x));
     expect(await undoToExhaustion()).toBe(1);
+  });
+
+  it('retains the selected page identity in the layout request', async () => {
+    const layout = vi.fn<IEngineClient['layout']>(async (_model, positions) => positions!);
+    await useLayout(layout);
+    const model = chain() as TmForgeModel;
+    model.diagrams = [{ id: 'vscode-page', name: 'VS Code and Copilot', elements: model.elements, flows: model.flows }];
+    await mountEditor(model);
+
+    await tidy();
+
+    await waitFor(() => expect(layout).toHaveBeenCalledOnce());
+    expect(layout.mock.calls[0][0].diagrams?.[0]).toMatchObject({ id: 'vscode-page', name: 'VS Code and Copilot' });
+    expect(layout.mock.calls[0][0].elements).toEqual(model.elements);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Tidy' })).toBeEnabled());
   });
 
   it('leaves geometry and undo history untouched after a refusal', async () => {

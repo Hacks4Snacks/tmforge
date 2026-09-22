@@ -15,6 +15,38 @@ For offline installation, download the VSIX from the
 Use **Threat Model Forge: Open Studio** or **Reopen Editor With** to switch a model from the
 text editor to Studio.
 
+## Create with Copilot
+
+With GitHub Copilot Chat enabled, use the normal **Agent** mode and invoke the bundled **tmforge-vscode** skill:
+
+> /tmforge-vscode Create a draft threat model for this service. Use the current implementation as evidence and keep unknown controls explicit.
+
+Copilot can also load the skill automatically when a request matches its description. There is no
+separate Tmforge agent to select.
+
+The agent queries the bundled schema and catalogs, creates a new unsaved JSON model,
+opens it in Studio, and reads it back for analysis. New drafts appear in an **Untitled** tab without
+an associated filesystem path. Review the diagram and findings, then use **Save** to choose a
+location and a filename ending in `.tmforge.json`.
+
+For updates, open a model and ask the agent to inspect or change it. Updates use the current document,
+including unsaved changes, and are undoable. A revision check refuses edits based on stale content.
+Native TM7 changes use the same source-preserving engine path as Studio. The tools do not explicitly
+save files; VS Code's **Auto Save** setting still applies. Deleting objects can remove their dependent
+threats and decisions, just as in Studio.
+
+The four tools are available to Copilot's general agent: `#tmforgeCatalog`, `#tmforgeCreateModel`,
+`#tmforgeInspectModel`, and `#tmforgeUpdateModel`. Inspection and updates only access already-open
+model documents. Chat results are limited to 1 MiB; larger models remain available in Studio.
+
+The skill instructs Copilot to use tmforge tools for model changes, but does not restrict the current
+agent's available tools. Validation and revision checks apply to tmforge tool calls; generic file
+edits can bypass them.
+
+Set `tmforge.copilot.enabled` to `false` to disable these contributions. Studio and local analysis
+continue to work without Copilot. If the skill is missing, check that Copilot Chat and agent mode are
+available under your organization's policy, the workspace is trusted, and the integration is enabled.
+
 ## Review Findings
 
 VS Code's **Problems** panel updates when you open or save a model. Choose **Analyze** in Studio to
@@ -68,7 +100,7 @@ These editing hints do not run custom rules or apply suppressions to a model.
 
 ## Supported Workflows
 
-Use desktop VS Code in a trusted workspace, including remote development workspaces.
+Use desktop VS Code 1.138 or later in a trusted workspace, including remote development workspaces.
 Browser-only VS Code and virtual workspaces are not supported.
 
 Studio analysis uses tmforge's built-in rules and respects the model's disabled-rule selections.
@@ -85,6 +117,12 @@ of 8 MiB. More complex models may exceed processing limits. Analysis requests ti
 
 Analysis runs on your computer or, when using remote development, on your remote host. The extension
 does not send model contents to a separate analysis service.
+
+When using Copilot, repository evidence, model content returned by tools, and findings become part
+of the Copilot conversation and follow its data-handling policies. Local engine execution does not
+make a Copilot conversation offline or prevent that context from reaching your selected model provider.
+Use only material you are authorized to share. The extension does not make model-provider requests
+itself, install software, or change Copilot's approval settings.
 
 ## Support
 

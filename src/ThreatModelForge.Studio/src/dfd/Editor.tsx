@@ -2020,7 +2020,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
     try {
       let positioned = nodes;
       if (mode !== 'labels') {
-        const original = toModel(nodes, edges);
+        const original = modelFromPages(allPages.filter(page => page.id === activePageId).map(page => ({ ...page, preserveIdentity: true })));
         const candidate = tidyGraph(nodes, edges, 'exact');
         const positions = toModel(candidate.nodes, candidate.edges).elements.map((element) => ({
           id: element.id, x: element.x, y: element.y, width: element.width!, height: element.height!,
@@ -2050,7 +2050,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
         setTidying(false);
       }
     }
-  }, [engine, nodes, edges, setNodes, setEdges, takeSnapshot, fitView]);
+  }, [engine, nodes, edges, allPages, activePageId, setNodes, setEdges, takeSnapshot, fitView]);
 
   const actions = useMemo<DfdActions>(
     () => ({ beginEdit: takeSnapshot, renameNode, renameEdge, setEdgeLabelOffset }),

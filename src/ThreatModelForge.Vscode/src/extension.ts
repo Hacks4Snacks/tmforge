@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { join } from 'node:path';
 import { EngineWorker, MAX_DOCUMENT_BYTES, type Inspection } from './engine';
 import { StudioEditors } from './studio';
+import { createCopilotTools } from './copilot.js';
 
 interface DocumentState {
 	version: number;
@@ -9,10 +10,11 @@ interface DocumentState {
 	pending?: Promise<Inspection>;
 }
 
-export function sourceFormat(document: vscode.TextDocument): string | undefined {
+export function sourceFormat(document: vscode.TextDocument, studio?: StudioEditors): string | undefined {
 	const path = document.uri.path.toLowerCase();
 	if (path.endsWith('.tm7')) return 'tm7';
 	if (path.endsWith('.tmforge.json')) return 'tmforge-json';
+	if (studio?.isDraft(document)) return 'tmforge-json';
 	return undefined;
 }
 
@@ -27,7 +29,9 @@ export function activate(context: vscode.ExtensionContext) {
 	const diagnostics = vscode.languages.createDiagnosticCollection('tmforge');
 	const states = new Map<string, DocumentState>();
 	let disposed = false;
-	const studio = new StudioEditors(context, document => { states.delete(document.uri.toString()); void inspect(document); });
+	const studio = new StudioEditors(context, document => { states.delete(document.uri.toString()); void inspect(document); }, engine);
+	const tools = createCopilotTools(context, engine, studio, activeModelUri);
+	for (const [name, tool] of Object.entries(tools)) context.subscriptions.push(vscode.lm.registerTool<unknown>(name, tool));
 	context.subscriptions.push(engine, studio, diagnostics, { dispose: () => { disposed = true; states.clear(); } });
 
 	const inspect = (document: vscode.TextDocument): Promise<Inspection> => {
@@ -44,7 +48,7 @@ export function activate(context: vscode.ExtensionContext) {
 			let result: Inspection;
 			try {
 				if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace before running model analysis.');
-				const format = sourceFormat(document);
+				const format = sourceFormat(document, studio);
 				if (!format) throw new Error('Open a .tm7 or .tmforge.json model.');
 				const text = document.getText();
 				if (Buffer.byteLength(text, 'utf8') > MAX_DOCUMENT_BYTES) throw new Error('Model inspection is limited to 8 MiB.');
@@ -70,21 +74,22 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('tmforge.newModel', () => studio.create()),
 		vscode.commands.registerCommand('tmforge.openStudio', async (uri?: vscode.Uri) => {
 			const target = uri ?? activeModelUri();
-			if (!target || !/\.(tm7|tmforge\.json)$/i.test(target.path)) { void vscode.window.showInformationMessage('Open a .tm7 or .tmforge.json model to edit in Studio.'); return; }
+			const document = vscode.workspace.textDocuments.find(candidate => candidate.uri.toString() === target?.toString());
+			if (!target || (!/\.(tm7|tmforge\.json)$/i.test(target.path) && (!document || !studio.isDraft(document)))) { void vscode.window.showInformationMessage('Open a .tm7 or .tmforge.json model to edit in Studio.'); return; }
 			await vscode.commands.executeCommand('vscode.openWith', target, 'tmforge.studio');
 		}),
 		vscode.commands.registerCommand('tmforge.analyze', async (uri?: vscode.Uri) => {
 			const target = uri ?? activeModelUri();
 			const document = target ? await vscode.workspace.openTextDocument(target) : undefined;
-			if (!document || !sourceFormat(document)) { void vscode.window.showInformationMessage('Open a .tm7 or .tmforge.json model first.'); return; }
+			if (!document || !sourceFormat(document, studio)) { void vscode.window.showInformationMessage('Open a .tm7 or .tmforge.json model first.'); return; }
 			states.delete(document.uri.toString());
 			await inspect(document);
 			await vscode.commands.executeCommand('workbench.actions.view.problems');
 		}),
-		vscode.workspace.onDidOpenTextDocument(document => { if (sourceFormat(document)) void inspect(document); }),
-		vscode.workspace.onDidSaveTextDocument(document => { if (sourceFormat(document)) void inspect(document); }),
+		vscode.workspace.onDidOpenTextDocument(document => { if (sourceFormat(document, studio)) void inspect(document); }),
+		vscode.workspace.onDidSaveTextDocument(document => { if (sourceFormat(document, studio)) void inspect(document); }),
 		vscode.workspace.onDidChangeTextDocument(event => {
-			if (!sourceFormat(event.document) || event.contentChanges.length === 0) return;
+			if (!sourceFormat(event.document, studio) || event.contentChanges.length === 0) return;
 			const key = event.document.uri.toString();
 			states.set(key, { version: event.document.version });
 			diagnostics.delete(event.document.uri);
@@ -94,11 +99,11 @@ export function activate(context: vscode.ExtensionContext) {
 			diagnostics.delete(document.uri);
 		}),
 		vscode.workspace.onDidGrantWorkspaceTrust(() => {
-			for (const document of vscode.workspace.textDocuments) if (sourceFormat(document)) { states.delete(document.uri.toString()); void inspect(document); }
+			for (const document of vscode.workspace.textDocuments) if (sourceFormat(document, studio)) { states.delete(document.uri.toString()); void inspect(document); }
 		}),
 	);
-	for (const document of vscode.workspace.textDocuments) if (sourceFormat(document)) void inspect(document);
-	return { inspect, diagnostics, edit: studio.edit.bind(studio), nativeSource: studio.nativeSource.bind(studio), waitUntilRendered: studio.waitUntilRendered.bind(studio) };
+	for (const document of vscode.workspace.textDocuments) if (sourceFormat(document, studio)) void inspect(document);
+	return { inspect, diagnostics, tools, edit: studio.edit.bind(studio), nativeSource: studio.nativeSource.bind(studio), waitUntilRendered: studio.waitUntilRendered.bind(studio) };
 }
 
 function toDiagnostics(result: Inspection, document: vscode.TextDocument): vscode.Diagnostic[] {

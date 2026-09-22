@@ -3,6 +3,7 @@
 src/**
 scripts/**
 out/test/**
+out/copilot/**
 node_modules/**
 package-lock.json
 *.vsix
