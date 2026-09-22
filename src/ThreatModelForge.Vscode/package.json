@@ -2,7 +2,7 @@
   "name": "tmforge",
   "displayName": "Threat Model Forge",
   "description": "Edit and analyze native TM7 and JSON threat models in Studio within VS Code",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "publisher": "hacks4snacks",
   "license": "MIT",
   "homepage": "https://github.com/Hacks4Snacks/tmforge#readme",
@@ -77,8 +77,21 @@
         "when": "isWorkspaceTrusted && config.tmforge.copilot.enabled",
         "inputSchema": {
           "type": "object",
-          "properties": { "section": { "type": "string", "enum": ["manifest", "stencils", "properties", "rules", "formats"] } },
-          "required": ["section"],
+          "properties": {
+            "section": {
+              "type": "string",
+              "enum": [
+                "manifest",
+                "stencils",
+                "properties",
+                "rules",
+                "formats"
+              ]
+            }
+          },
+          "required": [
+            "section"
+          ],
           "additionalProperties": false
         }
       },
@@ -93,10 +106,19 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "manifest": { "type": "object", "description": "A complete tmforge-manifest object following the schema returned by tmforgeCatalog. Elements use props, not properties." },
-            "name": { "type": "string", "maxLength": 120, "description": "Suggested filename, not a filesystem path. VS Code chooses the save location later." }
+            "manifest": {
+              "type": "object",
+              "description": "A complete tmforge-manifest object following the schema returned by tmforgeCatalog. Elements use props, not properties."
+            },
+            "name": {
+              "type": "string",
+              "maxLength": 120,
+              "description": "Suggested filename, not a filesystem path. VS Code chooses the save location later."
+            }
           },
-          "required": ["manifest"],
+          "required": [
+            "manifest"
+          ],
           "additionalProperties": false
         }
       },
@@ -110,7 +132,12 @@
         "when": "isWorkspaceTrusted && config.tmforge.copilot.enabled",
         "inputSchema": {
           "type": "object",
-          "properties": { "uri": { "type": "string", "description": "Exact URI of an already-open model, including its file:, untitled: or vscode-remote: scheme." } },
+          "properties": {
+            "uri": {
+              "type": "string",
+              "description": "Exact URI of an already-open model, including its file:, untitled: or vscode-remote: scheme."
+            }
+          },
           "additionalProperties": false
         }
       },
@@ -125,11 +152,24 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "uri": { "type": "string", "description": "Exact open-document URI returned by inspection." },
-            "revision": { "type": "string", "description": "Opaque revision token returned by the latest inspection; do not construct it." },
-            "model": { "type": "object", "description": "Complete updated tmforge-json model, based on inspection rather than a regenerated manifest." }
+            "uri": {
+              "type": "string",
+              "description": "Exact open-document URI returned by inspection."
+            },
+            "revision": {
+              "type": "string",
+              "description": "Opaque revision token returned by the latest inspection; do not construct it."
+            },
+            "model": {
+              "type": "object",
+              "description": "Complete updated tmforge-json model, based on inspection rather than a regenerated manifest."
+            }
           },
-          "required": ["uri", "revision", "model"],
+          "required": [
+            "uri",
+            "revision",
+            "model"
+          ],
           "additionalProperties": false
         }
       }

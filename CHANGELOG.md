@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.1](https://github.com/Hacks4Snacks/tmforge/compare/v0.12.0...v0.12.1) (2026-09-22)
+
+
+### Bug Fixes
+
+* Address bug with VSCode Extension TM Save ([#128](https://github.com/Hacks4Snacks/tmforge/issues/128)) ([6919317](https://github.com/Hacks4Snacks/tmforge/commit/69193178b678fc12676dfd4a0bc9118786df4110))
+* adjust action sequencing to prevent PR generation with incorrect verison ([#125](https://github.com/Hacks4Snacks/tmforge/issues/125)) ([f237b9d](https://github.com/Hacks4Snacks/tmforge/commit/f237b9d1d95178393658531d56c15e729856dc21))
+
 ## [0.12.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.11.0...v0.12.0) (2026-09-21)
 
 
