@@ -4,6 +4,11 @@ The Threat Model Forge **engine API** exposes a small, versioned `/v1` HTTP surf
 .NET engine, and serves the [Studio](studio-guide.md) single-page app from its root, so the API and
 UI ship as one hosted artifact.
 
+**The API has no built-in authentication or authorization and does not store submitted models.**
+Use a local listener or provide your own authenticated ingress for shared deployments. Read the
+[security posture](deployment.md#security-posture) for data-handling, input-limit, CORS, TLS, and
+resource-isolation responsibilities before exposing the service.
+
 The API contract is the single source of truth: the OpenAPI document at `/openapi/v1.json` is what
 Studio's typed client is generated from. A checked-in copy lives at
 [`src/ThreatModelForge.Api/openapi/v1.json`](../src/ThreatModelForge.Api/openapi/v1.json).
@@ -12,10 +17,10 @@ Studio's typed client is generated from. A checked-in copy lives at
 
 ```bash
 # From source: serves the built Studio SPA at the root.
-dotnet run --project src/ThreatModelForge.Api        # http://localhost:5205/
+dotnet run --project src/ThreatModelForge.Api -- --urls http://localhost:5205
 
 # Container: the published engine API + Studio image (pulls on first run).
-docker run --rm -p 8080:8080 ghcr.io/hacks4snacks/tmforge   # http://localhost:8080/
+docker run --rm -p 127.0.0.1:8080:8080 ghcr.io/hacks4snacks/tmforge  # http://localhost:8080/
 ```
 
 Any non-API path falls back to Studio's `index.html` (so client-side routes resolve), while `/v1`
@@ -39,6 +44,7 @@ and `/openapi` are matched first.
 | `POST /v1/model/analysis-document` | Model | Record the analysis as a versioned, reconcilable `tmforge-analysis` document. |
 | `POST /v1/model/threats` | Model | Generate the STRIDE threat register (rule threats plus the model's author overlay). |
 | `POST /v1/model/threat-register` | Model | Split the register by origin and standing: manual, current-generated, stale-generated, and entries whose rule was not part of the run. |
+| `POST /v1/model/merge` | Model | Merge base/ours/theirs canonical models and return the merged model plus conflicts. |
 | `POST /v1/model/read` | Model | Parse uploaded bytes (base64) into the canonical model. |
 | `POST /v1/model/preflight?to=<format>` | Model | Check source bytes and optionally preview conversion losses without writing or analyzing. |
 | `POST /v1/model/manifest` | Model | Materialize a declarative authoring manifest into a model (the `tmforge apply` build). |
@@ -51,19 +57,26 @@ and `/openapi` are matched first.
 | `POST /v1/model/analysis-report?format=<sarif\|html\|json>` | Report | Render the analysis findings as SARIF, HTML, or JSON. |
 | `GET /openapi/v1.json` | n/a | The OpenAPI document. |
 
-`<format>` is one of `tm7`, `tmforge-json`, `drawio`, or `vsdx`. See
+Writable format ids are `tm7`, `tmforge-json`, `drawio`, and `vsdx`. Read/preflight additionally accept
+the import-only `threat-dragon`, `mermaid`, and `dot` formats. Query `/v1/formats` for each format's
+read/write capabilities rather than assuming every registered reader is an export target. See
 [Formats & interoperability](formats.md).
 
 ## Errors
 
-Failures are answered as [RFC 9457 problem documents](https://www.rfc-editor.org/rfc/rfc9457)
-(`application/problem+json`), and the status separates what you can fix from what you cannot:
+Handled input exceptions and API fallback errors use
+[RFC 9457 problem documents](https://www.rfc-editor.org/rfc/rfc9457) (`application/problem+json`).
+The common application statuses are:
 
 | Status | Meaning | Examples |
 | --- | --- | --- |
 | `400` | The request was unusable as sent. Retrying it unchanged cannot help. | Body that is not JSON; a missing `?to=`; an unregistered format id; content that is not valid base64; uploaded bytes that are not the format they claim to be. |
 | `404` | The path is not part of the `/v1` API, or the content was not recognized. | A mistyped endpoint; `POST /v1/detect` on bytes matching no known format. |
 | `500` | The server failed. This one is worth reporting. | Anything unexpected — the classification above is deliberately narrow, so a real fault is never disguised as your mistake. |
+
+Framework, web-server, and proxy rejections can use other statuses, such as `413` for a body limit
+or `415` for an unsupported content type. The input handler preserves a `BadHttpRequestException`'s
+status rather than converting every rejection to `400`; response shape can differ outside that handler.
 
 The `detail` of a `400` names what was unusable, so the request can be corrected without guesswork:
 
@@ -78,7 +91,8 @@ The `detail` of a `400` names what was unusable, so the request can be corrected
 
 An unmatched path under `/v1` answers `404` as the API rather than falling through to the Studio's
 HTML shell, so a mistyped endpoint fails as a client error instead of returning a page a JSON client
-cannot parse. Paths outside `/v1` still reach the SPA, which is what makes client-side routing work.
+cannot parse. Non-file browser routes outside `/v1` fall back to the SPA; missing static asset paths
+are not guaranteed to return the HTML shell.
 
 ## Document preflight
 
@@ -253,14 +267,16 @@ the shared validation step.
 
 ## Custom rule packs
 
-Custom rules are deployment configuration, not request input: this host never loads rules from a
-request body, so a caller cannot inject detection logic. Name the packs (files or directories) with
+Custom rule packs are deployment configuration, not request input: this host never loads new rule
+packs from a request body. Requests can still carry model properties and analysis selections that
+affect which configured rules run. Name the packs (files or directories) with
 the `TmForge:Rules` setting and they are read once at startup, then applied to every rule-reading
 endpoint — catalogs, analysis, threats, reports, and `.tm7` export — as one effective bundle:
 
 ```bash
-# a single pack, or a ';'-separated list
-TmForge__Rules='/etc/tmforge/corporate.tmrules.json' dotnet ThreatModelForge.Api.dll
+# a single pack, or a ';'-separated list; set the listener explicitly
+TmForge__Rules='/etc/tmforge/corporate.tmrules.json' \
+  dotnet ThreatModelForge.Api.dll --urls http://localhost:8080
 ```
 
 Confirm what actually loaded before trusting a clean run:
@@ -300,7 +316,8 @@ curl http://localhost:8080/v1/stencils         # authoring stencils
 ### Analyze a model
 
 `POST /v1/model/analyze` returns findings for a supplied model, the same rule engine `tmforge analyze`
-uses. This is how Studio's **Analyze** button overlays findings on the canvas.
+uses. Studio uses the combined `/v1/model/analysis` operation for findings, threats, and recorded
+analysis from one evaluation; its WASM transport exposes the same engine operation locally.
 
 Each finding's `id` is stable: `{ruleId}:{diagram}:{target}:{occurrence}`, where the diagram and
 target segments are the element ids from the request model (they read `model` when the finding is
@@ -427,8 +444,8 @@ curl -s -X POST 'http://localhost:8080/v1/model/analysis-report?format=sarif' \
   -H 'Content-Type: application/json' --data @model.tmforge.json -o findings.sarif
 ```
 
-Both report endpoints run the host's configured rule packs and honor the model's own disabled
-selection, so a report always matches the analysis it claims to describe.
+Threat-model HTML and analysis reports use the host's configured rule packs and honor the model's
+disabled selection. SVG is diagram-only and does not evaluate rules.
 
 ## OpenAPI & client generation
 
@@ -439,10 +456,12 @@ sync (Studio's `npm run gen:api` reads that file). See the
 
 ## Notes for hosting
 
-- The container listens on port **8080**; from source it listens on **5205**.
-- In development the API permits CORS from the Studio dev server at `http://localhost:5199`.
-- The API is stateless: it operates on the model bytes you send it, so it scales horizontally.
-  See [Deployment](deployment.md).
+- The container listens on port **8080**. The source command above explicitly selects **5205**;
+  an unconfigured source run uses ASP.NET Core's default, not a project launch profile.
+- The API permits CORS from `http://localhost:5199` in every environment; CORS is not access control.
+- Model processing is request-scoped, while configured rule packs are loaded at startup. Replicas
+  must use the same rule configuration if callers expect consistent results. There is no built-in
+  authentication, model store, or tenant isolation. See [Security posture](deployment.md#security-posture).
 
 ## See also
 

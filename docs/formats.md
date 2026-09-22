@@ -8,7 +8,7 @@ consume them, and each provider declares how faithfully it round-trips.
 
 | Format id | Extension | Display name | Read | Write | Round-trips |
 | --- | --- | --- | :---: | :---: | :---: |
-| `tm7` | `.tm7` | Microsoft Threat Modeling Tool | Yes | Yes | Lossless |
+| `tm7` | `.tm7` | Microsoft Threat Modeling Tool | Yes | Yes | Native; see fidelity below |
 | `tmforge-json` | `.tmforge.json` | Threat Model Forge JSON (canvas wire model) | Yes | Yes | Structural |
 | `drawio` | `.drawio` | draw.io / diagrams.net | Yes | Yes | Structural |
 | `vsdx` | `.vsdx` | Microsoft Visio | Yes | Yes | Structural |
@@ -21,15 +21,20 @@ returns each provider's capabilities and fidelity note.
 
 ## Fidelity
 
-"Round-trips" means reading a file and writing it back reproduces the source **without loss**. Only
-`.tm7` does this.
+Fidelity depends on both the format and the operation. A structural conversion retains only the
+data its mapping represents; writing it back to `.tm7` cannot recover omitted native content.
 
 ### `tm7` (lossless)
 
-Byte-stable round-trip via .NET's `DataContractSerializer` over the full model graph. Because
-Threat Model Forge reuses the exact serializer type graph MTMT produces, `.tm7` files move between the
-two tools **byte-for-byte identically**, including the rich threat data model. This is the canonical
-format; when you mutate a `.tm7` with the CLI, it's written back through this byte-stable writer.
+The native format provider uses .NET's `DataContractSerializer` over the rich model graph, with
+byte-stable fixture coverage. That is not a guarantee that arbitrary CLI edits or conversions retain
+every byte of an input XML document: writing may prepare templates, coordinates, and connector labels.
+
+Studio and `/v1/model/save/tm7` use a separate preserving edit path backed by the original XML.
+An unchanged valid document with an existing template returns its original bytes. Edited saves
+retain unrelated native XML, templates, and unaffected threat decisions, although XML formatting
+can change. Missing templates/definitions are added as needed. Explicit deletion removes dependent
+threats and decisions. Keep native sources when their full contents matter; see [native saving](api-reference.md#native-tm7-saving).
 
 ### `tm7` and the Microsoft Threat Modeling Tool
 
@@ -48,9 +53,10 @@ every step.
 - **Stencils as element types.** An element placed from a stencil (`azure-sql`, `entra-id`, …) is
   exported as the matching standard element type, so it appears in MTMT as that stencil rather than a
   bare generic.
-- **Existing knowledge bases are preserved.** A model that already carries a knowledge base — a file
-  authored in MTMT, or one you supply with `tmforge convert --knowledge-base <file.tb7>` — is written
-  back untouched.
+- **Existing knowledge bases are retained.** A model that already carries a knowledge base, or one
+  supplied with `tmforge convert --knowledge-base <file.tb7>`, is not replaced by the default.
+  Writers can extend required definitions and priority values; native saves also add newly authored
+  property values without replacing existing customizations. Retained does not mean byte-untouched.
 
 Analysis reads typed and custom properties identically, so an exported or tool-authored `.tm7` is
 validated the same as one authored with custom attributes.
@@ -304,7 +310,7 @@ See the [CLI reference](cli-reference.md#convert).
 ### API
 
 ```http
-POST /v1/model/convert?to=<format>     # convert to any format
+POST /v1/model/convert?to=<format>     # convert to a writable format
 POST /v1/model/export/tm7              # export a .tm7 specifically
 POST /v1/model/save/tm7                # preserve an original .tm7 while applying edits
 POST /v1/detect                        # sniff a file's format from its bytes
@@ -339,6 +345,9 @@ engine to read `.tm7`, `.drawio`, `.vsdx`, supported Threat Dragon JSON, Mermaid
 as new tmforge files, not back to their original format. The browser canvas itself does not parse
 foreign file formats. See the [Studio guide](studio-guide.md#importing-and-exporting).
 
+The VS Code editor uses the same preserving engine operation, with the current text document as
+its native source and VS Code managing saves and undo. It does not use browser recovery storage.
+
 ## Choosing a format
 
 | Goal | Use |
@@ -348,9 +357,9 @@ foreign file formats. See the [Studio guide](studio-guide.md#importing-and-expor
 | Share an editable diagram with draw.io / diagrams.net users | `drawio` |
 | Share an editable diagram with Visio users | `vsdx` |
 
-> **Tip:** keep `.tm7` as your canonical, version-controlled source (it's lossless), and generate
-> `.drawio` / `.vsdx` on demand for sharing. Converting *from* a structural format *to* `.tm7` only
-> reconstructs the structure the source captured.
+> **Tip:** retain `.tm7` as the source when native template/register data matters, or use canonical
+> JSON or a manifest for a model-as-code workflow. Generate `.drawio` / `.vsdx` for sharing.
+> Converting *from* a structural format *to* `.tm7` only reconstructs the structure the source captured.
 
 ## Extending
 
