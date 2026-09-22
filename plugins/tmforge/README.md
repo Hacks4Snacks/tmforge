@@ -119,8 +119,8 @@ release artifacts are the long-term distribution fix. See
 
 ## Install from a marketplace
 
-After the repository marketplace catalog is merged to `main`, register it once and
-install through the supported `plugin@marketplace` route:
+Register the repository marketplace once and install through the supported
+`plugin@marketplace` route:
 
 ```bash
 copilot plugin marketplace add Hacks4Snacks/tmforge
@@ -256,9 +256,20 @@ release containing the plugin**; `v0.10.0` predates it. External submissions use
 immutable release tag containing the plugin and the full 40-character commit SHA
 to which that tag resolves.
 
-See the [external submission checklist](https://github.com/Hacks4Snacks/tmforge/blob/main/docs/copilot-plugin.md) in the source
-checkout for release and Awesome Copilot intake steps. That document is maintainer
-guidance, not a runtime dependency of the plugin.
+### External marketplace submission
+
+From a source checkout with the published exact tag available locally and GitHub CLI read access,
+prepare the submission using the repository helper:
+
+```bash
+python3 build/prepare-plugin-submission.py --tag v0.12.0
+```
+
+The helper verifies the public release, immutable assets, plugin version, and local/public tag SHA.
+It writes `external-plugin.json`, a test marketplace catalog, and an issue draft under
+`artifacts/plugin-submission/` (override with `--output-dir`). It only reads GitHub; it does not
+publish, submit an issue, or check the human attestations. Review the generated draft and the
+destination marketplace's current intake requirements before submitting it yourself.
 
 ## License and provenance
 

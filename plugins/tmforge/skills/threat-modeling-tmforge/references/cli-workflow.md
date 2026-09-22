@@ -133,9 +133,9 @@ Consequences for authoring:
 - **Derive geometry; do not invent it.** The layout generator provided by the loaded `threat-modeling` skill sizes each
   column gap from the labels that span it and exits non-zero when the result no longer fits the canvas, which is the
   signal that the names — not the placement — need to change.
-- **Let tmforge place the labels.** Recent versions position every flow label clear of the shapes and of the other
-  labels on each write to `.tm7` — whether it came from `apply`, `convert`, an authoring verb, or Studio's export —
-  by adjusting curve handles only, which nothing in the analysis reads. A label somebody positioned is preserved.
+- **Let tmforge place new labels, then verify.** CLI authoring and structural `.tm7` exports try to place new flow
+  labels clear of shapes and other labels by adjusting curve handles. This is not a guarantee that every label fits.
+  Preserving native saves retain existing connector geometry unless edited; they do not automatically tidy the model.
   Confirm the result with `tmforge layout --check <model> --json`; it exits non-zero while any label is still
   covered. When the installed version has no `--check`, use
   the layout checker provided by the loaded `threat-modeling` skill instead.
@@ -151,9 +151,10 @@ boundary they belong to and is a semantic regression, not a cosmetic one. Do not
 and after whenever you rearrange. On a model with deliberate placement, prefer `tmforge layout --labels`, which
 places the labels and leaves every shape exactly where the manifest put it.
 
-Carry geometry in the manifest, where it is reviewable and reproducible. Only `x`, `y`, `width`, and
-`height` are honored; `left`, `top`, `posX`, `posY`, and nested `position` objects are silently ignored, so verify
-that placement survived instead of assuming it applied. Resolve the layout generator and checker from the
+Carry geometry in the manifest, where it is reviewable and reproducible. Use `x`, `y`, `width`, and
+`height`; current manifest preflight rejects unknown fields such as `left`, `top`, `posX`, `posY`, and nested
+`position` rather than silently ignoring them. Older binaries can differ, so verify serialized placement.
+Resolve the layout generator and checker from the
 loaded `threat-modeling` skill's bundled resources. Use the generator to derive geometry from the ledger and
 the checker to confirm the result: it fails a diagram whose
 canvas runs past the tool's limit or whose flow label is completely hidden behind a shape, and warns for every label
@@ -194,9 +195,12 @@ For each generated instance, either:
 2. retain it as a real weakness and mirror it in the canonical STRIDE ledger; or
 3. accept/suppress it only with a specific justification supported by the local convention.
 
-Persist generated threats only after review and only when the convention requires it. Persistence may retain older
-manual or triaged entries. After removals or substantial topology changes, regenerate from a clean candidate when
-practical; otherwise remove stale entries explicitly and list the register again.
+Persist generated threats only after review and only when the convention requires it. Generation is additive and may
+retain older manual or triaged entries. Review standing with `list threats`; `threats --remove-stale` keeps triaged
+entries unless explicitly forced and refuses when a stored entry's rule was unavailable. Do not rebuild a model merely
+to clear findings: that can discard author-owned decisions. Native Studio deletion intentionally removes threats scoped
+to deleted objects, flows, or pages, including their decisions; unrelated and model-wide entries remain. Inspect the
+register after topology changes and preserve the source/version history for recovery.
 
 ### Suppression Sidecars
 
@@ -238,8 +242,9 @@ Resolve the script from the bundled sibling `threat-modeling` skill, not from `P
 or the analyzed repository's skills directory.
 
 `--verify` re-runs the analyzer with the sidecar applied and fails unless the residual finding count reaches zero, so
-an entry that parsed but never matched is reported instead of assumed effective. Key the justification map by rule and
-element **name**, never by ledger ID; IDs are positional and renumber when an element is inserted.
+an entry that parsed but never matched is reported instead of assumed effective. The generator's justification-map
+contract uses rule and element **name**, not ledger ID. Preserve ledger IDs across updates; this lookup convention is
+not permission to renumber them when inserting an element.
 
 ## Candidate Validation
 

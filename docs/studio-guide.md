@@ -1,9 +1,10 @@
 # Studio guide
 
 **Studio** is the Threat Model Forge browser front end: a React single-page app whose data-flow-diagram
-(DFD) canvas is built on [React Flow](https://reactflow.dev). It talks to the real .NET engine over
-the versioned [`/v1` API](api-reference.md), and the API serves Studio from its root, so the UI and
-engine ship as one artifact.
+(DFD) canvas is built on [React Flow](https://reactflow.dev). It uses the shared .NET engine over
+the versioned [`/v1` API](api-reference.md) or locally through WebAssembly. The API can serve Studio
+from its root; the static demo runs without an API. The [VS Code extension](../src/ThreatModelForge.Vscode/README.md)
+embeds the same editor with a local WASM engine and VS Code-owned file operations.
 
 ## Launch Studio
 
@@ -14,16 +15,16 @@ your browser via WebAssembly.
 To run it locally, the engine API hosts Studio. The quickest way is the container image:
 
 ```bash
-docker run --rm -p 8080:8080 tmforge      # then open http://localhost:8080/
+docker run --rm -p 127.0.0.1:8080:8080 ghcr.io/hacks4snacks/tmforge  # http://localhost:8080/
 ```
 
 Or run the API from source, which serves the built SPA at its root:
 
 ```bash
-dotnet run --project src/ThreatModelForge.Api    # http://localhost:5205/
+dotnet run --project src/ThreatModelForge.Api -- --urls http://localhost:5205
 ```
 
-See [Deployment](deployment.md) for hosting options.
+See [Deployment](deployment.md#security-posture) before exposing the unauthenticated API to other users.
 
 ## The canvas
 
@@ -31,7 +32,8 @@ Studio gives you a DFD canvas with a stencil palette, an inspector, and engine-b
 
 ### Stencils
 
-Drag any of the four DFD stencils from the palette onto the canvas:
+Drag a stencil from the searchable, multi-pack palette onto the canvas. Stencils specialize these
+four DFD primitives:
 
 | Stencil | Represents |
 | --- | --- |
@@ -52,12 +54,12 @@ connection, not the geometry.
 | --- | --- |
 | Rename a node or flow | Double-click it and type. |
 | Select several objects | Hold `Cmd` (`Ctrl` on Windows/Linux) and click, or drag a selection box with `Shift`. |
-| Delete the selection | `Delete` key. Deleting an element takes its flows with it, and the whole deletion is a single undo step. |
+| Delete the selection | `Delete` key. Deleting an element takes its incident flows and scoped threats/decisions with it, as one undo step. |
 | Resize a trust boundary | Drag its handles (it's a resizable region). |
 | Tidy the diagram | Click **Tidy** to clean up the existing arrangement: fit text, separate overlaps, route flows and deconflict labels. The adjacent **Tidy options** menu offers offline **Labels only** with fixed rectangles. |
 | Pan / zoom | Drag the canvas / scroll; use the minimap and **fit** control to navigate. |
 | Step through the flows | `Alt+↓` / `Alt+↑` selects the next / previous flow in the outline's order. |
-| Undo / redo | `Cmd+Z` / `Shift+Cmd+Z` (covers every edit). |
+| Undo / redo | `Cmd+Z` / `Shift+Cmd+Z` for recorded edits; see the history limits below. |
 
 Arrangement applies to the **active page**, as one undo step. A failed or unsafe candidate changes
 nothing and consumes no undo step. If an edit or page switch occurs while the engine is working,
@@ -96,9 +98,14 @@ A model can hold several diagrams. The **page tab strip** below the canvas lets 
 | Reorder pages | Drag a tab. |
 | Delete a page | Click the tab's **×** (the last page can't be deleted). |
 
-Each page is an independent canvas with its own undo history; the active page and every page's
-contents persist across reloads. Opening a multi-page `.tm7`, `.drawio`, or Visio model (imported via
-the CLI or API into `tmforge-json`) shows each source diagram on its own page.
+Each page is an independent canvas. In the browser, undo records up to 50 edit snapshots for the
+current session; switching or adding pages or loading a model resets that history. Deletion snapshots
+include removed objects and their decisions, including page deletion. Recovery storage retains the
+workspace and active page when available, not the undo stack. Save to a file for durable storage.
+The VS Code extension uses VS Code's document undo/redo instead of this browser stack.
+
+Open File reads multi-page `.tm7`, `.drawio`, and Visio models through the active engine and shows
+each diagram on its own page; no prior CLI conversion is required.
 
 ### Reviewing a large model
 
@@ -216,15 +223,17 @@ pairs. Comparisons exceeding 10,000 changes are refused rather than silently tru
 
 ## Validating against the engine
 
-Click **Analyze** to send the whole model (every page) to the live `/v1` engine. Findings come back
+Click **Analyze** to analyze the whole model (every page) with the selected engine. HTTP mode sends
+the model to the configured API; WASM mode processes it locally. Findings come back
 and are **overlaid on the offending nodes and edges**, so you can see exactly what to fix. In a
 multi-page model, tabs that carry findings are badged. Click a threat or finding to narrow the overlay
 to only the objects it impacts and jump to their page. Open the inspector, set the missing property
 (e.g. a flow's protocol), and re-analyze.
 
-If the engine is offline, Studio falls back to an offline stub so the canvas keeps working; connect
-it to a running API to get the real rule set. See [Analysis rules & CI](analysis-rules.md) for
-what the rules check.
+On startup Studio first probes HTTP, then tries a staged in-browser WASM engine. A static demo build
+skips the HTTP probe. If neither is available, offline authoring remains usable, but the offline
+fallback is not a full security analysis. Supply a working API or WASM engine to analyze. See
+[Analysis rules & CI](analysis-rules.md) for what the rules check.
 
 ### Custom rule packs
 
@@ -235,7 +244,8 @@ count, and content fingerprint, plus any diagnostic the loader raised. A pack th
 says so instead of quietly leaving you on the built-in rules.
 
 Loading a pack also **pins it in the model**: the saved `.tmforge.json` records the pack id and
-fingerprint. If the model is later analyzed without that pack, or the pack's content changed,
+fingerprint, and native Studio saves retain that selection in the Studio XML extension. If Studio
+or a canonical-model analysis later runs without that pack, or the pack's content changed,
 analysis reports an error finding rather than looking clean. **Use built-in rules** clears both the
 loaded pack and the pin.
 
@@ -274,8 +284,9 @@ stored on the wire.
 
 > **Editing a rule threat relies on stable element ids.** A rule threat's edit is keyed by the id of the
 > element it targets. Studio nodes keep stable ids, so edits persist across re-analysis; if you delete
-> and recreate the underlying element (giving it a new id), its rule threat is a fresh threat and the
-> earlier edit no longer applies. Manual threats are keyed independently and are unaffected.
+> and recreate the underlying element (giving it a new id), its rule threat is a fresh threat.
+> Explicit deletion also removes manual threats scoped to the deleted objects; model-wide and
+> unrelated manual threats remain. Undo restores the deleted decisions within the available history.
 
 ## Downloading reports
 
@@ -414,6 +425,8 @@ Mermaid and DOT are not export targets. See the [supported subset](formats.md#me
 
 ## Sharing a model as a URL
 
+Sharing is a browser Studio feature; it is not offered by the VS Code editor.
+
 Choose **Share model** in the toolbar, then **Copy link**. The link contains a frozen snapshot of
 the current canonical `tmforge-json` model: every page, element, flow, property, saved geometry,
 metadata, manual threat and triage edit, plus analysis selections and expected rule-pack fingerprints.
@@ -481,19 +494,24 @@ and are flagged for you to fix after loading.
 
 ## Local development
 
-To hack on Studio itself with hot reload, run the Vite dev server against a locally running API:
+To work on Studio with hot reload, use Node.js 22.12+ and the pinned .NET SDK, then run the Vite
+dev server against a locally running API:
 
 ```bash
 # Terminal 1: the engine API (Studio calls it on :5205)
-dotnet run --project src/ThreatModelForge.Api
+dotnet run --project src/ThreatModelForge.Api -- --urls http://localhost:5205
 
 # Terminal 2: the Studio dev server with hot reload
 cd src/ThreatModelForge.Studio
-npm install
+npm ci
 npm run dev        # http://localhost:5199
 ```
 
-During development the API allows CORS from the Vite dev server at `http://localhost:5199`.
+The API allows CORS from `http://localhost:5199` in every environment. This is a development-origin
+allowlist, not authentication or a deployment access boundary.
+
+For local engine work without HTTP, install the WASM workloads and run `npm run stage:wasm` in the
+Studio directory before `VITE_DEMO=true npm run dev`. See the [static deployment instructions](deployment.md#studio-static-demo-in-browser-engine-no-backend).
 
 ### Regenerating the API client
 
@@ -506,7 +524,7 @@ npm run gen:api    # openapi-typescript ../ThreatModelForge.Api/openapi/v1.json 
 
 ### Stack
 
-Vite + React 18 + TypeScript + `@xyflow/react` v12 (React Flow, MIT). No UI kit; plain CSS.
+Vite 8 + React 19 + TypeScript + `@xyflow/react` v12 (React Flow, MIT). No UI kit; plain CSS.
 
 ## See also
 
