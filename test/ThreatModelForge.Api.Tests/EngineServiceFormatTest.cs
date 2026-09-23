@@ -895,6 +895,7 @@ namespace ThreatModelForge.Api.Tests
         [TestMethod]
         [DataRow("tmforge-json")]
         [DataRow("tm7")]
+        [DataRow("threat-dragon")]
         public void ThreatDragonImportSurvivesEngineOperations(string formatId)
         {
             byte[] bytes = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", "threat-dragon-v2.json"));
@@ -935,6 +936,42 @@ namespace ThreatModelForge.Api.Tests
             StringAssert.Contains(report, "Linkability");
         }
 
+        /// <summary>The engine preserves empty-page provenance and does not rerun rules during export.</summary>
+        [TestMethod]
+        public void ThreatDragonExportPreservesEmptyPageProvenance()
+        {
+            const string json = "{\"version\":\"2.6.2\",\"summary\":{\"title\":\"Empty review\"},\"detail\":{\"diagrams\":[{\"id\":7,\"title\":\"Privacy\",\"diagramType\":\"LINDDUN\",\"cells\":[]}]}}";
+            TmForgeModelDto imported = EngineService.ReadModel(Encoding.UTF8.GetBytes(json), "threat-dragon");
+            TmForgeModelDto canonical = EngineService.ReadModel(EngineService.Convert(imported, "tmforge-json"), "tmforge-json");
+
+            byte[] first = EngineService.Convert(canonical, "threat-dragon");
+            byte[] second = EngineService.Convert(canonical, "threat-dragon");
+            TmForgeModelDto restored = EngineService.ReadModel(first, "threat-dragon");
+
+            CollectionAssert.AreEqual(first, second);
+            Assert.AreEqual(imported.Diagrams![0].Id, restored.Diagrams![0].Id);
+            Assert.AreEqual("7", restored.Diagrams[0].Source?["id"]);
+            Assert.AreEqual("LINDDUN", restored.Diagrams[0].Source?["modelType"]);
+            Assert.IsTrue(restored.Threats == null || restored.Threats.Count == 0);
+        }
+
+        /// <summary>Rule selections cannot be silently lost through the direct engine export API.</summary>
+        [TestMethod]
+        public void ThreatDragonExportRejectsRuleSelectionsBeforeWriting()
+        {
+            TmForgeModelDto model = new TmForgeModelDto
+            {
+                Analysis = new TmForgeAnalysisDto { DisabledPacks = new[] { "identity-access" } },
+            };
+            using MemoryStream output = new MemoryStream();
+
+            NotSupportedException error = Assert.Throws<NotSupportedException>(() => EngineService.WriteConverted(model, "threat-dragon", output));
+
+            StringAssert.Contains(error.Message, "analysis");
+            Assert.AreEqual(0L, output.Length);
+            Assert.IsTrue(output.CanWrite);
+        }
+
         /// <summary>Preflight distinguishes malformed, ambiguous and unsupported documents.</summary>
         /// <param name="content">The source document.</param>
         /// <param name="format">An optional format selection.</param>
@@ -971,7 +1008,7 @@ namespace ThreatModelForge.Api.Tests
             byte[] model = EngineService.Convert(SingleProcessModel(), "tmforge-json");
             Assert.IsTrue(DocumentPreflight.Inspect(model).Success);
             Assert.IsTrue(DocumentPreflight.Inspect(model, "TMFORGE-JSON").Success);
-            Assert.AreEqual("conversion.unsupported-target", DocumentPreflight.Inspect(model, targetFormat: "threat-dragon").Diagnostics.Last().Code);
+            Assert.AreEqual("conversion.unsupported-target", DocumentPreflight.Inspect(model, targetFormat: "unknown-format").Diagnostics.Last().Code);
             Assert.IsTrue(DocumentPreflight.Inspect(Encoding.UTF8.GetBytes("{\"name\":\"Legacy\"}"), "tmforge-manifest").Success);
             Assert.IsTrue(DocumentPreflight.Inspect(Encoding.UTF8.GetBytes("\uFEFF\n\t{\"schema\":\"tmforge-json\"}")).Success);
         }

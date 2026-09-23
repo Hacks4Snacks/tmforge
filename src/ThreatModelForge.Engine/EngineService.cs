@@ -571,6 +571,12 @@ namespace ThreatModelForge.Engine
                 throw new ArgumentNullException(nameof(output));
             }
 
+            ArgumentNullException.ThrowIfNull(dto);
+            if (string.Equals(formatId, ThreatDragonFormat.FormatId, StringComparison.OrdinalIgnoreCase) && dto.Analysis != null)
+            {
+                throw new NotSupportedException("Threat Dragon export cannot preserve analysis rule selections or expected pack fingerprints. Keep the canonical source and its rule configuration.");
+            }
+
             // .tm7 is the lossless, register-bearing format, so materialize the full threat register
             // (with acceptance) and prepare it for the Microsoft Threat Modeling Tool — embed the
             // knowledge base and type schema-backed properties — so every path that writes a .tm7 (this

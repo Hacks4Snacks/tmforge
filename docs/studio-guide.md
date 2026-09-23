@@ -307,6 +307,14 @@ in-browser engine they are generated locally — the model never leaves the page
 
 ## Importing and exporting
 
+In browser Studio, **Open File** retains the opened file's writable handle and format: `.tm7` saves
+as `.tm7`, canonical JSON saves as canonical JSON, and Threat Dragon JSON saves as Threat Dragon JSON
+to the same file. **Export** writes a separate conversion and does not change the Save binding.
+Browsers without the File System Access API download a copy instead of silently overwriting a file.
+After workspace recovery, the original filename and format are retained, but Save asks you to select
+a destination again because the writable handle is not persisted. Read-only formats such as Mermaid
+and DOT still save as new canonical JSON files.
+
 Studio edits a canonical **`tmforge-json`** canvas projection. When the browser opens a `.tm7`, it
 also retains the original native document separately:
 
@@ -398,16 +406,20 @@ it. To change the model, edit the manifest and re-apply, or save the model as it
 **Open File** recognizes supported OWASP Threat Dragon v2 JSON through the active engine. Imported
 threats appear as manual entries alongside tmforge-generated threats after **Analyze**, retaining
 their original category, text, treatment and scope. Model metadata and threat provenance survive
-saving, reopening and exporting to `.tm7`.
+saving and reopening canonical JSON. Diagram provenance also survives, including empty pages.
 
-This is import-only: Studio does not bind the original file for overwriting. **Save** offers a new
-`.tmforge.json` filename, and Threat Dragon is not offered as an export target. Keep the original
-for Threat Dragon-specific content such as styling and routing.
+**Save** writes the supported Threat Dragon subset back to the opened file when writable file access
+is available. **Export** and **OWASP Threat Dragon v2** produce a separate copy. Both retain imported
+identities, supported controls and authored threats, and refuse unsupported fields before writing.
+Analysis rule settings, generated threats, custom properties and authored connector routing are
+examples of content that blocks a save/export rather than disappearing. Saving is a bounded conversion,
+not a byte-preserving edit: keep the original when Threat Dragon-specific styling, routing or thumbnails
+matter. The import warning explains these limitations before the model is loaded.
 
 The first delivery supports rectangular boundaries and directed flows. Curved boundaries,
 bidirectional flows, fractional rectangles and unsupported treatment states are refused, with no
 partial replacement of the current workspace. Out-of-scope flags remain source information and do
-not disable tmforge rules. See the [full import contract](formats.md#threat-dragon-owasp-threat-dragon-v2-import)
+not disable tmforge rules. See the [full import/export contract](formats.md#threat-dragon-owasp-threat-dragon-v2)
 before migrating a model.
 
 ### Opening Mermaid or DOT

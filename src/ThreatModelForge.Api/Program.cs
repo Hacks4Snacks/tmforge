@@ -246,6 +246,8 @@ namespace ThreatModelForge.Api
                     return ("application/vnd.ms-visio.drawing", "model.vsdx");
                 case "tmforge-json":
                     return ("application/json", "model.tmforge.json");
+                case "threat-dragon":
+                    return ("application/json", "model.threatdragon.json");
                 default:
                     return ("application/xml", "model.tm7");
             }

@@ -125,6 +125,8 @@ interface StoredWorkspace {
   metadata?: TmForgeModel['metadata'];
   nativeSource?: NativeSource;
   savedJson?: string;
+  fileName?: string;
+  saveFormat?: string;
 }
 
 /** Reads the saved multi-page workspace (v2), migrating a legacy single-page model (v1) when present. */
@@ -132,7 +134,7 @@ export function loadStoredWorkspace(): StoredWorkspace | null {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as { model?: TmForgeModel; activePageId?: string; nativeSource?: NativeSource; savedJson?: string };
+      const parsed = JSON.parse(raw) as { model?: TmForgeModel; activePageId?: string; nativeSource?: NativeSource; savedJson?: string; fileName?: string; saveFormat?: string };
       if (parsed?.model?.schema === 'tmforge-json') {
         if (parsed.nativeSource && (typeof parsed.nativeSource.contentBase64 !== 'string'
           || typeof parsed.nativeSource.fileName !== 'string' || parsed.nativeSource.contentBase64.length > 11184812)) return null;
@@ -140,7 +142,9 @@ export function loadStoredWorkspace(): StoredWorkspace | null {
         const pages = pagesFromModel(parsed.model);
         const activePageId = pages.some((p) => p.id === parsed.activePageId) ? parsed.activePageId! : pages[0].id;
         return { pages, activePageId, analysis: parsed.model.analysis, threats: parsed.model.threats, metadata: parsed.model.metadata,
-          nativeSource: parsed.nativeSource, savedJson: parsed.savedJson };
+          nativeSource: parsed.nativeSource, savedJson: parsed.savedJson,
+          fileName: typeof parsed.fileName === 'string' ? parsed.fileName : undefined,
+          saveFormat: typeof parsed.saveFormat === 'string' ? parsed.saveFormat : undefined };
       }
     }
   } catch {
@@ -514,8 +518,8 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
   useEffect(() => () => { analysisRequestRef.current++; }, []);
   const fileRef = useRef<HTMLInputElement>(null);
   const fileHandleRef = useRef<WritableFileHandle | null>(null);
-  const fileFormatRef = useRef<string>(initialWorkspace.nativeSource ? 'tm7' : 'tmforge-json');
-  const [fileName, setFileName] = useState<string | null>(initialWorkspace.nativeSource?.fileName ?? null);
+  const fileFormatRef = useRef<string>(initialWorkspace.saveFormat ?? (initialWorkspace.nativeSource ? 'tm7' : 'tmforge-json'));
+  const [fileName, setFileName] = useState<string | null>(initialWorkspace.fileName ?? initialWorkspace.nativeSource?.fileName ?? null);
   const { screenToFlowPosition, fitView } = useReactFlow();
   const history = useUndoRedo(nodes, edges, setNodes, setEdges, {
     value: { pages, activePageId, threatTriage, threats, findings, nativeSource },
@@ -748,8 +752,8 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
   }, [host, currentJson, currentModel, nodes]);
 
   const workspaceJson = useMemo(
-    () => JSON.stringify({ v: 2, activePageId, model: currentModel, ...(nativeSource ? { nativeSource, savedJson } : {}) }),
-    [activePageId, currentModel, nativeSource, savedJson],
+    () => JSON.stringify({ v: 2, activePageId, model: currentModel, ...(fileName ? { fileName, saveFormat: fileFormatRef.current, savedJson } : {}), ...(nativeSource ? { nativeSource, savedJson } : {}) }),
+    [activePageId, currentModel, nativeSource, savedJson, fileName],
   );
   const layoutStateRef = useRef({ workspaceJson, nodes, edges });
   layoutStateRef.current = { workspaceJson, nodes, edges };
@@ -1898,11 +1902,12 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
         return opened;
       };
       if (detected) {
+        const bindable = detected.canWrite;
         return complete({
           model: await readModelFromBytes(bytes, detected.id),
-          saveFormat: detected.canWrite ? detected.id : 'tmforge-json',
-          fileName: detected.canWrite ? name : modelNameForManifest(name),
-          bindable: detected.canWrite,
+          saveFormat: bindable ? detected.id : 'tmforge-json',
+          fileName: bindable ? name : modelNameForManifest(name),
+          bindable,
           nativeSource: preserveNative ? { contentBase64: toBase64(bytes), fileName: name } : undefined,
         });
       }

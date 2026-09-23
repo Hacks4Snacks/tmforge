@@ -842,6 +842,9 @@ export interface components {
         TmForgeDiagramDto: {
             id?: string;
             name?: string;
+            source?: null | {
+                [key: string]: string;
+            };
             elements?: null | components["schemas"]["TmForgeElementDto"][];
             flows?: null | components["schemas"]["TmForgeFlowDto"][];
         };

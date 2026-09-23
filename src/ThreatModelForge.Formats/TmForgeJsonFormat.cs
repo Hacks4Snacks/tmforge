@@ -197,6 +197,7 @@ namespace ThreatModelForge.Formats
                 {
                     Id = surface.Guid.ToString(),
                     Name = name,
+                    Source = CollectPageSource(surface),
                     Elements = pageElements,
                     Flows = pageFlows,
                 });
@@ -242,6 +243,15 @@ namespace ThreatModelForge.Formats
             return ReadCore(stream, originalIds);
         }
 
+        private static IReadOnlyDictionary<string, string>? CollectPageSource(DrawingSurfaceModel page)
+        {
+            Dictionary<string, string> source = DiagramElementHelper.GetCustomProperties(page)
+                .Where(property => property.Key.StartsWith("Source.", StringComparison.Ordinal))
+                .OrderBy(property => property.Key, StringComparer.Ordinal)
+                .ToDictionary(property => property.Key.Substring("Source.".Length), property => property.Value, StringComparer.Ordinal);
+            return source.Count == 0 ? null : source;
+        }
+
         private static ThreatModel ReadCore(Stream stream, IDictionary<Guid, string>? originalIds)
         {
             if (stream == null)
@@ -266,6 +276,11 @@ namespace ThreatModelForge.Formats
                         ? "Diagram " + index.ToString(CultureInfo.InvariantCulture)
                         : page.Name;
                     DrawingSurfaceModel surface = new DrawingSurfaceModel { Guid = ResolveSurfaceGuid(page.Id), Header = header };
+                    foreach (KeyValuePair<string, string> provenance in page.Source ?? new Dictionary<string, string>())
+                    {
+                        DiagramElementHelper.SetCustomProperty(surface, "Source." + provenance.Key, provenance.Value);
+                    }
+
                     model.DrawingSurfaceList.Add(surface);
 
                     // Record the page's wire id too. A page id that is not guid-shaped gets a fresh
@@ -386,7 +401,6 @@ namespace ThreatModelForge.Formats
                 UserThreatCategory = entry.Category,
                 UserThreatDescription = entry.Description,
                 Wide = manual && source == Guid.Empty && target == Guid.Empty && flow == Guid.Empty,
-                ModifiedAt = DateTime.UtcNow,
             };
             if (!string.IsNullOrEmpty(entry.Mitigation))
             {

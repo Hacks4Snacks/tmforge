@@ -14,7 +14,7 @@ renders it, editing mutates it, and the CLI and API expose it.
 | Project | Role |
 | --- | --- |
 | [`ThreatModelForge.Core`](ThreatModelForge.Core) | The `ThreatModel` object graph and native `.tm7`/`.tb7` serialization (`DataContractSerializer`), knowledge-base types, and shared serialization abstractions. See [fidelity guarantees](../docs/formats.md#fidelity). |
-| [`ThreatModelForge.Formats`](ThreatModelForge.Formats) | Pluggable readers/writers for native, canonical JSON, draw.io, and Visio, plus bounded Threat Dragon, Mermaid, and DOT import. |
+| [`ThreatModelForge.Formats`](ThreatModelForge.Formats) | Pluggable readers/writers for native, canonical JSON, draw.io, Visio, and bounded Threat Dragon v2; import-only Mermaid and DOT. |
 | [`ThreatModelForge.Analysis`](ThreatModelForge.Analysis) | The analysis object model: the base rule types that rule sets derive from, plus the machinery `tmforge analyze` uses to evaluate a model. |
 | [`ThreatModelForge.Analysis.Rules`](ThreatModelForge.Analysis.Rules) | The built-in rule set: completeness/hygiene checks and security-property checks. |
 | [`ThreatModelForge.Analysis.Reporting`](ThreatModelForge.Analysis.Reporting) | Report writers for analysis *findings*: SARIF (for CI/code-scanning) and self-contained HTML. |

@@ -492,6 +492,7 @@ function mimeForFormat(formatId: string): string {
     case 'vsdx':
       return 'application/vnd.ms-visio.drawing';
     case 'tmforge-json':
+    case 'threat-dragon':
       return 'application/json';
     default:
       return 'application/xml';
@@ -637,6 +638,7 @@ export function toModel(dto: components['schemas']['TmForgeModelDto']): TmForgeM
     diagrams: dto.diagrams?.map((page) => ({
       id: page.id ?? '',
       name: page.name ?? '',
+      ...(page.source ? { source: page.source } : {}),
       elements: elements(page.elements),
       flows: flows(page.flows),
     })),

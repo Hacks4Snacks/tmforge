@@ -1425,7 +1425,7 @@ describe('Editor URL sharing', () => {
   });
 });
 
-describe('Editor import-only formats', () => {
+describe('Editor source-preserving imports', () => {
   it.each([
     ['threat-dragon', 'foreign.json', 'foreign.tmforge.json'],
     ['mermaid', 'foreign.mmd', 'foreign.mmd.tmforge.json'],
@@ -1435,14 +1435,14 @@ describe('Editor import-only formats', () => {
     const imported: TmForgeModel = await offlineEngine.read(JSON.stringify(chain()));
     imported.metadata = { owner: 'Imported owner' };
     imported.threats = [{ id: 'manual:threat-dragon.source', state: 'Accepted', manual: true, category: 'Linkability', source: { format: 'threat-dragon', id: 'source' } }];
-    imported.diagrams = [{ id: 'source-page', name: 'Imported page', elements: imported.elements, flows: imported.flows }];
+    imported.diagrams = [{ id: 'source-page', name: 'Imported page', source: { format: 'threat-dragon', id: '7', modelType: 'STRIDE' }, elements: imported.elements, flows: imported.flows }];
     const sourceWrite = vi.fn();
     const targetWrite = vi.fn(async () => undefined);
     const writeModel = vi.fn(async (model: TmForgeModel) => JSON.stringify(model));
     const readFile = vi.fn(async () => imported);
     const open = vi.fn(async () => [{ name: sourceName, getFile: async () => ({ arrayBuffer: async () => new ArrayBuffer(0) }), createWritable: sourceWrite }]);
     const save = vi.fn(async () => ({ name: savedName, createWritable: async () => ({ write: targetWrite, close: async () => undefined }) }));
-    const format = { id: formatId, displayName: formatId, canRead: true, canWrite: false, roundTrips: false, extensions: [], fidelityNote: 'Import only' };
+    const format = { id: formatId, displayName: formatId, canRead: true, canWrite: false, roundTrips: false, extensions: [], fidelityNote: 'Bounded conversion' };
     engineState.current = Object.assign(Object.create(offlineEngine) as IEngineClient, {
       label: 'import test engine', detect: async () => format, readFile, write: writeModel,
       preflight: async () => ({ success: true, format: formatId, diagnostics: [] }),
@@ -1465,6 +1465,79 @@ describe('Editor import-only formats', () => {
       expect(saved?.metadata).toEqual(imported.metadata);
       expect(saved?.threats).toEqual(imported.threats);
       expect(saved?.diagrams?.[0]).toMatchObject({ id: 'source-page', name: 'Imported page' });
+      expect(saved?.diagrams?.[0].source).toEqual(imported.diagrams[0].source);
+    } finally {
+      Reflect.deleteProperty(window, 'showOpenFilePicker');
+      Reflect.deleteProperty(window, 'showSaveFilePicker');
+    }
+  });
+});
+
+describe('Editor source-format saves', () => {
+  it.each([
+    ['tmforge-json', 'source.tmforge.json', false],
+    ['threat-dragon', 'source.json', false],
+    ['threat-dragon', 'source.threatdragon.json', false],
+    ['threat-dragon', 'unsupported.json', true],
+  ])('keeps %s saves bound to %s (rejected: %s)', async (formatId, sourceName, rejected) => {
+    const { offlineEngine } = await import('./engineClient');
+    const imported = await offlineEngine.read(JSON.stringify(chain()));
+    imported.metadata = { owner: 'Imported owner' };
+    imported.diagrams = [{ id: 'source-page', name: 'Imported page', source: { format: 'threat-dragon', id: '7', modelType: 'STRIDE' }, elements: imported.elements, flows: imported.flows }];
+    const sourceWrite = vi.fn(async () => undefined);
+    const writable = vi.fn(async () => ({ write: sourceWrite, close: async () => undefined }));
+    const savePicker = vi.fn();
+    const writeModel = vi.fn(async (model: TmForgeModel) => JSON.stringify(model));
+    const convert = vi.fn(async (_model: TmForgeModel, _format: string) => {
+      if (rejected) throw new Error('Unsupported Threat Dragon property; file was not written.');
+      return new Blob(['converted model'], { type: 'application/json' });
+    });
+    const bytes = new TextEncoder().encode(JSON.stringify(imported));
+    const handle = { name: sourceName, getFile: async () => ({ arrayBuffer: async () => bytes.buffer }), createWritable: writable };
+    engineState.current = Object.assign(Object.create(offlineEngine) as IEngineClient, {
+      label: 'source-format test engine', write: writeModel, convert,
+      detect: async () => ({ id: formatId, canRead: true, canWrite: true, extensions: [] }),
+      readFile: async () => imported,
+      preflight: async () => ({ success: true, format: formatId, diagnostics: [] }),
+    });
+    Object.defineProperty(window, 'showOpenFilePicker', { configurable: true, value: async () => [handle] });
+    Object.defineProperty(window, 'showSaveFilePicker', { configurable: true, value: savePicker });
+    try {
+      await mountEditor(chain());
+      await waitFor(() => expect(document.querySelector('.engine-pill')).toHaveTextContent('source-format test engine'));
+      fireEvent.click(screen.getByRole('button', { name: 'Open File' }));
+      await screen.findByText(sourceName);
+      act(() => flow!.setNodes(nodes => nodes.map(node => node.id === 'a' ? { ...node, data: { ...node.data, label: 'Edited Alpha' } } : node)));
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+      if (rejected) {
+        await screen.findByText(/Unsupported Threat Dragon property/);
+        expect(writable).not.toHaveBeenCalled();
+        expect(sourceWrite).not.toHaveBeenCalled();
+      } else {
+        await waitFor(() => expect(sourceWrite).toHaveBeenCalledOnce());
+        expect(writable).toHaveBeenCalledOnce();
+      }
+      expect(savePicker).not.toHaveBeenCalled();
+      const saved = formatId === 'tmforge-json' ? writeModel.mock.calls.at(-1)?.[0] : convert.mock.calls.at(-1)?.[0];
+      expect(saved?.elements.find(element => element.id === 'a')?.name).toBe('Edited Alpha');
+      expect(saved?.metadata).toEqual(imported.metadata);
+      expect(saved?.diagrams?.[0].source).toEqual(imported.diagrams[0].source);
+      if (formatId === 'threat-dragon') expect(convert).toHaveBeenCalledWith(expect.anything(), 'threat-dragon');
+      if (!rejected) {
+        await waitFor(() => expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY)!).saveFormat).toBe(formatId), { timeout: 3000 });
+        expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY)!).fileName).toBe(sourceName);
+        cleanup();
+        vi.resetModules();
+        const { Editor } = await import('./Editor');
+        savePicker.mockResolvedValue(handle);
+        render(<ReactFlowProvider><Editor /></ReactFlowProvider>);
+        await waitFor(() => expect(document.querySelector('.engine-pill')).toHaveTextContent('source-format test engine'));
+        expect(screen.getByText(sourceName)).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        await waitFor(() => expect(sourceWrite).toHaveBeenCalledTimes(2));
+        expect(savePicker).toHaveBeenCalledWith({ suggestedName: sourceName });
+        if (formatId === 'threat-dragon') expect(convert.mock.calls.at(-1)?.[1]).toBe('threat-dragon');
+      }
     } finally {
       Reflect.deleteProperty(window, 'showOpenFilePicker');
       Reflect.deleteProperty(window, 'showSaveFilePicker');

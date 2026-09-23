@@ -37,13 +37,14 @@ describe('mapping — property round-trip (inspector edits reach the engine)', (
     const model = {
       ...graph,
       metadata: { owner: 'Reviewer', threatModelName: 'Imported model' },
-      diagrams: [{ id: 'imported-page', name: 'Requests', elements: graph.elements, flows: graph.flows }],
+      diagrams: [{ id: 'imported-page', name: 'Requests', source: { format: 'threat-dragon', id: '3', modelType: 'STRIDE' }, elements: graph.elements, flows: graph.flows }],
       threats: [{ id: 'manual:threat-dragon.original', state: 'Accepted' as const, source: { format: 'threat-dragon', id: 'original' } }],
     };
 
     const restored = modelFromPages(pagesFromModel(model), undefined, model.threats, model.metadata);
 
     expect(restored.diagrams?.[0]).toMatchObject({ id: 'imported-page', name: 'Requests' });
+    expect(restored.diagrams?.[0].source).toEqual(model.diagrams[0].source);
     expect(restored.threats).toEqual(model.threats);
     expect(restored.metadata).toEqual(model.metadata);
     expect(modelFromPages(pagesFromModel(graph)).diagrams).toBeUndefined();

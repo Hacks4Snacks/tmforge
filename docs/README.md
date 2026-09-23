@@ -25,7 +25,7 @@ Microsoft Threat Modeling Tool (MTMT).
 | [Studio guide](studio-guide.md) | Browser-based diagram authoring with the React Studio SPA. |
 | [VS Code extension](../src/ThreatModelForge.Vscode/README.md) | Studio editing for native TM7 and JSON models, local analysis, Problems diagnostics, and JSON schemas. |
 | [Engine API reference](api-reference.md) | The versioned `/v1` HTTP surface and its endpoints. |
-| [Formats & interoperability](formats.md) | Native saves, JSON/diagram conversions, and bounded Threat Dragon, Mermaid, and DOT import. |
+| [Formats & interoperability](formats.md) | Native saves, JSON/diagram conversions, bounded Threat Dragon import/export, and Mermaid/DOT import. |
 | [Analysis rules & CI](analysis-rules.md) | The built-in rule set, rule packs, suppressions, and gating a build. |
 | [Deployment](deployment.md) | API security posture, containers, static WASM, Kubernetes, and CI/CD. |
 

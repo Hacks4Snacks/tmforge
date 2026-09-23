@@ -2160,6 +2160,15 @@
           "name": {
             "type": "string"
           },
+          "source": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
           "elements": {
             "type": [
               "null",
