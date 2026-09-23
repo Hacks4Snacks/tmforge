@@ -147,15 +147,25 @@ namespace ThreatModelForge.Reporting
 
         private static string Name(Entity entity) => First(
             entity.Properties.OfType<StringDisplayAttribute>()
-                .FirstOrDefault(property => string.Equals(property.DisplayName, "Name", StringComparison.OrdinalIgnoreCase))?.Value as string,
-            entity.Properties.OfType<HeaderDisplayAttribute>().FirstOrDefault()?.DisplayName,
+                .Where(property => string.Equals(property.DisplayName, "Name", StringComparison.OrdinalIgnoreCase))
+                .Select(property => property.Value as string).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)),
+            entity.Properties.OfType<HeaderDisplayAttribute>().Select(property => property.DisplayName)
+                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)),
             entity.Guid.ToString("D"));
 
         private static string Resolve(Guid id, IReadOnlyDictionary<Guid, string> names) =>
             names.TryGetValue(id, out string? name) ? name + " (" + id.ToString("D") + ")" : id.ToString("D");
 
-        private static string Property(Threat threat, string name) => threat.Properties?
-            .FirstOrDefault(property => string.Equals(property.Key, name, StringComparison.OrdinalIgnoreCase)).Value ?? string.Empty;
+        private static string Property(Threat threat, string name)
+        {
+            if (threat.Properties != null && threat.Properties.TryGetValue(name, out string? value) && !string.IsNullOrWhiteSpace(value))
+            {
+                return value!;
+            }
+
+            return threat.Properties?.FirstOrDefault(property =>
+                string.Equals(property.Key, name, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(property.Value)).Value ?? string.Empty;
+        }
 
         private static string First(params string?[] values) => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
 
