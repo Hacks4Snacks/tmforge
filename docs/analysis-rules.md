@@ -769,7 +769,7 @@ jobs:
 | `max-severity` | empty (CLI default: `error`) | Severity at or above which findings gate the build. |
 | `fail-on-findings` | `true` | Set `false` to report findings without failing. |
 | `upload-sarif` | `true` | Upload the SARIF to code scanning. |
-| `upload-report` | `false` | Also keep the reports as a workflow artifact. |
+| `upload-report` | `false` | Keep SARIF, HTML, Markdown, and JSON reports as a workflow artifact. |
 | `image` / `version` | `ghcr.io/hacks4snacks/tmforge-cli` / `latest` | Pin `version` for a reproducible gate. |
 | `pull` | `true` | Set `false` to run an image already loaded on the runner. |
 | `category` | `threat-model-forge` | SARIF code-scanning category. |
@@ -881,9 +881,30 @@ the individual element and property changes.
 | Input | Default | Purpose |
 | --- | --- | --- |
 | `review` | `off` | `off` or `on`. Review is informational and never gates the build. |
+| `review-format` | `summary` | `summary` keeps the change summary; `md` also includes current findings Markdown for changed models. |
 | `review-comment` | `false` | Keep one pull-request comment up to date with the summary. |
 
 Outputs are `review` (`reviewed` or `skipped`) and `review-changed-models`.
+
+To include the current findings in that same comment and retain full Markdown artifacts:
+
+```yaml
+with:
+  review: "on"
+  review-format: md
+  review-comment: "true"
+  upload-report: "true"
+```
+
+Markdown support requires both an action revision and a CLI image containing this feature.
+The action reuses the head analysis's `<model>.findings.md`, including suppressed findings; it
+does not run another analysis or substitute the threat register. Deleted models have no current
+report. A missing Markdown artifact (including with an older image) is noted in the review.
+Only complete reports that fit the comment budget are included, with an explicit omission notice
+for larger reports. Complete per-model files remain in the reports artifact. The final comment
+is capped at 60,000 bytes; an oversized structural summary falls back to a link-free notice
+directing readers to the workflow summary and reports. The existing comment marker and update
+behavior are unchanged.
 
 Points worth knowing:
 
@@ -899,7 +920,7 @@ Points worth knowing:
   large rename sweep cannot crowd out the one change that alters exposure.
 - **The summary is bounded and the detail is not.** At most 20 element changes appear in the summary
   and the comment; the complete diff for every model is written to `review.json` in the report
-  directory, which `upload-report: true` attaches to the run alongside the HTML findings reports. A
+  directory, which `upload-report: true` attaches to the run alongside HTML and Markdown findings reports. A
   pull request that rewrites a model should not produce a comment nobody can read.
 - **A renamed model is diffed against its previous path**, so moving a file reads as a move rather
   than a wholesale rewrite.
