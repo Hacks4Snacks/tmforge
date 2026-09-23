@@ -132,6 +132,7 @@ namespace ThreatModelForge.Reporting.Tests
             DrawingSurfaceModel first = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "First page" };
             DrawingSurfaceModel second = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "Second page" };
             StencilEllipse gateway = new StencilEllipse { Guid = Guid.NewGuid(), GenericTypeId = "GE.P", TypeId = "GE.P", Width = 100, Height = 60 };
+            gateway.Properties.Add(new StringDisplayAttribute { DisplayName = "Name", Value = string.Empty });
             gateway.Properties.Add(new StringDisplayAttribute { DisplayName = "Name", Value = "Gateway" });
             second.Borders[gateway.Guid] = gateway;
             model.DrawingSurfaceList.Add(first);
@@ -142,7 +143,12 @@ namespace ThreatModelForge.Reporting.Tests
                 State = ThreatState.NeedsInvestigation, Priority = "High", UserThreatCategory = "Tampering",
                 UserThreatDescription = "Detailed description", StateInformation = "Decision rationale",
                 SourceGuid = gateway.Guid, DrawingSurfaceGuid = first.Guid,
-                Properties = new Dictionary<string, string> { ["Mitigation"] = "Proposed mitigation", ["References"] = "CWE-287" },
+                Properties = new Dictionary<string, string>
+                {
+                    ["mitigation"] = string.Empty,
+                    ["Mitigation"] = "Proposed mitigation",
+                    ["REFERENCES"] = "CWE-287",
+                },
             };
             return model;
         }
