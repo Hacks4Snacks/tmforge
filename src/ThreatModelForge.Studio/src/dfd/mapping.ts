@@ -128,6 +128,7 @@ export interface PageGraph {
   id: string;
   name: string;
   preserveIdentity?: boolean;
+  source?: Record<string, string>;
   nodes: DfdNode[];
   edges: DfdEdge[];
 }
@@ -145,7 +146,7 @@ export function pagesFromModel(model: TmForgeModel): PageGraph[] {
         elements: d.elements ?? [],
         flows: d.flows ?? [],
       });
-      return { id: d.id || crypto.randomUUID(), name: d.name || `Page ${i + 1}`, preserveIdentity: true, nodes, edges };
+      return { id: d.id || crypto.randomUUID(), name: d.name || `Page ${i + 1}`, preserveIdentity: true, source: d.source, nodes, edges };
     });
   }
   const { nodes, edges } = fromModel(model);
@@ -176,6 +177,7 @@ export function modelFromPages(
     model.diagrams = perPage.map(({ page, graph }) => ({
       id: page.id,
       name: page.name,
+      ...(page.source ? { source: page.source } : {}),
       elements: graph.elements,
       flows: graph.flows,
     }));

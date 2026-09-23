@@ -140,7 +140,7 @@ describe('engine model normalization', () => {
   it('preserves every imported page and the expected rule fingerprints before layout', () => {
     const dto: components['schemas']['TmForgeModelDto'] = {
       diagrams: [
-        { id: 'first', name: 'First', elements: [{ id: 'a', kind: 'process', x: 170, y: 130 }], flows: [] },
+        { id: 'first', name: 'First', source: { format: 'threat-dragon', id: '7', modelType: 'LINDDUN' }, elements: [{ id: 'a', kind: 'process', x: 170, y: 130 }], flows: [] },
         { id: 'second', name: 'Second', elements: [{ id: 'b', kind: 'boundary', x: 280, y: 190, width: 700, height: 400 }], flows: [] },
       ],
       analysis: { expectedPacks: [{ id: 'policy', fingerprint: 'sha256:unchanged' }] },
@@ -149,6 +149,7 @@ describe('engine model normalization', () => {
     const model = toModel(dto);
 
     expect(model.diagrams?.map((page) => page.id)).toEqual(['first', 'second']);
+    expect(model.diagrams?.[0].source).toEqual(dto.diagrams?.[0].source);
     expect(model.diagrams?.[1].elements[0]).toMatchObject({ id: 'b', x: 280, y: 190, width: 700, height: 400 });
     expect(model.analysis?.expectedPacks).toEqual(dto.analysis?.expectedPacks);
   });

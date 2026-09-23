@@ -954,12 +954,22 @@ Use `preflight --to <format>` to inspect the same diagnostics without producing 
 tmforge convert model.tm7 --to drawio --out model.drawio --fail-on-loss
 ```
 
-OWASP Threat Dragon v2 JSON is an additional **input-only** format, detected from its content.
+OWASP Threat Dragon v2 JSON supports **bounded import and export**. Input is detected from its content.
 Use `tmforge convert dragon.json --to tmforge-json --out imported.tmforge.json` or `--to tm7`.
-The initial [supported subset and refusal rules](formats.md#threat-dragon-owasp-threat-dragon-v2-import)
-are deliberate: unsupported trust-boundary geometry and threat treatments are not silently changed.
+Return the supported subset with:
 
-Mermaid flowcharts (`.mmd`, `.mermaid`) and directed Graphviz DOT (`.dot`, `.gv`) are also input-only.
+```bash
+tmforge convert imported.tmforge.json --to threat-dragon --out returned.threatdragon.json
+```
+
+The `.threatdragon.json` suffix also selects the writer when `--to` is omitted. Imported identities,
+authored threats and supported treatments are retained; export does not generate extra threats.
+The [supported subset and refusal rules](formats.md#threat-dragon-owasp-threat-dragon-v2)
+are deliberate: unsupported trust-boundary geometry and threat treatments are not silently changed.
+Unsupported properties, generated threats, and analysis settings also block export before the
+destination is opened; inspect the reason with `preflight --to threat-dragon`.
+
+Mermaid flowcharts (`.mmd`, `.mermaid`) and directed Graphviz DOT (`.dot`, `.gv`) remain input-only.
 Use the existing `convert` command; there is no separate import verb:
 
 ```bash

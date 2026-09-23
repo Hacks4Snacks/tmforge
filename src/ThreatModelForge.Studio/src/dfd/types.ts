@@ -100,6 +100,7 @@ export interface TmForgeDiagram {
   id: string;
   /** Page (tab) label, for example 'Context' or 'Payments service'. */
   name: string;
+  source?: Record<string, string>;
   elements: TmForgeElement[];
   flows: TmForgeFlow[];
 }

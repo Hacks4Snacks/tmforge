@@ -57,8 +57,10 @@ and `/openapi` are matched first.
 | `POST /v1/model/analysis-report?format=<sarif\|html\|json>` | Report | Render the analysis findings as SARIF, HTML, or JSON. |
 | `GET /openapi/v1.json` | n/a | The OpenAPI document. |
 
-Writable format ids are `tm7`, `tmforge-json`, `drawio`, and `vsdx`. Read/preflight additionally accept
-the import-only `threat-dragon`, `mermaid`, and `dot` formats. Query `/v1/formats` for each format's
+Writable format ids are `tm7`, `tmforge-json`, `drawio`, `vsdx`, and the bounded `threat-dragon` subset.
+Threat Dragon conversion returns `application/json` with a `.threatdragon.json` filename and rejects
+unsupported fields with a problem response. Read/preflight additionally accept the import-only
+`mermaid` and `dot` formats. Query `/v1/formats` for each format's
 read/write capabilities rather than assuming every registered reader is an export target. See
 [Formats & interoperability](formats.md).
 

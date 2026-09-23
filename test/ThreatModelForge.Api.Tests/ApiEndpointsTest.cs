@@ -283,6 +283,7 @@ namespace ThreatModelForge.Api.Tests
         [DataRow("drawio", "application/xml", "model.drawio")]
         [DataRow("vsdx", "application/vnd.ms-visio.drawing", "model.vsdx")]
         [DataRow("tmforge-json", "application/json", "model.tmforge.json")]
+        [DataRow("threat-dragon", "application/json", "model.threatdragon.json")]
         public async Task Convert_LabelsEachTargetFormat(string format, string contentType, string fileName)
         {
             using HttpResponseMessage response = await PostJson("/v1/model/convert?to=" + format, Model);

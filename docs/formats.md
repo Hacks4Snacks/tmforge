@@ -12,7 +12,7 @@ consume them, and each provider declares how faithfully it round-trips.
 | `tmforge-json` | `.tmforge.json` | Threat Model Forge JSON (canvas wire model) | Yes | Yes | Structural |
 | `drawio` | `.drawio` | draw.io / diagrams.net | Yes | Yes | Structural |
 | `vsdx` | `.vsdx` | Microsoft Visio | Yes | Yes | Structural |
-| `threat-dragon` | `.json` (content-detected) | OWASP Threat Dragon v2 | Yes, bounded subset | No | Import only |
+| `threat-dragon` | `.threatdragon.json`; other JSON content-detected | OWASP Threat Dragon v2 | Yes, bounded subset | Yes, bounded subset | Structural; imported identities retained |
 | `mermaid` | `.mmd`, `.mermaid` | Mermaid flowchart | Yes, bounded subset | No | Import only |
 | `dot` | `.dot`, `.gv` | Graphviz DOT | Yes, bounded subset | No | Import only |
 
@@ -67,7 +67,8 @@ The shape Studio and the API speak: elements, flows, trust boundaries, names, an
 optional analysis selection (disabled packs/rules) and an author-owned threat overlay, risk
 acceptance, and per-threat edits (state, priority, mitigation, description), plus manually-authored
 threats. An optional `metadata` object retains the model name, owner, description, contributors, and
-reviewer. Imported manual threats carry informational provenance in their optional `source` object.
+reviewer. Imported manual threats and diagrams carry informational provenance in their optional
+`source` objects, including Threat Dragon identifiers and methodology.
 Multi-page models carry a `diagrams` array (one entry per page, with its name); a named or explicitly
 identified single page also retains that array. The flat `elements`/`flows` mirror the first page for
 older readers, and legacy flat documents remain readable. Knowledge-base
@@ -90,11 +91,12 @@ per-shape **Visio Shape Data** (visible in Visio's Shape Data pane) and re-impor
 properties. The rich threat model itself is not reconstructed, so the mapping is structural. Import
 recognizes packages this provider wrote and the documented master/shape convention.
 
-### `threat-dragon` (OWASP Threat Dragon v2 import)
+### `threat-dragon` (OWASP Threat Dragon v2)
 
-This is a **read-only, bounded import**, not native Threat Dragon editing or a lossless conversion.
+This is a **bounded import and export**, not lossless native Threat Dragon editing.
 The reader recognizes the `summary` / `detail.diagrams` JSON envelope and accepts major version 2.
-It does not claim the generic `.json` extension, execute foreign rules, or fetch external resources.
+The writer emits v2 JSON, selected with `--to threat-dragon` or the `.threatdragon.json` suffix.
+The provider does not claim the generic `.json` extension, execute foreign rules, or fetch external resources.
 An unsupported construct refuses the entire import rather than returning a partial diagram.
 
 **Preserved:** named pages and stable identities; actors, processes, stores and rectangular trust
@@ -105,7 +107,7 @@ arrays on the same cell are ambiguous and refused.
 
 Imported threats use `manual:threat-dragon.<source-id>` keys and remain independent of generated
 tmforge threats. Source format/version, threat/cell/diagram ids, methodology, original status,
-severity and custom score are retained as provenance. Non-STRIDE category text is preserved, not
+severity, display number and custom score are retained as provenance. Non-STRIDE category text is preserved, not
 coerced into STRIDE; importing a LINDDUN category does not install a LINDDUN evaluator. Source ids
 must fit the manual-id vocabulary; malformed or duplicate identities are refused.
 
@@ -117,7 +119,7 @@ Other cell data is preserved under `ThreatDragon.data.*`, alongside source ident
 **Out-of-scope flags are retained as information, not applied as tmforge suppressions.** The imported
 model is analyzed under the selected tmforge rules, not Threat Dragon's detection semantics.
 
-**Refused in this first delivery:** curved/line trust boundaries, unknown cell kinds, bidirectional
+**Refused on import:** curved/line trust boundaries, unknown cell kinds, bidirectional
 or detached flows, cross-page endpoints, fractional/out-of-range rectangles, and unmappable threat
 statuses or priorities. Supported statuses are `Open`, `Mitigated`, and `Accepted`; supported
 priorities are `Critical`, `High`, `Medium`, and `Low`. For example, `NA`, `Transferred`, `Avoided`
@@ -127,20 +129,60 @@ within +/-1,000,000 and dimensions from 1 to 100,000; rounding could alter a tru
 Limits are 8 MiB of UTF-8 JSON, depth 64, 128 diagrams, 10,000 cells, and 20,000 authored threats.
 Style, thumbnails, free-form routing/vertices and unlisted document fields are not retained.
 Keep the original file. In particular, the upstream v2 demo includes curved boundaries and is
-deliberately refused by this first delivery; replacing those boundaries requires a human review,
+deliberately refused; replacing those boundaries requires a human review,
 not automatic conversion to rectangles.
 
 ```bash
 tmforge open dragon.json
 tmforge convert dragon.json --to tmforge-json --out imported.tmforge.json
 tmforge convert dragon.json --to tm7 --out imported.tm7
+tmforge preflight imported.tmforge.json --to threat-dragon
+tmforge convert imported.tmforge.json --to threat-dragon --out returned.threatdragon.json
 ```
 
-Studio **Open File**, the HTTP read endpoint, WASM and MCP use the same reader. Studio detaches the
-source file handle and proposes a new `.tmforge.json` name for Save. Native `--to threat-dragon`
-output is refused without overwriting the destination. Schema/sample grounding uses
+Studio **Open File**, the HTTP read endpoint, WASM and MCP use the same reader. In browser Studio,
+opening a Threat Dragon file through the writable file picker binds **Save** to that same file and
+format, just as for `.tm7` and canonical JSON. Unsupported edits fail before a writable stream is
+opened; there is no fallback that overwrites the file with another format. Without writable file
+access, Save offers a destination or downloads a copy using the original name and format. Recovery
+retains that name and format, but browser permissions require selecting a file again after reload.
+**Export** remains available to create a separate copy or choose another format.
+Schema/sample grounding uses
 [Threat Dragon v2.6.2](https://github.com/OWASP/threat-dragon/tree/v2.6.2/ThreatDragonModels); tests use
 a synthetic fixture covering the supported subset, not a claim that every v2 model is importable.
+
+#### Export fidelity
+
+Imported page, cell and threat identities survive import -> canonical JSON -> export -> import,
+including empty pages. Threat display numbers are retained when supplied; missing numbers are
+allocated in stable threat-ID order. Imported diagram IDs must be unique, nonnegative JavaScript-safe
+integers. Older inputs using nonnumeric diagram IDs remain readable but are refused on export rather
+than silently renumbered. New pages receive deterministic numeric IDs, so their original tmforge page
+GUIDs are not a round-trip guarantee. Keep provenance fields when editing canonical JSON.
+
+Export includes current names, model metadata, integer rectangles, page-local directed flows and
+authored threats. Supported control fields come from the current model, not cached import values.
+Other supported source data remains under `ThreatDragon.data.*`. Contributor display text is retained
+as one contributor entry. Styling, routing vertices and original thumbnails are not reconstructed;
+the output uses the target's default shapes and an empty thumbnail.
+Saving back to an imported file uses this same bounded conversion, not byte-preserving native editing.
+Review the import fidelity warning and keep the original when those omitted presentation fields matter.
+
+The writer refuses content outside this mapping before writing any output bytes. CLI preflight
+surfaces the same refusal before opening the destination, naming the unsupported field or object.
+This includes:
+
+- Custom stencils, unknown properties, line boundaries, authored connector bends or ports, and
+  rectangles smaller than 10 units (the upstream schema's minimum).
+- Unrepresentable control values such as `Encrypted=Unknown`; no missing control is invented and
+  no unknown value is converted to `false`.
+- Generated threats, unscoped or multi-target threats, inconsistent page/flow scopes, unsupported
+  treatment states, extra threat properties and audit metadata.
+- Assumptions, external dependencies, notes, validations, embedded knowledge bases, native
+  threat-generation settings, and canonical analysis selections or expected rule-pack fingerprints.
+
+Export does not run threat generation or copy transient analyzer findings into authored threats.
+Both repeat exports of the same input and imported identities are covered by regression tests.
 
 ### `mermaid` and `dot` (starter-model import)
 
