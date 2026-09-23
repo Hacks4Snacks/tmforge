@@ -632,6 +632,10 @@
           "type": "string",
           "minLength": 1
         },
+        "status": {
+          "description": "Threat status explicitly recorded by this review disposition.",
+          "enum": ["open", "mitigated", "accepted", "transferred", "unknown"]
+        },
         "decision": {
           "enum": [
             "confirmed",
@@ -698,6 +702,17 @@
           },
           "then": {
             "required": ["evidenceIds"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {"enum": ["mitigated", "accepted", "transferred"]}
+            },
+            "required": ["status"]
+          },
+          "then": {
+            "required": ["reference", "evidenceIds"]
           }
         }
       ]

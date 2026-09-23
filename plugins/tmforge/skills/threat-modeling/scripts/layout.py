@@ -23,6 +23,7 @@ ORIGIN_Y = 40
 # therefore wider than a whole boundary column and will print across whatever it passes
 # over unless the gap it spans is opened up to hold it.
 LABEL_CHAR_W = 7
+LABEL_H = 18
 # Never widen a single gap past this. Beyond it the canvas runs into the tool's hard
 # coordinate limit and the tool clamps shapes on load, which piles them on top of one
 # another — a worse outcome than a label that overhangs. A name that needs more room than
@@ -133,7 +134,9 @@ def column_gaps(
     names, which is what the cap here forces once a label stops being a label.
     """
     owner = _group_of(members)
-    index_of = {group: index for index, column in enumerate(columns) for group in column}
+    index_of = {
+        group: index for index, column in enumerate(columns) for group in column
+    }
     gaps = [float(COL_GAP)] * max(0, len(columns) - 1)
     for flow in flows:
         source = index_of.get(owner.get(flow.get("sourceId", ""), ""))
@@ -141,10 +144,13 @@ def column_gaps(
         if source is None or target is None:
             continue
         first, last = sorted((source, target))
-        if last - first != 1:
-            continue  # only a neighbouring pair pins one gap unambiguously
-        required = _label_width(flow) - 2 * PAD
-        gaps[first] = max(gaps[first], min(required, float(MAX_COL_GAP)))
+        span = last - first
+        if span == 0:
+            continue
+        required = _label_width(flow) - 2 * PAD - (span - 1) * (ELEMENT_W + 2 * PAD)
+        per_gap = min(required / span, float(MAX_COL_GAP))
+        for gap_index in range(first, last):
+            gaps[gap_index] = max(gaps[gap_index], per_gap)
     return gaps
 
 
@@ -193,6 +199,41 @@ def _place(
 def _centre(box: tuple[float, float, float, float]) -> tuple[float, float]:
     x, y, width, height = box
     return x + width / 2.0, y + height / 2.0
+
+
+def label_obstructions(
+    elements: list[dict],
+    flows: list[dict],
+    boxes: dict[str, tuple[float, float, float, float]],
+) -> list[str]:
+    failures: list[str] = []
+    for flow in flows:
+        source = boxes.get(flow.get("sourceId", ""))
+        target = boxes.get(flow.get("targetId", ""))
+        if source is None or target is None:
+            continue
+        source_x, source_y = _centre(source)
+        target_x, target_y = _centre(target)
+        half_width = _label_width(flow) / 2
+        if half_width == 0:
+            continue
+        centre_x, centre_y = (source_x + target_x) / 2, (source_y + target_y) / 2
+        for element in elements:
+            box = boxes.get(element["id"])
+            if box is None:
+                continue
+            left, top, width, height = box
+            if (
+                centre_x - half_width < left + width
+                and left < centre_x + half_width
+                and centre_y - LABEL_H / 2 < top + height
+                and top < centre_y + LABEL_H / 2
+            ):
+                failures.append(
+                    f"flow {flow.get('id') or flow.get('name')!r} label overlaps {element['id']} in the straight-line layout; "
+                    "shorten the label, explicitly route the connector, or split the page"
+                )
+    return sorted(set(failures))
 
 
 def _crosses(
@@ -353,27 +394,29 @@ def main() -> int:
         seed=args.seed,
     )
 
+    width = max((box[0] + box[2] for box in boxes.values()), default=0.0)
+    height = max((box[1] + box[3] for box in boxes.values()), default=0.0)
+    failures = label_obstructions(
+        ledger.get("elements", []), ledger.get("flows", []), boxes
+    )
+    if width > MAX_CANVAS_X or height > MAX_CANVAS_Y:
+        failures.append(
+            f"canvas exceeds the tool's limit of {MAX_CANVAS_X}x{MAX_CANVAS_Y}; "
+            f"the Microsoft Threat Modeling Tool clamps out-of-range shapes on load, which "
+            "piles them on top of each other. Shorten the flow names or split the page."
+        )
     if args.json:
         print(
             json.dumps(
                 {alias: list(box) for alias, box in sorted(boxes.items())}, indent=2
             )
         )
-        return 0
-
-    width = max((box[0] + box[2] for box in boxes.values()), default=0.0)
-    height = max((box[1] + box[3] for box in boxes.values()), default=0.0)
-    print(f"{len(boxes)} shapes, canvas {width:.0f}x{height:.0f}")
-    print(f"predicted crossings: {crossings}, total edge length: {length:.0f}")
-    if width > MAX_CANVAS_X or height > MAX_CANVAS_Y:
-        print(
-            f"WARNING: canvas exceeds the tool's limit of {MAX_CANVAS_X}x{MAX_CANVAS_Y}; "
-            f"the Microsoft Threat Modeling Tool clamps out-of-range shapes on load, which "
-            f"piles them on top of each other. Shorten the flow names or split the page.",
-            file=sys.stderr,
-        )
-        return 1
-    return 0
+    else:
+        print(f"{len(boxes)} shapes, canvas {width:.0f}x{height:.0f}")
+        print(f"predicted crossings: {crossings}, total edge length: {length:.0f}")
+    for failure in failures:
+        print(f"WARNING: {failure}", file=sys.stderr)
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

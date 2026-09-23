@@ -4,13 +4,17 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import math
 import re
 import sys
 from collections import Counter
 from collections.abc import Callable
 from datetime import date
+from functools import cache
 from pathlib import Path
 from typing import cast
+
+from generate_suppressions import artifact_stream
 
 JsonObject = dict[str, object]
 
@@ -389,14 +393,99 @@ def check_triage(
                 error(
                     f"{owner}: resolved decision requires evidenceIds proving the fix"
                 )
-            if threat.get("status") not in {"mitigated", "transferred"}:
+            if entry.get("status", threat.get("status")) not in {
+                "mitigated",
+                "transferred",
+            }:
                 error(
                     f"{owner}: resolved decision requires threat status 'mitigated' or "
-                    f"'transferred', found {threat.get('status')!r}"
+                    f"'transferred', found {entry.get('status', threat.get('status'))!r}"
                 )
 
     if order_keys != sorted(order_keys):
         error(f"{threat_id}: triage must be sorted by date then reviewer")
+
+
+def check_status(
+    threat_id: str,
+    threat: JsonObject,
+    evidence: dict[str, JsonObject],
+    error: Callable[[str], None],
+) -> None:
+    """Require an explicit, evidenced disposition before a risk leaves recommendations."""
+    status = threat.get("status")
+    if status not in {"mitigated", "accepted", "transferred"}:
+        return
+    entries = as_object_list(threat.get("triage")) or []
+    if not entries or entries[-1].get("status") != status:
+        error(
+            f"{threat_id}: {status} status requires the latest triage entry to record the same status"
+        )
+        return
+    entry = entries[-1]
+    expected_decision = "confirmed" if status == "accepted" else "resolved"
+    if entry.get("decision") != expected_decision:
+        error(
+            f"{threat_id}: {status} status requires a {expected_decision!r} triage decision"
+        )
+
+    def named(value: object) -> bool:
+        return isinstance(value, str) and value.strip().casefold() not in {
+            "",
+            "unassigned",
+            "unknown",
+            "tbd",
+            "todo",
+            "none",
+            "n/a",
+        }
+
+    if not named(entry.get("reviewer")):
+        error(
+            f"{threat_id}: {status} status requires a named decision owner in triage.reviewer"
+        )
+    if (
+        not isinstance(entry.get("reference"), str)
+        or not str(entry["reference"]).strip()
+    ):
+        error(f"{threat_id}: {status} status requires a disposition reference")
+    evidence_ids = set(as_string_list(entry.get("evidenceIds")) or [])
+    evidence_types = {
+        evidence[evidence_id].get("type")
+        for evidence_id in evidence_ids
+        if evidence_id in evidence
+    }
+    owner_required = status != "transferred" or "contract" not in evidence_types
+    if owner_required and not named(threat.get("mitigationOwner")):
+        error(f"{threat_id}: {status} status requires a named mitigationOwner")
+
+    if status == "mitigated":
+        implementation_ids = {
+            evidence_id
+            for control in as_object_list(threat.get("currentControls")) or []
+            if control.get("implementationStatus") == "implemented"
+            for evidence_id in as_string_list(control.get("evidenceIds")) or []
+            if evidence_id in evidence
+            and evidence[evidence_id].get("type")
+            in {
+                "source",
+                "deployed-configuration",
+                "generated-configuration",
+                "runtime",
+            }
+        }
+        if not evidence_ids.intersection(implementation_ids):
+            error(
+                f"{threat_id}: mitigated status requires triage evidence for an implemented current control"
+            )
+        if not evidence_types.intersection({"test", "runtime"}):
+            error(
+                f"{threat_id}: mitigated status requires test or runtime verification evidence in triage"
+            )
+    elif not evidence_types.intersection({"change-record", "contract"}):
+        error(
+            f"{threat_id}: {status} status requires change-record or contract evidence in triage"
+        )
 
 
 def check_id_stability(
@@ -537,6 +626,169 @@ def check_crossing_consistency(
             )
 
 
+@cache
+def analysis_schema() -> JsonObject:
+    schema = load_document(
+        Path(__file__).resolve().parents[1] / "assets" / "analysis.schema.json"
+    )
+    supported = {
+        "$defs",
+        "$id",
+        "$ref",
+        "$schema",
+        "title",
+        "description",
+        "type",
+        "enum",
+        "const",
+        "properties",
+        "required",
+        "additionalProperties",
+        "items",
+        "minItems",
+        "uniqueItems",
+        "minLength",
+        "pattern",
+        "format",
+        "minimum",
+        "maximum",
+        "allOf",
+        "if",
+        "then",
+        "else",
+    }
+
+    def check(definition: JsonObject) -> None:
+        unsupported = sorted(definition.keys() - supported)
+        if unsupported:
+            raise ValueError(f"unsupported analysis schema keywords: {unsupported}")
+        if definition.get("format") not in (None, "date"):
+            raise ValueError(
+                f"unsupported analysis schema format: {definition['format']}"
+            )
+        for field in ("properties", "$defs"):
+            for child in (as_object(definition.get(field)) or {}).values():
+                check(cast(JsonObject, child))
+        for field in ("items", "if", "then", "else"):
+            child = as_object(definition.get(field))
+            if child is not None:
+                check(child)
+        for child in as_object_list(definition.get("allOf")) or []:
+            check(child)
+
+    check(schema)
+    return schema
+
+
+def schema_field_errors(document: JsonObject) -> list[str]:
+    """Enforce the bundled schema before deriving semantic relationships."""
+    schema = analysis_schema()
+    definitions = cast(JsonObject, schema["$defs"])
+    json_types = {
+        "object": (dict,),
+        "array": (list,),
+        "string": (str,),
+        "boolean": (bool,),
+        "integer": (int,),
+        "number": (int, float),
+        "null": (type(None),),
+    }
+
+    def visit(value: object, definition: JsonObject, path: str) -> list[str]:
+        errors: list[str] = []
+        reference = definition.get("$ref")
+        if isinstance(reference, str):
+            errors.extend(
+                visit(
+                    value,
+                    cast(JsonObject, definitions[reference.removeprefix("#/$defs/")]),
+                    path,
+                )
+            )
+        expected_type = definition.get("type")
+        if (
+            isinstance(expected_type, str)
+            and type(value) not in json_types[expected_type]
+        ):
+            errors.append(f"{path}: must be {expected_type}")
+            return errors
+        choices = definition.get("enum")
+        if isinstance(choices, list) and not any(
+            type(value) is type(choice) and value == choice for choice in choices
+        ):
+            errors.append(f"{path}: must be one of {choices}")
+            return errors
+        if "const" in definition and (
+            type(value) is not type(definition["const"]) or value != definition["const"]
+        ):
+            errors.append(f"{path}: must equal {definition['const']!r}")
+        if isinstance(value, str):
+            minimum_length = definition.get("minLength")
+            if isinstance(minimum_length, int) and len(value) < minimum_length:
+                errors.append(f"{path}: must have at least {minimum_length} characters")
+            pattern = definition.get("pattern")
+            if isinstance(pattern, str) and re.search(pattern, value) is None:
+                errors.append(f"{path}: must match pattern {pattern!r}")
+            if definition.get("format") == "date":
+                try:
+                    if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value) is None:
+                        raise ValueError("not an ISO date")
+                    date.fromisoformat(value)
+                except ValueError:
+                    errors.append(
+                        f"{path}: must be a real calendar date in YYYY-MM-DD format"
+                    )
+        if type(value) in (int, float):
+            number = cast(int | float, value)
+            if isinstance(number, float) and not math.isfinite(number):
+                errors.append(f"{path}: must be finite")
+            for keyword in ("minimum", "maximum"):
+                limit = definition.get(keyword)
+                if isinstance(limit, (int, float)) and (
+                    number < limit if keyword == "minimum" else number > limit
+                ):
+                    errors.append(f"{path}: violates {keyword} {limit}")
+        mapping = as_object(value)
+        if mapping is not None:
+            properties = as_object(definition.get("properties")) or {}
+            required = as_string_list(definition.get("required")) or []
+            missing = sorted(set(required) - mapping.keys())
+            if path and missing:
+                errors.append(f"{path}: missing required fields: {missing}")
+            unknown = sorted(mapping.keys() - properties.keys())
+            if path and definition.get("additionalProperties") is False and unknown:
+                errors.append(f"{path}: unknown fields: {unknown}")
+            for name in sorted(mapping.keys() & properties.keys()):
+                child = as_object(properties[name])
+                if child is not None:
+                    errors.extend(
+                        visit(mapping[name], child, f"{path}.{name}" if path else name)
+                    )
+        elif isinstance(value, list):
+            minimum_items = definition.get("minItems")
+            if isinstance(minimum_items, int) and len(value) < minimum_items:
+                errors.append(f"{path}: must have at least {minimum_items} items")
+            if definition.get("uniqueItems") is True and any(
+                item in value[:index] for index, item in enumerate(value)
+            ):
+                errors.append(f"{path}: items must be unique")
+            item_schema = as_object(definition.get("items"))
+            if item_schema is not None:
+                for index, item in enumerate(cast(list[object], value)):
+                    errors.extend(visit(item, item_schema, f"{path}[{index}]"))
+        for constraint in as_object_list(definition.get("allOf")) or []:
+            errors.extend(visit(value, constraint, path))
+        condition = as_object(definition.get("if"))
+        if condition is not None:
+            branch = "else" if visit(value, condition, path) else "then"
+            consequence = as_object(definition.get(branch))
+            if consequence is not None:
+                errors.extend(visit(value, consequence, path))
+        return errors
+
+    return visit(document, schema, "")
+
+
 def validate_document(document: object) -> list[str]:
     """Return all deterministic contract violations in a ledger."""
     errors: list[str] = []
@@ -568,6 +820,9 @@ def validate_document(document: object) -> list[str]:
         error(f"missing top-level fields: {missing}")
     if unknown:
         error(f"unknown top-level fields: {unknown}")
+    errors.extend(schema_field_errors(root))
+    if errors:
+        return errors
     if root.get("schemaVersion") != 1:
         error("schemaVersion must be 1")
 
@@ -979,6 +1234,7 @@ def validate_document(document: object) -> list[str]:
                 )
 
         check_triage(threat_id, threat, evidence, set(threat_index), error)
+        check_status(threat_id, threat, evidence, error)
 
     expected_order = sorted(
         coverage,
@@ -1079,7 +1335,8 @@ def validate_document(document: object) -> list[str]:
 
 def load_document(path: Path) -> JsonObject:
     """Load one top-level JSON object."""
-    value: object = json.loads(path.read_text(encoding="utf-8"))
+    with artifact_stream(path) as stream:
+        value: object = json.loads(stream.read().decode("utf-8"))
     document = as_object(value)
     if document is None:
         raise ValueError("top level must be a JSON object")
@@ -1112,7 +1369,7 @@ def run_self_test() -> int:
     invalid_origin_threats = as_object_list(invalid_origin.get("threats")) or []
     invalid_origin_threats[0].pop("origin", None)
     invalid_origin_errors = validate_document(invalid_origin)
-    if not any("invalid origin" in message for message in invalid_origin_errors):
+    if "threats[0]: missing required fields: ['origin']" not in invalid_origin_errors:
         print("SELF-TEST FAILED: missing threat origin was accepted", file=sys.stderr)
         return 1
 
@@ -1138,7 +1395,10 @@ def run_self_test() -> int:
         return 1
     invalid_controls[0].pop("gap", None)
     invalid_control_errors = validate_document(invalid_control)
-    if not any("control requires gap" in message for message in invalid_control_errors):
+    if (
+        "threats[0].currentControls[0]: missing required fields: ['gap']"
+        not in invalid_control_errors
+    ):
         print(
             "SELF-TEST FAILED: partial control without gap was accepted",
             file=sys.stderr,
@@ -1166,15 +1426,17 @@ def run_self_test() -> int:
         return 1
     invalid_triage_entries[0]["decision"] = "resolved"
     invalid_triage_errors = validate_document(invalid_triage)
-    if not any(
-        "resolved decision requires evidenceIds" in message
-        for message in invalid_triage_errors
+    if (
+        "threats[0].triage[0]: missing required fields: ['evidenceIds']"
+        not in invalid_triage_errors
     ):
         print(
             "SELF-TEST FAILED: resolved triage without evidence was accepted",
             file=sys.stderr,
         )
         return 1
+    invalid_triage_entries[0]["evidenceIds"] = ["E001"]
+    invalid_triage_errors = validate_document(invalid_triage)
     if not any(
         "resolved decision requires threat status" in message
         for message in invalid_triage_errors
@@ -1192,9 +1454,9 @@ def run_self_test() -> int:
     )
     invalid_duplicate_entries[0]["decision"] = "duplicate"
     invalid_duplicate_errors = validate_document(invalid_duplicate)
-    if not any(
-        "duplicate decision requires relatedThreatIds" in message
-        for message in invalid_duplicate_errors
+    if (
+        "threats[0].triage[0]: missing required fields: ['relatedThreatIds']"
+        not in invalid_duplicate_errors
     ):
         print(
             "SELF-TEST FAILED: duplicate triage without a related threat was accepted",
@@ -1231,7 +1493,10 @@ def run_self_test() -> int:
     invalid_evidence_items = as_object_list(invalid_evidence_type.get("evidence")) or []
     invalid_evidence_items[0]["type"] = "design-doc"
     invalid_evidence_errors = validate_document(invalid_evidence_type)
-    if not any("invalid type" in message for message in invalid_evidence_errors):
+    if not any(
+        "evidence[0].type: must be one of" in message
+        for message in invalid_evidence_errors
+    ):
         print(
             "SELF-TEST FAILED: evidence type outside the vocabulary was accepted",
             file=sys.stderr,
@@ -1241,7 +1506,10 @@ def run_self_test() -> int:
     invalid_axis = copy.deepcopy(document)
     invalid_axis_boundaries = as_object_list(invalid_axis.get("boundaries")) or []
     invalid_axis_boundaries[0]["axis"] = "trust"
-    if not any("axis must be one of" in m for m in validate_document(invalid_axis)):
+    if not any(
+        "boundaries[0].axis: must be one of" in message
+        for message in validate_document(invalid_axis)
+    ):
         print("SELF-TEST FAILED: unknown boundary axis was accepted", file=sys.stderr)
         return 1
 
@@ -1286,9 +1554,9 @@ def run_self_test() -> int:
     unbacked_flows[0]["crossingExemptions"] = [
         {"boundaryId": "TB1", "rationale": "not really"}
     ]
-    if not any(
-        "evidenceIds must be a non-empty" in m
-        for m in validate_document(unbacked_exemption)
+    if (
+        "flows[0].crossingExemptions[0]: missing required fields: ['evidenceIds']"
+        not in validate_document(unbacked_exemption)
     ):
         print(
             "SELF-TEST FAILED: crossing exemption without evidence was accepted",

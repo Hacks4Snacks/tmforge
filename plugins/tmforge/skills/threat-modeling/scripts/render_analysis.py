@@ -21,6 +21,13 @@ from validate_analysis import (
     natural_key,
     validate_document,
 )
+import secrets
+from generate_suppressions import (
+    artifact_stream,
+    output_directory,
+    require_distinct_output,
+    validate_output_entry,
+)
 
 DOCUMENT_NAMES = ("data-flow.md", "threat-model.md")
 GENERATED_NOTICE = (
@@ -638,6 +645,7 @@ def render_threat_model(
                     "Date",
                     "Reviewer",
                     "Decision",
+                    "Status",
                     "Rationale",
                     "Related",
                     "Work Items",
@@ -649,6 +657,7 @@ def render_threat_model(
                         item.get("date"),
                         item.get("reviewer"),
                         item.get("decision"),
+                        item.get("status"),
                         item.get("rationale"),
                         join_values(item.get("relatedThreatIds")),
                         join_values(item.get("workItemIds")),
@@ -758,10 +767,16 @@ def compare_documents(expected: dict[str, str], output_directory: Path) -> list[
     failures: list[str] = []
     for name in DOCUMENT_NAMES:
         path = output_directory / name
-        if not path.is_file():
+        try:
+            with artifact_stream(path) as stream:
+                content = stream.read().decode("utf-8")
+        except FileNotFoundError:
             failures.append(f"missing generated document: {path}")
             continue
-        if path.read_text(encoding="utf-8") != expected[name]:
+        except (OSError, ValueError) as exc:
+            failures.append(f"cannot read generated document {path}: {exc}")
+            continue
+        if content != expected[name]:
             failures.append(f"stale generated document: {path}")
     return failures
 
@@ -769,21 +784,44 @@ def compare_documents(expected: dict[str, str], output_directory: Path) -> list[
 def atomic_write(path: Path, content: str) -> bool:
     """Write changed content atomically and return whether bytes changed."""
     encoded = content.encode("utf-8")
-    if path.is_file() and path.read_bytes() == encoded:
-        return False
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(
-        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
-    )
-    temporary_path = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(encoded)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary_path, path)
-    finally:
-        temporary_path.unlink(missing_ok=True)
+    with output_directory(path.parent, create=True) as directory:
+        location = path.name if directory is not None else path
+        try:
+            info = os.stat(location, dir_fd=directory, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            validate_output_entry(info)
+            descriptor = os.open(
+                location,
+                os.O_RDONLY
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_NONBLOCK", 0),
+                dir_fd=directory,
+            )
+            with os.fdopen(descriptor, "rb") as source:
+                opened = os.fstat(source.fileno())
+                validate_output_entry(opened)
+                if (info.st_dev, info.st_ino) != (opened.st_dev, opened.st_ino):
+                    raise ValueError("output changed while opening")
+                if source.read() == encoded:
+                    return False
+        name = f".{path.name}.{secrets.token_hex(16)}.tmp"
+        temporary = name if directory is not None else path.parent / name
+        descriptor = os.open(
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=directory
+        )
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, location, src_dir_fd=directory, dst_dir_fd=directory)
+        finally:
+            try:
+                os.unlink(temporary, dir_fd=directory)
+            except FileNotFoundError:
+                pass
     return True
 
 
@@ -830,7 +868,7 @@ def run_self_test() -> int:
         raise AssertionError("standalone report contains a companion-file link")
 
     with tempfile.TemporaryDirectory() as temporary_directory:
-        output_directory = Path(temporary_directory)
+        output_directory = Path(temporary_directory).resolve()
         changed = write_documents(first, output_directory)
         if len(changed) != len(DOCUMENT_NAMES):
             raise AssertionError(f"expected both documents to be written: {changed}")
@@ -866,6 +904,21 @@ def main() -> int:
     if args.ledger is None:
         parser.error("ledger is required unless --self-test is used")
 
+    output_directory = args.output_dir or args.ledger.parent
+    if args.standalone_report is not None and args.output_dir is not None:
+        parser.error("--output-dir cannot be combined with --standalone-report")
+    destinations = (
+        (args.standalone_report,)
+        if args.standalone_report is not None
+        else tuple(output_directory / name for name in DOCUMENT_NAMES)
+    )
+    try:
+        for destination in destinations:
+            require_distinct_output(destination, (args.ledger,))
+    except (OSError, ValueError) as exc:
+        print(f"INVALID: {exc}", file=sys.stderr)
+        return 1
+
     try:
         document = load_document(args.ledger)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -878,10 +931,7 @@ def main() -> int:
         print(f"INVALID: {len(errors)} ledger error(s)", file=sys.stderr)
         return 1
 
-    output_directory = args.output_dir or args.ledger.parent
     if args.standalone_report is not None:
-        if args.output_dir is not None:
-            parser.error("--output-dir cannot be combined with --standalone-report")
         expected_report = render_threat_model(
             document, args.ledger.name, standalone=True
         )

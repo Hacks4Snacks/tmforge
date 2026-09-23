@@ -308,9 +308,10 @@ for those decisions: they are unversioned, unqueryable, and they disappear the m
 next reviewer re-litigates the same finding from scratch.
 
 Record each decision as a `triage` entry on the threat it concerns. The entry carries `date`, `reviewer`, `decision`,
-and `rationale`, plus `reference`, `relatedThreatIds`, `workItemIds`, and `evidenceIds` where they apply. Entries
+`status` at the time of review, and `rationale`, plus `reference`, `relatedThreatIds`, `workItemIds`, and `evidenceIds` where they apply. Entries
 accumulate and are sorted by date then reviewer, so the trail shows how a finding's disposition changed rather than
 only where it landed.
+For `mitigated`, `accepted`, or `transferred` threats, the latest triage status must match the threat status, with an accountable threat owner and supporting evidence.
 
 Use only these decisions:
 
@@ -324,7 +325,7 @@ Use only these decisions:
 Triage records what review decided. It never substitutes for the evidence that decides whether a control is real, so
 three rules are enforced rather than advised:
 
-- `resolved` requires `evidenceIds` and a threat `status` of `mitigated` or `transferred`. A statement that something
+- `resolved` requires `evidenceIds` and an entry `status` of `mitigated` or `transferred`. A statement that something
   is fixed is not proof that it is; the commit, pull request, or runtime observation belongs in the evidence ledger
   first, at its true evidence rank. A reviewer's recollection is an `assumption`, not `runtime` evidence.
 - `duplicate` requires `relatedThreatIds`. Overlapping findings are cross-linked, not merged: STRIDE coverage is
