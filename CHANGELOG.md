@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.12.1...v0.13.0) (2026-09-23)
+
+
+### Features
+
+* Support markdown formatted reporting ([#129](https://github.com/Hacks4Snacks/tmforge/issues/129)) ([16ef07d](https://github.com/Hacks4Snacks/tmforge/commit/16ef07d01eb2c9998038d9ce6314d3d492e49c1e))
+* Support Threat Dragon model v2 export ([#131](https://github.com/Hacks4Snacks/tmforge/issues/131)) ([62342e1](https://github.com/Hacks4Snacks/tmforge/commit/62342e1c5d581d92ebee7fce899a68d9a379fd13))
+
 ## [0.12.1](https://github.com/Hacks4Snacks/tmforge/compare/v0.12.0...v0.12.1) (2026-09-22)
 
 
