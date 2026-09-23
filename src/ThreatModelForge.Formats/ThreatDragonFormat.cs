@@ -305,8 +305,10 @@ namespace ThreatModelForge.Formats
                         throw new NotSupportedException($"Threat Dragon export cannot preserve model-wide threat '{entry.Key}'.");
                     }
 
-                    if ((entity is Connector connector && (threat.SourceGuid != connector.SourceGuid || threat.TargetGuid != connector.TargetGuid))
-                        || (!(entity is Connector) && threat.TargetGuid != Guid.Empty))
+                    bool invalidTargetReference = entity is Connector connector
+                        ? threat.SourceGuid != connector.SourceGuid || threat.TargetGuid != connector.TargetGuid
+                        : threat.TargetGuid != Guid.Empty;
+                    if (invalidTargetReference)
                     {
                         throw new NotSupportedException($"Threat Dragon threat '{entry.Key}' references multiple or inconsistent target cells.");
                     }
@@ -446,9 +448,13 @@ namespace ThreatModelForge.Formats
             IReadOnlyDictionary<string, string> properties = DiagramElementHelper.GetCustomProperties(entity);
             foreach (string key in properties.Keys)
             {
-                bool mapped = (kind == "tm.Store" && (key == "StoresCredentials" || key == "StoresLogData" || key == "Signed" || key == "Encrypted"))
-                    || (kind == "tm.Actor" && key == "AuthenticatesItself")
-                    || (kind == "tm.Flow" && key == "Protocol");
+                bool mapped = kind switch
+                {
+                    "tm.Store" => key is "StoresCredentials" or "StoresLogData" or "Signed" or "Encrypted",
+                    "tm.Actor" => key == "AuthenticatesItself",
+                    "tm.Flow" => key == "Protocol",
+                    _ => false,
+                };
                 if (!mapped && key != "ThreatDragon.Id" && key != "ThreatDragon.DiagramId" && key != "ThreatDragon.ModelType"
                     && !key.StartsWith("ThreatDragon.data.", StringComparison.Ordinal))
                 {

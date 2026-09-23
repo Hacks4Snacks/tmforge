@@ -79,7 +79,7 @@ namespace ThreatModelForge.Formats
 
             foreach (IThreatModelFormat format in this.formats)
             {
-                foreach (string candidate in format.Extensions.Where(candidate =>
+                if (format.Extensions.Any(candidate =>
                     string.Equals(candidate, extension, StringComparison.OrdinalIgnoreCase)
                     || pathOrExtension.EndsWith(candidate, StringComparison.OrdinalIgnoreCase)))
                 {
