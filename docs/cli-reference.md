@@ -51,7 +51,7 @@ tmforge <command> [options] <file>
 | [`analysis`](#analysis) | Analyze | Validate a stored analysis document (and check whether it is stale), or compare two of them. |
 | [`threats`](#threats) | Analyze | Report or author threats — the persisted, triaged view of the findings (`--write` to persist; `--add`/`--edit`/`--remove` to author). |
 | [`accept`](#accept) | Analyze | Accept a generated threat's risk (records a justification). |
-| [`report`](#report) | Report | Generate a self-contained HTML report. |
+| [`report`](#report) | Report | Generate an HTML or Markdown report, or an SVG diagram. |
 | [`convert`](#convert) | Convert | Convert a model between file formats. |
 | [`apply`](#apply) | Author | Build a model from a declarative JSON manifest (all-or-nothing). |
 | [`export`](#export) | Author | Export a model as a declarative JSON manifest. |
@@ -659,7 +659,7 @@ tmforge analyze [--ruleset <path>] [--rules <path>] [--suppressionFile <path>] [
 | `--ruleset <path>` | Use a custom rule set instead of the built-in default. |
 | `--rules <path>` | Load custom [declarative rules](analysis-rules.md#authoring-custom-rules-declarative) from a `*.tmrules.json` file (or a directory of them) in addition to the built-in rules. |
 | `--suppressionFile <path>` | Apply a suppression document to filter findings. |
-| `--reportFolder <dir>` | Also write SARIF + HTML findings reports, a JSON listing, and the versioned analysis document to `<dir>`. |
+| `--reportFolder <dir>` | Also write SARIF, HTML, and Markdown findings reports, a JSON report and listing, and the versioned analysis document to `<dir>`. |
 | `--taxonomy <path>` | Annotate the analysis document with your own threat-catalogue ids. See [mapping to your own taxonomy](analysis-rules.md#mapping-to-your-own-taxonomy). |
 | `--define name=value` | Repeatable. Supplies a rule variable. |
 | `--max-severity <level>` | Gate the exit code on findings at or above `<level>` (`error`, `warning`, or `info`). Default: `error`. |
@@ -906,11 +906,11 @@ Acceptance round-trips through `.tm7` and is honored identically by the CLI, the
 
 ### `report`
 
-Generate a self-contained HTML report with an inline SVG diagram per page, or export just the
-diagram as a standalone SVG for review artifacts.
+Generate a self-contained HTML report, a deterministic Markdown report, or a standalone SVG
+diagram for review artifacts.
 
 ```text
-tmforge report [--format <html|svg>] [--out <path>] [--rules <path>] [--json] <model.tm7>
+tmforge report [--format <html|svg|md>] [--out <path>] [--rules <path>] [--json] <model.tm7>
 ```
 
 - `--format html` (default) writes a responsive, print-friendly report with an executive summary,
@@ -919,14 +919,27 @@ tmforge report [--format <html|svg>] [--out <path>] [--rules <path>] [--json] <m
   triage; a `tmforge-json` model's disabled packs and rules are honored.
 - `--format svg` writes just the diagram as a standalone SVG (every page stacked), suitable for
   attaching to a pull request or embedding in docs. It does not run analysis.
+- `--format md` uses the same threat generation and register as HTML, preserving manual threats,
+  triage, stale entries, mitigations, references, and decision notes. It includes metadata and
+  diagram object/flow tables instead of embedded SVG. Stable identity ordering, LF line endings,
+  invariant counts, and no generated timestamp make repeated output byte-identical. Model text is
+  escaped as literal text, including in headings and tables.
 - `--rules` loads custom declarative rules alongside the built-in rules, exactly as on
   [`analyze`](#analyze), so a report shows the same threats the analysis produced.
 
 ```bash
 tmforge report payments.tm7 --out payments.html
 tmforge report payments.tm7 --format svg --out payments.svg
+tmforge report payments.tm7 --format md --out payments.md
 tmforge report payments.tm7 --rules ./corporate.tmrules.json --out payments.html
 ```
+
+For **analysis findings** rather than the threat register, use `tmforge analyze payments.tm7
+--reportFolder ./findings`. It also writes `payments.findings.md` from the same analysis run as
+HTML, SARIF, and JSON. Markdown includes reported and suppressed findings with their stable IDs,
+severities, locations, remediation, and rule configuration. Neither report command rewrites the
+input model. Without `--out`, `report --format md` writes to stdout; `--json` retains the usual
+`output`, `format`, and UTF-8 `bytes` envelope.
 
 ### `convert`
 
