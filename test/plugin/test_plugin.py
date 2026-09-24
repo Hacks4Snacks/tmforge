@@ -2528,6 +2528,197 @@ class FlowLabelSpacingTests(unittest.TestCase):
                 self.assertEqual(self.layout.main(), 1)
             self.assertEqual(destination.read_text(), "previous candidate")
 
+            restarted_layouts = copy.deepcopy(layouts)
+            box = restarted_layouts[0]["boxes"]["P1"]
+            restarted_layouts[0]["boxes"]["P1"] = (box[0] + 20, *box[1:])
+            native_arguments = [
+                *arguments,
+                "--restarts",
+                "1",
+                "--tmforge",
+                "selected-cli --",
+            ]
+            baseline_report = {
+                "failures": [],
+                "crossings": 6,
+                "obstructedLabels": 0,
+                "canvas": {"width": 1695, "height": 1082},
+            }
+            restarted_report = {
+                **baseline_report,
+                "crossings": 8,
+                "canvas": {"width": 1695, "height": 1312},
+            }
+            with (
+                patch.object(sys, "argv", native_arguments),
+                patch.object(
+                    self.layout,
+                    "compute_pages",
+                    side_effect=[restarted_layouts, layouts],
+                ),
+                patch.object(
+                    self.layout,
+                    "native_layout_report",
+                    side_effect=[baseline_report, restarted_report],
+                ) as native,
+                redirect_stdout(io.StringIO()),
+                redirect_stderr(io.StringIO()),
+            ):
+                self.assertEqual(self.layout.main(), 0)
+            self.assertEqual(json.loads(destination.read_text()), result)
+            self.assertNotEqual(
+                native.call_args_list[0].args[0], native.call_args_list[1].args[0]
+            )
+            self.assertEqual(native.call_args_list[0].args[-1], ["selected-cli", "--"])
+            destination.write_text("previous candidate", encoding="utf-8")
+            with (
+                patch.object(sys, "argv", native_arguments),
+                patch.object(
+                    self.layout,
+                    "native_layout_report",
+                    side_effect=ValueError("native apply failed"),
+                ),
+                redirect_stdout(io.StringIO()),
+                redirect_stderr(io.StringIO()),
+            ):
+                self.assertEqual(self.layout.main(), 2)
+            self.assertEqual(destination.read_text(), "previous candidate")
+
+    def test_native_layout_selection_rejects_preview_winners_that_regress(self) -> None:
+        baseline = {"name": "unseeded"}
+        restarted = {"name": "preview winner"}
+
+        def report(crossings=6, labels=0, height=1082, failures=None):
+            return {
+                "crossings": crossings,
+                "obstructedLabels": labels,
+                "failures": failures or [],
+                "canvas": {"width": 1695, "height": height},
+            }
+
+        cases = [
+            (report(crossings=8, height=1312), False),
+            (report(crossings=5, height=1312), False),
+            (report(crossings=5, labels=1), False),
+            (report(crossings=5, failures=["outside boundary"]), False),
+            (report(), False),
+            (report(crossings=5), True),
+            (report(height=1000), True),
+        ]
+        for candidate_report, expected in cases:
+            with (
+                self.subTest(candidate=candidate_report),
+                patch.object(
+                    self.layout,
+                    "native_layout_report",
+                    side_effect=[report(), candidate_report],
+                ) as evaluate,
+            ):
+                selected, result = self.layout.select_native_layout(
+                    baseline, restarted, Path("analysis.json"), ["chosen", "--"]
+                )
+            self.assertEqual(selected, expected)
+            self.assertEqual(
+                result["selected"], "restarted" if expected else "unseeded"
+            )
+            self.assertEqual(
+                evaluate.call_args_list[0].args,
+                (baseline, Path("analysis.json"), ["chosen", "--"]),
+            )
+        with patch.object(
+            self.layout, "native_layout_report", return_value=report()
+        ) as evaluate:
+            self.assertFalse(
+                self.layout.select_native_layout(
+                    baseline, baseline, Path("analysis.json"), ["chosen"]
+                )[0]
+            )
+            self.assertEqual(evaluate.call_count, 1)
+        with patch.object(
+            self.layout,
+            "native_layout_report",
+            side_effect=[
+                report(failures=["bad baseline"]),
+                report(failures=["bad candidate"]),
+            ],
+        ):
+            with self.assertRaisesRegex(ValueError, "native layout check failed"):
+                self.layout.select_native_layout(
+                    baseline, restarted, Path("analysis.json"), ["chosen"]
+                )
+
+    def test_restarted_manifest_requires_native_validation_before_writing(self) -> None:
+        arguments = [
+            "layout.py",
+            "missing-analysis.json",
+            "--manifest",
+            "missing-manifest.json",
+            "--out",
+            "output.json",
+            "--restarts",
+            "64",
+        ]
+        with (
+            patch.object(sys, "argv", arguments),
+            redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            self.layout.main()
+        self.assertEqual(raised.exception.code, 2)
+
+    def test_native_evaluation_keeps_cli_and_writes_only_temporary_artifacts(
+        self,
+    ) -> None:
+        selected = [sys.executable, "/chosen cli/launcher.py", "--"]
+        captured: list[Path] = []
+
+        def apply(command, **kwargs):
+            self.assertEqual(command[: len(selected)], selected)
+            self.assertEqual(command[len(selected)], "apply")
+            self.assertEqual(kwargs["timeout"], 300)
+            source = Path(command[len(selected) + 1])
+            captured.append(source.parent)
+            self.assertEqual(json.loads(source.read_text()), {"name": "candidate"})
+            self.assertEqual(Path(command[-1]).parent, source.parent)
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with (
+            patch.object(self.layout.subprocess, "run", side_effect=apply),
+            patch.object(
+                self.layout.check_layout, "check", return_value={"ok": True}
+            ) as inspect,
+        ):
+            self.assertEqual(
+                self.layout.native_layout_report(
+                    {"name": "candidate"}, Path("analysis.json"), selected
+                ),
+                {"ok": True},
+            )
+        self.assertEqual(inspect.call_args.args[1], Path("analysis.json"))
+        self.assertFalse(captured[0].exists())
+        for error in (OSError("missing CLI"), subprocess.TimeoutExpired(selected, 300)):
+            with (
+                self.subTest(error=error),
+                patch.object(self.layout.subprocess, "run", side_effect=error),
+            ):
+                with self.assertRaisesRegex(
+                    ValueError, "native layout evaluation failed"
+                ):
+                    self.layout.native_layout_report(
+                        {}, Path("analysis.json"), selected
+                    )
+        with patch.object(
+            self.layout.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess(
+                selected, 1, "", "invalid manifest"
+            ),
+        ):
+            with self.assertRaisesRegex(
+                ValueError, "native layout apply failed.*invalid manifest"
+            ):
+                self.layout.native_layout_report({}, Path("analysis.json"), selected)
+
     def test_cli_reports_obstruction_in_text_and_json_modes(self) -> None:
         flows = [
             {"id": "F2", "name": "hop", "sourceId": "P1", "targetId": "P2"},

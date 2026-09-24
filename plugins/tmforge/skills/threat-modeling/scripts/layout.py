@@ -5,11 +5,15 @@ import argparse
 import copy
 import json
 import random
+import shlex
+import subprocess
 import sys
+import tempfile
 from itertools import permutations
 from pathlib import Path
 from typing import Any
 
+import check_layout
 from generate_suppressions import require_distinct_output, write_sidecar
 from validate_analysis import as_object_list, load_document, page_views
 
@@ -551,6 +555,90 @@ def manifest_with_layout(
     return result
 
 
+def native_layout_report(
+    manifest: dict[str, Any], analysis: Path, invocation: list[str]
+) -> dict[str, Any]:
+    """Measure a disposable native artifact using the selected CLI, never a global fallback."""
+    with tempfile.TemporaryDirectory(prefix="tmforge-layout-") as temporary:
+        directory = Path(temporary).resolve()
+        source, model = directory / "model.tm.json", directory / "model.tm7"
+        write_sidecar(source, manifest)
+        try:
+            result = subprocess.run(
+                [*invocation, "apply", str(source), "--out", str(model)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=300,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise ValueError(f"native layout evaluation failed: {exc}") from exc
+        if result.returncode != 0:
+            raise ValueError(
+                f"native layout apply failed ({result.returncode}): {(result.stderr or result.stdout).strip()[-2000:]}"
+            )
+        return check_layout.check(model, analysis)
+
+
+def native_layout_metrics(report: dict[str, Any]) -> tuple[float, ...]:
+    """Compare each page separately so a regression cannot hide behind another page."""
+    return tuple(
+        float(value)
+        for page in report.get("pages", [report])
+        for value in (
+            len(page["failures"]),
+            page["obstructedLabels"],
+            page["crossings"],
+            page["canvas"]["width"],
+            page["canvas"]["height"],
+        )
+    )
+
+
+def select_native_layout(
+    baseline: dict[str, Any],
+    restarted: dict[str, Any],
+    analysis: Path,
+    invocation: list[str],
+) -> tuple[bool, dict[str, Any]]:
+    """Accept a restarted artifact only when its measured layout does not regress."""
+    baseline_report = native_layout_report(baseline, analysis, invocation)
+    restarted_report = (
+        native_layout_report(restarted, analysis, invocation)
+        if restarted != baseline
+        else baseline_report
+    )
+    baseline_metrics = native_layout_metrics(baseline_report)
+    restarted_metrics = native_layout_metrics(restarted_report)
+    improved = (
+        not restarted_report["failures"]
+        and len(baseline_metrics) == len(restarted_metrics)
+        and all(
+            after <= before
+            for before, after in zip(baseline_metrics, restarted_metrics)
+        )
+        and restarted_metrics != baseline_metrics
+    )
+    selected = restarted_report if improved else baseline_report
+    if selected["failures"]:
+        raise ValueError(
+            "native layout check failed: " + "; ".join(selected["failures"])
+        )
+    return improved, {
+        "selected": "restarted" if improved else "unseeded",
+        "unseeded": {
+            "crossings": baseline_report["crossings"],
+            "obstructedLabels": baseline_report["obstructedLabels"],
+            "canvas": baseline_report["canvas"],
+        },
+        "restarted": {
+            "crossings": restarted_report["crossings"],
+            "obstructedLabels": restarted_report["obstructedLabels"],
+            "canvas": restarted_report["canvas"],
+        },
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Preview derived layout for a ledger.")
     parser.add_argument("analysis", type=Path, help="path to analysis.json")
@@ -581,6 +669,10 @@ def main() -> int:
     parser.add_argument(
         "--seed", type=int, default=0, help="seed for --restarts; fixed output per seed"
     )
+    parser.add_argument(
+        "--tmforge",
+        help="explicit CLI command for native layout checks; required for restarted manifest output",
+    )
     args = parser.parse_args()
     if args.restarts < 0:
         parser.error("--restarts must not be negative")
@@ -588,16 +680,40 @@ def main() -> int:
         parser.error("--out requires --manifest")
     if args.manifest is not None and args.page is not None:
         parser.error("--manifest refreshes all pages; --page is for layout previews")
+    if args.manifest is not None and args.restarts and args.tmforge is None:
+        parser.error(
+            "--manifest with --restarts requires --tmforge to compare native artifacts"
+        )
+    if args.tmforge is not None and args.manifest is None:
+        parser.error("--tmforge requires --manifest")
     try:
         ledger = load_document(args.analysis)
         layouts = compute_pages(ledger, args.restarts, args.seed, args.page)
+        template = load_document(args.manifest) if args.manifest is not None else None
         candidate = (
-            manifest_with_layout(ledger, load_document(args.manifest), layouts)
-            if args.manifest is not None
+            manifest_with_layout(ledger, template, layouts)
+            if template is not None
             else None
         )
         if args.out is not None:
             require_distinct_output(args.out, (args.analysis,))
+        if args.tmforge is not None and template is not None and candidate is not None:
+            invocation = shlex.split(args.tmforge)
+            if not invocation:
+                raise ValueError("--tmforge must not be empty")
+            baseline_layouts = (
+                compute_pages(ledger, seed=args.seed) if args.restarts else layouts
+            )
+            baseline = manifest_with_layout(ledger, template, baseline_layouts)
+            use_restarted, comparison = select_native_layout(
+                baseline, candidate, args.analysis, invocation
+            )
+            if not use_restarted:
+                candidate, layouts = baseline, baseline_layouts
+            print(
+                "Native layout comparison: " + json.dumps(comparison, sort_keys=True),
+                file=sys.stderr,
+            )
     except (OSError, ValueError, KeyError, TypeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2

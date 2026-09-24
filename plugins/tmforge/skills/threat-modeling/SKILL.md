@@ -471,23 +471,25 @@ package whose diagram draws an element outside its boundary or overlaps shapes, 
 a trust claim; it warns on single-column stacking, connector crossings, and unreadable aspect ratios. Fix the
 canonical ledger, rerender, and rerun the verifier before delivery.
 
-Diagram geometry belongs in the manifest. [The layout generator](./scripts/layout.py) sizes label-aware gaps, wraps
-complete columns into rows, and minimizes label-on-shape obstructions before crossings and length. Use seeded
-`--restarts N --seed N` to vary automatic cycle-breaking/layering and slots; equal results do not prove optimality.
-`--manifest model.tm.json --out candidate.tm.json` refreshes all geometry and page assignments while preserving
-controls, stencils, and flow direction. Pages are independent; `--page PG1` selects a preview. Inventory mismatches fail.
-Preview warnings go to stderr with exit `0`; `--strict` returns `1` on warnings and does not publish `--out`. Input
-errors return `2`. Check the generated `.tm7` with [the layout checker](./scripts/check_layout.py); prediction is not
-proof of final label placement. Use the tmforge skill's labels-only workflow when shapes already have correct placement.
+[The layout generator](./scripts/layout.py) derives page-local geometry, wraps columns, and minimizes predicted label
+obstructions before crossings/length. `--manifest model.tm.json --out candidate.tm.json` preserves controls, stencils,
+and direction; `--page PG1` selects a preview. Restarted manifest output requires `--tmforge "<selected command>"`:
+native unseeded/restarted candidates are compared, retaining unseeded on worse crossings, labels, or page dimensions.
+Preview improvements can invert in native output. Check the artifact with [the layout checker](./scripts/check_layout.py).
+Previews and unseeded generation need no CLI. Preview warnings exit `0`; `--strict` returns `1` without writing `--out`;
+input/evaluation errors return `2`. Use the tmforge skill's labels-only workflow for already-correct shape placement.
 
 [The rebuild driver](./scripts/rebuild_package.py) runs manifest generation, ledger validation, apply, native layout,
 suppression verification, rendering, and package verification in a candidate before promotion. Defaults are
 `model.tm.json` and `model.tm7`; use `--manifest` and `--model` for another convention. Missing required artifacts
-fail their consuming step, never silently skip it. Document-only workflows need no model or CLI.
+fail their step. `--manifest-command` runs as argv in candidate cwd: absolute script paths, relative package paths;
+no shell operators. Regenerate the ledger before invoking the driver; the manifest step cannot change it. Missing or
+unchanged staged manifest output fails; use `--allow-unchanged-manifest` only for an intentional no-op. Hashes and cwd
+are reported. Absolute owned-package paths bypass staging; commands are not sandboxed. Document-only mode needs no CLI.
 
 ```bash
 python3 <skill-directory>/scripts/rebuild_package.py <package-directory> \
-    --manifest-command "<command that regenerates the manifest>" \
+  --manifest-command "python3 <layout-script> analysis.json --manifest model.tm.json --out model.tm.json" \
     --justifications <justifications.json> --baseline <previous-analysis.json>
 ```
 

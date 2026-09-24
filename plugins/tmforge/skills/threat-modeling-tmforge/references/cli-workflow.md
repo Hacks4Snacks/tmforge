@@ -164,6 +164,18 @@ The refresh maps ledger page IDs to manifest `pages[].alias` and `page` on bound
 pages return `{"pages":[{"id":"PG1","name":"Runtime","boxes":{...},...}]}`. Manifest refresh refuses inventory,
 name, or endpoint mismatches and preserves properties. With `--strict`, warnings leave an existing output untouched.
 
+Preview improvements can become worse native diagrams. For `--manifest` with `--restarts`, pass the same selected
+CLI via `--tmforge '<complete command>'`. The generator applies unseeded and restarted candidates in temporary
+directories and uses the native layout checker. Restarted output must pass and improve without worsening crossings,
+label obstructions, width, or height on any page; otherwise the unseeded candidate is emitted. The comparison is
+reported on stderr. This is final-candidate comparison, not native scoring of every internal permutation.
+
+When invoking layout via `rebuild_package.py --manifest-command`, that command runs in candidate staging cwd.
+Keep package input/output paths relative (for example `--manifest model.tm.json --out model.tm.json`); absolute
+owned-package paths bypass staging. Use an absolute script path, and regenerate `analysis.json` before the rebuild.
+The command is argv, not shell syntax; put multi-step generation in a wrapper script. Missing or unchanged staged
+manifest output fails by default; `--allow-unchanged-manifest` explicitly permits an intended byte-identical rebuild.
+
 `tmforge layout` rearranges the whole diagram. Newer versions are trust-boundary aware — every component keeps the
 boundary it was inside, each boundary is resized around its members, and columns wrap instead of running off the
 canvas — but older ones move elements while leaving boundaries where they are, which lands elements outside the

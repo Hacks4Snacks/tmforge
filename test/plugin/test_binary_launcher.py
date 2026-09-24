@@ -1234,6 +1234,127 @@ class BinaryLauncherTests(unittest.TestCase):
 
 
 class WrapperIntegrationTests(unittest.TestCase):
+    def test_manifest_command_must_refresh_its_staged_output(self):
+        script = PLUGIN / "skills/threat-modeling/scripts/rebuild_package.py"
+        rebuild = load_script("plugin_manifest_refresh_test", script)
+        for operation in (
+            "unchanged",
+            "identical-write",
+            "missing",
+            "changed",
+            "new",
+            "allowed-noop",
+        ):
+            with (
+                self.subTest(operation=operation),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                package = Path(directory).resolve()
+                (package / "analysis.json").write_text("{}", encoding="utf-8")
+                (package / "model.tm7").write_bytes(b"owned model")
+                if operation != "new":
+                    (package / "model.tm.json").write_bytes(b"{}")
+                before = {path.name: path.read_bytes() for path in package.iterdir()}
+                calls: list[list[str]] = []
+
+                def run(command, cwd=None, descriptor=None):
+                    calls.append(command)
+                    if command == ["mock-generator"]:
+                        self.assertNotEqual(cwd, package)
+                        manifest = cwd / "model.tm.json"
+                        if operation == "identical-write":
+                            manifest.write_bytes(b"{}")
+                        elif operation == "missing":
+                            manifest.unlink()
+                        elif operation in {"changed", "new"}:
+                            manifest.write_bytes(b'{"name":"regenerated"}')
+                    return 0, "{}"
+
+                arguments = [
+                    str(script),
+                    str(package),
+                    "--manifest-command",
+                    "mock-generator",
+                    "--tmforge",
+                    "mock-tmforge",
+                    "--json",
+                ]
+                if operation == "allowed-noop":
+                    arguments.append("--allow-unchanged-manifest")
+                output = io.StringIO()
+                expected_success = operation in {"changed", "new", "allowed-noop"}
+                with (
+                    patch.object(sys, "argv", arguments),
+                    patch.object(rebuild, "run", side_effect=run),
+                    redirect_stdout(output),
+                ):
+                    self.assertEqual(rebuild.main(), 0 if expected_success else 1)
+                report = json.loads(output.getvalue())
+                manifest_step = next(
+                    step for step in report["steps"] if step["step"] == "manifest"
+                )
+                self.assertEqual(
+                    manifest_step["status"], "pass" if expected_success else "fail"
+                )
+                self.assertNotEqual(manifest_step["cwd"], str(package))
+                if operation in {"unchanged", "identical-write", "allowed-noop"}:
+                    self.assertEqual(
+                        manifest_step["beforeSha256"], manifest_step["afterSha256"]
+                    )
+                    self.assertFalse(manifest_step["changed"])
+                if not expected_success:
+                    self.assertEqual(report["failedStep"], "manifest")
+                    self.assertIn("candidate cwd", manifest_step["detail"])
+                    self.assertFalse(
+                        any(
+                            command[:2] == ["mock-tmforge", "apply"]
+                            for command in calls
+                        )
+                    )
+                    self.assertEqual(
+                        {path.name: path.read_bytes() for path in package.iterdir()},
+                        before,
+                    )
+
+    def test_manifest_command_cannot_regenerate_the_staged_ledger(self):
+        script = PLUGIN / "skills/threat-modeling/scripts/rebuild_package.py"
+        rebuild = load_script("plugin_manifest_ledger_guard_test", script)
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory).resolve()
+            (package / "analysis.json").write_bytes(b"{}")
+            (package / "model.tm.json").write_bytes(b"{}")
+            before = {path.name: path.read_bytes() for path in package.iterdir()}
+
+            def run(command, cwd=None, descriptor=None):
+                if command == ["mock-generator"]:
+                    (cwd / "analysis.json").write_bytes(b'{"regenerated":true}')
+                    (cwd / "model.tm.json").write_bytes(b'{"name":"changed"}')
+                self.assertNotEqual(command[:2], ["mock-tmforge", "apply"])
+                return 0, "{}"
+
+            arguments = [
+                str(script),
+                str(package),
+                "--manifest-command",
+                "mock-generator",
+                "--tmforge",
+                "mock-tmforge",
+                "--json",
+            ]
+            output = io.StringIO()
+            with (
+                patch.object(sys, "argv", arguments),
+                patch.object(rebuild, "run", side_effect=run),
+                redirect_stdout(output),
+            ):
+                self.assertEqual(rebuild.main(), 1)
+            report = json.loads(output.getvalue())
+            self.assertEqual(report["failedStep"], "manifest")
+            self.assertIn("Regenerate the ledger before", report["steps"][1]["detail"])
+            self.assertEqual(
+                {path.name: path.read_bytes() for path in package.iterdir()}, before
+            )
+
     def test_rebuild_custom_names_and_formal_missing_defaults_are_explicit(self):
         script = PLUGIN / "skills/threat-modeling/scripts/rebuild_package.py"
         rebuild = load_script("plugin_rebuild_custom_names_test", script)

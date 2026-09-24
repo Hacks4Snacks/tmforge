@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import secrets
@@ -439,13 +440,68 @@ def rebuild(
                 )
                 failed = name
                 continue
+        manifest_before = None
+        ledger_before = None
+        if name == "manifest":
+            ledger_before = (
+                directory.read(ledger.name)
+                if directory is not None
+                else artifact_bytes(ledger)
+            )
+            manifest_before = (
+                directory.read(manifest.name)
+                if directory is not None
+                else artifact_bytes(manifest)
+            )
         code, output = (
             run(command, cwd, descriptor=directory.descriptor)
             if directory is not None
             else run(command, cwd)
         )
+        entry: dict[str, object] = {"step": name}
+        if name == "manifest" and code == 0:
+            manifest_after = (
+                directory.read(manifest.name)
+                if directory is not None
+                else artifact_bytes(manifest)
+            )
+            entry["cwd"] = str(package)
+            entry["beforeSha256"] = (
+                hashlib.sha256(manifest_before).hexdigest()
+                if manifest_before is not None
+                else None
+            )
+            entry["afterSha256"] = (
+                hashlib.sha256(manifest_after).hexdigest()
+                if manifest_after is not None
+                else None
+            )
+            if manifest_after is None:
+                code, output = (
+                    1,
+                    f"Manifest command did not produce {manifest.name!r} in candidate cwd {package}. Use candidate-relative output paths.",
+                )
+            elif manifest_before == manifest_after:
+                entry["changed"] = False
+                if not args.allow_unchanged_manifest:
+                    code, output = 1, (
+                        f"Manifest command left {manifest.name!r} unchanged in candidate cwd {package}. "
+                        "Check its output path; use --allow-unchanged-manifest only for an intentional no-op rebuild."
+                    )
+            else:
+                entry["changed"] = True
+            ledger_after = (
+                directory.read(ledger.name)
+                if directory is not None
+                else artifact_bytes(ledger)
+            )
+            if ledger_after != ledger_before:
+                code, output = 1, (
+                    f"Manifest command changed staged ledger {ledger.name!r}. "
+                    "Regenerate the ledger before invoking rebuild_package.py; manifest generation may only consume it."
+                )
         status = "pass" if code == 0 else "fail"
-        entry: dict[str, object] = {"step": name, "status": status}
+        entry["status"] = status
         if status == "fail":
             entry["detail"] = output[-2000:]
             failed = name
@@ -469,7 +525,12 @@ def main() -> int:
     )
     parser.add_argument(
         "--manifest-command",
-        help="command that regenerates the manifest from the ledger; skipped if absent",
+        help="argv command run in candidate cwd; update the staged manifest using relative package paths, not the ledger; skipped if absent",
+    )
+    parser.add_argument(
+        "--allow-unchanged-manifest",
+        action="store_true",
+        help="explicitly allow byte-identical manifest-command output for an intentional no-op rebuild",
     )
     parser.add_argument(
         "--justifications",
@@ -486,6 +547,8 @@ def main() -> int:
     )
     parser.add_argument("--json", action="store_true", help="emit the report as JSON")
     args = parser.parse_args()
+    if args.allow_unchanged_manifest and args.manifest_command is None:
+        parser.error("--allow-unchanged-manifest requires --manifest-command")
     args.model_requested = args.model is not None or args.manifest is not None
     if args.model is None:
         args.model = "model.tm7"
