@@ -71,6 +71,10 @@ mismatch blocks a verified verdict.
 
 ## Declarative Manifest Workflow
 
+Keep ledger names and diagram names distinct: ledger `{"id":"F7","name":"Read records"}` becomes manifest
+`{"alias":"F7","name":"F7: Read records"}`. Use the same rule for elements and boundaries. Never put the prefix
+inside the ledger's `name`; `models.parity` compares the diagram name with `id + ": " + name` exactly.
+
 When a manifest is source, edit the alias-keyed manifest and generate a candidate:
 
 ```bash
@@ -127,21 +131,34 @@ the manifest:
 Consequences for authoring:
 
 - **The flow name is a label, not a sentence.** Write the stable ID plus a terse phrase, and keep the sentence in the
-  canonical ledger and the data-flow document, where it is keyed by the same ID and is what a reviewer actually
-  reads. The practical ceiling scales with how wide the diagram is: for a five-column diagram it is about 30
-  characters, for four columns about 50, for three about 85. Past that the labels cannot be placed at all.
+  diagram name only. The canonical ledger holds the bare phrase, and fuller explanations belong in linked evidence
+  claims or threat descriptions. Long labels need more space, but a collision does not imply that names are wrong.
 - **Derive geometry; do not invent it.** The layout generator provided by the loaded `threat-modeling` skill sizes each
-  column gap from the labels that span it and exits non-zero when the result no longer fits the canvas, which is the
-  signal that the names — not the placement — need to change.
+  column gap from labels, wraps complete columns into rows, and optimizes label-on-shape obstructions before crossings
+  and length. Preview warnings are stderr diagnostics with exit `0`, so subprocess `check=True` is supported.
+  Add `--strict` to return `1` on warnings; malformed input returns `2`. Seeded restarts can escape local minima.
 - **Let tmforge place new labels, then verify.** CLI authoring and structural `.tm7` exports try to place new flow
   labels clear of shapes and other labels by adjusting curve handles. This is not a guarantee that every label fits.
   Preserving native saves retain existing connector geometry unless edited; they do not automatically tidy the model.
   Confirm the result with `tmforge layout --check <model> --json`; it exits non-zero while any label is still
   covered. When the installed version has no `--check`, use
   the layout checker provided by the loaded `threat-modeling` skill instead.
-- **Split the page before shortening past meaning.** A wider canvas is not available, so when the names cannot get
-  shorter without losing what they say, carry less on one page: split on a boundary that no material flow crosses,
-  since a flow cannot cross pages.
+- **Use explicit page-local views when wrapping is insufficient.** Declare ordered `pages` with stable `PG1`, `PG2`
+  IDs and unique names in the ledger, then assign every boundary and element a `pageId`. Flows inherit the shared
+  endpoint page; cross-page connectors are rejected, not dropped. Split only where no material flow crosses the
+  split. Do not merge request/response flows, remove content, or invent external endpoints just to pass a layout gate.
+
+For an existing alias-keyed manifest, refresh geometry without rewriting its controls or stencil selections:
+
+```bash
+python3 <threat-modeling-skill-directory>/scripts/layout.py analysis.json --manifest model.tm.json --out candidate.tm.json
+python3 <threat-modeling-skill-directory>/scripts/layout.py analysis.json --page PG1 --json
+```
+
+The refresh maps ledger page IDs to manifest `pages[].alias` and `page` on boundaries/elements. It updates all pages;
+`--page` is a preview selector by ID, name, or one-based index. Legacy `--json` returns the alias-to-box map; declared
+pages return `{"pages":[{"id":"PG1","name":"Runtime","boxes":{...},...}]}`. Manifest refresh refuses inventory,
+name, or endpoint mismatches and preserves properties. With `--strict`, warnings leave an existing output untouched.
 
 `tmforge layout` rearranges the whole diagram. Newer versions are trust-boundary aware — every component keeps the
 boundary it was inside, each boundary is resized around its members, and columns wrap instead of running off the
@@ -243,8 +260,11 @@ or the analyzed repository's skills directory.
 
 `--verify` re-runs the analyzer with the sidecar applied and fails unless the residual finding count reaches zero, so
 an entry that parsed but never matched is reported instead of assumed effective. The generator's justification-map
-contract uses rule and element **name**, not ledger ID. Preserve ledger IDs across updates; this lookup convention is
-not permission to renumber them when inserting an element.
+contract uses rule and the **bare ledger name**, not ledger ID or the prefixed display name, for example
+`{"TM1014":{"Snapshot volume":"Evidence-backed justification"}}`. Both `DS1: Snapshot volume` and legacy
+`DS1 Snapshot volume` are accepted for extraction; the original analyzer descriptor is retained byte-for-byte.
+Named pages and subtype stencils are supported. Canonical manifests still use `ALIAS: Name` for model parity.
+Preserve ledger IDs across updates; this lookup convention is not permission to renumber them when inserting an element.
 
 ## Candidate Validation
 
@@ -304,6 +324,6 @@ user intends to rely on them.
 - **Rendering is visually compressed**: use semantic inventories and properties as the correctness source; rendering
   is a topology sanity check.
 - **The model is unreadable in the Microsoft Threat Modeling Tool**: run `tmforge layout --check <model> --json` and
-  the layout checker. Overlapping text is nearly always flow names too long for the gaps they span, not misplaced
-  shapes — shorten the names and keep the sentence in the ledger. Shapes stacked in a corner mean the canvas ran past
-  the tool's coordinate limit and the tool clamped them on load.
+  the page-aware layout checker. Use labels-only placement for collisions on correctly placed shapes; regenerate
+  candidate geometry with the collision-aware generator when shape slots need adjustment. It wraps wide columns;
+  declared pages provide independent canvases. Shorten only genuinely verbose labels, never past their meaning.

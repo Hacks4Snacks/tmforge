@@ -6,12 +6,19 @@ import html
 import json
 import os
 import re
+import secrets
 import sys
 import tempfile
 from pathlib import Path
 from typing import Iterable
 from urllib.parse import quote
 
+from generate_suppressions import (
+    artifact_stream,
+    output_directory,
+    require_distinct_output,
+    validate_output_entry,
+)
 from validate_analysis import (
     JsonObject,
     as_object,
@@ -19,14 +26,8 @@ from validate_analysis import (
     as_string_list,
     load_document,
     natural_key,
+    page_views,
     validate_document,
-)
-import secrets
-from generate_suppressions import (
-    artifact_stream,
-    output_directory,
-    require_distinct_output,
-    validate_output_entry,
 )
 
 DOCUMENT_NAMES = ("data-flow.md", "threat-model.md")
@@ -127,6 +128,14 @@ def sequence_label(value: object) -> str:
 
 def render_flowchart(document: JsonObject) -> list[str]:
     """Render a stable Mermaid flowchart from canonical elements and flows."""
+    if document.get("pages"):
+        page_lines: list[str] = []
+        for page, view in page_views(document):
+            page_lines.extend(
+                (f"### {markdown(page['id'])}: {markdown(page['name'])}", "")
+            )
+            page_lines.extend(render_flowchart(view))
+        return page_lines
     boundaries = as_object_list(document.get("boundaries")) or []
     elements = as_object_list(document.get("elements")) or []
     flows = as_object_list(document.get("flows")) or []
@@ -178,6 +187,14 @@ def render_flowchart(document: JsonObject) -> list[str]:
 
 def render_sequence(document: JsonObject) -> list[str]:
     """Render a stable sequence view of all enumerated flows."""
+    if document.get("pages"):
+        page_lines: list[str] = []
+        for page, view in page_views(document):
+            page_lines.extend(
+                (f"### {markdown(page['id'])}: {markdown(page['name'])}", "")
+            )
+            page_lines.extend(render_sequence(view))
+        return page_lines
     elements = as_object_list(document.get("elements")) or []
     flows = as_object_list(document.get("flows")) or []
     lines = ["```mermaid", "sequenceDiagram"]
@@ -228,6 +245,35 @@ def render_data_flow(document: JsonObject, ledger_name: str) -> str:
             )
         ],
     )
+
+    if document.get("pages"):
+        lines.extend(("## Diagram Pages", ""))
+        append_table(
+            lines,
+            ("ID", "Name", "Boundaries", "Elements", "Flows"),
+            (
+                (
+                    page["id"],
+                    page["name"],
+                    join_values(
+                        [
+                            item["id"]
+                            for item in as_object_list(view.get("boundaries")) or []
+                        ]
+                    ),
+                    join_values(
+                        [
+                            item["id"]
+                            for item in as_object_list(view.get("elements")) or []
+                        ]
+                    ),
+                    join_values(
+                        [item["id"] for item in as_object_list(view.get("flows")) or []]
+                    ),
+                )
+                for page, view in page_views(document)
+            ),
+        )
 
     lines.extend(("## Trust Boundaries", ""))
     append_table(

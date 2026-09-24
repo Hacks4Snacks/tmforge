@@ -9,6 +9,7 @@ import io
 import json
 import os
 import re
+import shlex
 import stat
 import subprocess
 import sys
@@ -459,6 +460,45 @@ class SidecarWriteTests(unittest.TestCase):
                 ):
                     self.writer.parse_findings(output)
 
+    def test_suppressions_accept_alias_separators_named_pages_and_stencils(
+        self,
+    ) -> None:
+        for separator in (": ", " "):
+            for page in ("Diagram 1", "Storage", "Storage: private plane"):
+                for stencil in ("Generic Data Store", "Azure Key Vault"):
+                    with self.subTest(separator=separator, page=page, stencil=stencil):
+                        target = f"DS1{separator}Snapshot volume ({stencil}) ID=ba30dd09-8f8f-5d2e-aa29-fb85377fb829"
+                        for description in (
+                            f"Data store [{target}] stores data.",
+                            f"The {target} declares encryption.",
+                        ):
+                            findings = self.writer.parse_findings(
+                                f"model.tm7: Warning TM1014: {page}: {description}"
+                            )
+                            self.assertEqual(len(findings), 1)
+                            document, missing = self.writer.build_document(
+                                findings,
+                                {"TM1014": {"Snapshot volume": "Evidenced posture."}},
+                                "model.tm7",
+                            )
+                            self.assertEqual(missing, [])
+                            suppression = document["files"][0]["suppressions"][0]
+                            self.assertEqual(suppression["target"], target)
+                            self.assertEqual(suppression["model"], page)
+
+    def test_suppression_naming_error_explains_the_expected_alias(self) -> None:
+        findings = [
+            {
+                "rule": "TM1014",
+                "model": "Storage",
+                "target": "Snapshot volume (Generic Data Store) ID=ba30dd09-8f8f-5d2e-aa29-fb85377fb829",
+            }
+        ]
+        document, missing = self.writer.build_document(findings, {}, "model.tm7")
+        self.assertEqual(document["files"][0]["suppressions"], [])
+        self.assertIn("ALIAS: Name", missing[0])
+        self.assertNotIn("unparsed", missing[0])
+
     def test_unparsed_diagnostics_never_publish_a_sidecar(self) -> None:
         diagnostic = (
             "model.tm7: Warning TM1014: Diagram 1: Unsupported target descriptor.\n"
@@ -855,6 +895,54 @@ class NestedBoundaryTests(unittest.TestCase):
         report = self.check()
         self.assertTrue(report["ok"], report["failures"])
 
+    def test_native_pages_have_independent_coordinate_systems(self) -> None:
+        root = ET.Element(check_layout.MODEL + "ThreatModel")
+        surfaces = ET.SubElement(root, check_layout.MODEL + "DrawingSurfaceList")
+        for index in (1, 2):
+            surface = ET.SubElement(
+                surfaces, check_layout.MODEL + "DrawingSurfaceModel"
+            )
+            ET.SubElement(surface, check_layout.MODEL + "Header").text = f"Page {index}"
+            borders = ET.SubElement(surface, check_layout.MODEL + "Borders")
+            entry = ET.SubElement(
+                borders, check_layout.ARRAYS + "KeyValueOfguidanyType"
+            )
+            shape = ET.SubElement(
+                entry,
+                check_layout.ARRAYS + "Value",
+                {check_layout.XSI_TYPE: "StencilRectangle"},
+            )
+            for name, value in {
+                "Guid": f"element-{index}",
+                "Left": 40,
+                "Top": 40,
+                "Width": 190,
+                "Height": 70,
+            }.items():
+                ET.SubElement(shape, check_layout.ABSTRACTS + name).text = str(value)
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory).resolve() / "model.tm7"
+            ET.ElementTree(root).write(model, encoding="utf-8")
+            geometry = check_layout.read_geometry(model)
+            self.assertEqual(len(geometry["pages"]), 2)
+            report = check_layout.check(model, None)
+            self.assertTrue(report["ok"], report["failures"])
+            self.assertEqual(report["elements"], 2)
+            self.assertEqual(
+                [page["page"] for page in report["pages"]], ["Page 1", "Page 2"]
+            )
+            first = geometry["pages"][0]["elements"]
+            first["overlapping"] = dict(first["element-1"])
+            with patch.object(check_layout, "read_geometry", return_value=geometry):
+                report = check_layout.check(model, None)
+            self.assertFalse(report["ok"])
+            self.assertTrue(
+                any(
+                    message.startswith("Page 1:") and "overlap" in message
+                    for message in report["failures"]
+                )
+            )
+
     def test_unrelated_boundary_overlap_is_rejected(self) -> None:
         self.geometry["boundaries"]["unrelated"] = {
             "left": 160,
@@ -1035,8 +1123,98 @@ class PackageContractTests(unittest.TestCase):
         self.document["scope"]["baseline"]["approvedBy"] = "fixture reviewer"
         self.assertEqual(self.verifier.validate_document(self.document), [])
 
+    def test_ledger_names_are_bare_phrases_not_display_labels(self) -> None:
+        for kind in ("boundaries", "elements", "flows"):
+            for separator in (": ", " "):
+                with self.subTest(kind=kind, separator=separator):
+                    document = copy.deepcopy(self.document)
+                    item = document[kind][0]
+                    item["name"] = f"{item['id']}{separator}{item['name']}"
+                    errors = self.verifier.validate_document(document)
+                    self.assertTrue(
+                        any("bare phrase" in error for error in errors), errors
+                    )
+
+    def test_optional_pages_preserve_single_page_ledgers(self) -> None:
+        self.assertEqual(self.verifier.validate_document(self.document), [])
+        self.document["pages"] = [
+            {"id": "PG1", "name": "Runtime"},
+            {"id": "PG2", "name": "Distribution"},
+        ]
+        for item in self.document["boundaries"] + self.document["elements"]:
+            item["pageId"] = "PG1"
+        self.assertEqual(self.verifier.validate_document(self.document), [])
+        for kind in ("boundaries", "elements"):
+            for invalid in (None, "PG9"):
+                with self.subTest(kind=kind, invalid=invalid):
+                    document = copy.deepcopy(self.document)
+                    if invalid is None:
+                        del document[kind][0]["pageId"]
+                    else:
+                        document[kind][0]["pageId"] = invalid
+                    self.assertTrue(
+                        any(
+                            "pageId" in error
+                            for error in self.verifier.validate_document(document)
+                        )
+                    )
+
+    def test_page_ids_survive_reordering_and_cannot_be_renumbered(self) -> None:
+        validator = sys.modules[self.verifier.validate_document.__module__]
+        baseline = {
+            "pages": [{"id": "PG1", "name": "Runtime"}, {"id": "PG2", "name": "Build"}]
+        }
+        current = {"pages": list(reversed(copy.deepcopy(baseline["pages"])))}
+        errors: list[str] = []
+        validator.check_id_stability(current, baseline, errors.append)
+        self.assertEqual(errors, [])
+        current["pages"][0]["id"] = "PG3"
+        validator.check_id_stability(current, baseline, errors.append)
+        self.assertTrue(
+            any("pages: existing entries were renumbered" in error for error in errors),
+            errors,
+        )
+        self.assertTrue(
+            any(
+                "pages: ids present in the baseline were removed" in error
+                for error in errors
+            ),
+            errors,
+        )
+
+    def test_pages_reject_ambiguous_names_and_cross_page_references(self) -> None:
+        self.document["pages"] = [
+            {"id": "PG1", "name": "Runtime"},
+            {"id": "PG2", "name": "Distribution"},
+        ]
+        for item in self.document["boundaries"] + self.document["elements"]:
+            item["pageId"] = "PG1"
+        duplicate = copy.deepcopy(self.document)
+        duplicate["pages"][1]["name"] = "Runtime"
+        self.assertIn(
+            "duplicate page name: 'Runtime'", self.verifier.validate_document(duplicate)
+        )
+        duplicate["pages"][1]["id"] = "PG1"
+        self.assertIn(
+            "duplicate page id: PG1", self.verifier.validate_document(duplicate)
+        )
+        self.document["elements"][0]["pageId"] = "PG2"
+        errors = self.verifier.validate_document(self.document)
+        self.assertTrue(
+            any("endpoints are on different pages" in error for error in errors), errors
+        )
+        self.document["boundaries"][0]["pageId"] = "PG2"
+        errors = self.verifier.validate_document(self.document)
+        self.assertTrue(
+            any("boundary TB1 is on another page" in error for error in errors), errors
+        )
+
     def test_unknown_nested_fields_fail_the_ledger_contract(self) -> None:
+        self.document["pages"] = [{"id": "PG1", "name": "Runtime"}]
+        for item in self.document["boundaries"] + self.document["elements"]:
+            item["pageId"] = "PG1"
         paths: tuple[tuple[str | int, ...], ...] = (
+            ("pages", 0),
             ("scope",),
             ("scope", "inputs", 0),
             ("scope", "ownershipDecision"),
@@ -1072,6 +1250,216 @@ class PackageContractTests(unittest.TestCase):
                     f"{location}: unknown fields: ['unexpectedReviewField']",
                     self.verifier.validate_document(document),
                 )
+
+    def test_page_membership_and_missing_empty_pages_are_checked(self) -> None:
+        self.document["pages"] = [
+            {"id": "PG1", "name": "Runtime"},
+            {"id": "PG2", "name": "Build"},
+        ]
+        for item in self.document["boundaries"] + self.document["elements"]:
+            item["pageId"] = "PG1"
+        for kind in ("boundaries", "components", "flows"):
+            for item in self.outputs[kind]["items"]:
+                item["DiagramHeader"] = "Runtime"
+        self.outputs["diagrams"]["items"][0]["header"] = "Runtime"
+        self.assertIn("missing ledger pages: Build", self.check()["detail"])
+        self.outputs["diagrams"]["items"].append(
+            {
+                "id": "page-two",
+                "header": "Build",
+                "componentCount": 0,
+                "connectorCount": 0,
+                "trustBoundaryCount": 0,
+            }
+        )
+        self.outputs["diagrams"]["count"] = 2
+        self.assertEqual(self.check()["status"], "pass", self.check())
+        self.outputs["flows"]["items"][0]["DiagramHeader"] = "Build"
+        self.outputs["diagrams"]["items"][0]["connectorCount"] = 0
+        self.outputs["diagrams"]["items"][1]["connectorCount"] = 1
+        self.assertIn("page differs from ledger", self.check()["detail"])
+
+    def test_rendered_diagrams_do_not_join_objects_from_different_pages(self) -> None:
+        self.document["pages"] = [
+            {"id": "PG1", "name": "Runtime"},
+            {"id": "PG2", "name": "Build"},
+        ]
+        for item in self.document["boundaries"] + self.document["elements"]:
+            item["pageId"] = "PG1"
+        self.document["elements"].append(
+            {
+                "id": "X99",
+                "name": "Build worker",
+                "kind": "external",
+                "boundaryIds": [],
+                "material": False,
+                "evidenceIds": ["E001"],
+                "pageId": "PG2",
+            }
+        )
+        original = copy.deepcopy(self.document)
+        rendered = self.verifier.render_documents(self.document)["data-flow.md"]
+        diagrams = re.findall(
+            r"```mermaid\nflowchart LR\n(.*?)```", rendered, re.DOTALL
+        )
+        self.assertEqual(len(diagrams), 2)
+        self.assertNotIn("N_X99", diagrams[0])
+        self.assertIn("N_X99", diagrams[1])
+        self.assertNotIn("-->", diagrams[1])
+        self.assertEqual(rendered.count("sequenceDiagram"), 2)
+        self.assertIn("## Diagram Pages", rendered)
+        self.assertEqual(self.document, original)
+        self.assertEqual(
+            self.verifier.render_documents(self.document)["data-flow.md"], rendered
+        )
+
+    @unittest.skipUnless(
+        os.environ.get("TMFORGE_PLUGIN_TEST_CLI"), "opt-in real CLI round trip"
+    )
+    def test_multi_page_layout_round_trip_through_real_tmforge(self) -> None:
+        invocation = shlex.split(os.environ["TMFORGE_PLUGIN_TEST_CLI"])
+        self.document["pages"] = [
+            {"id": "PG1", "name": "Runtime"},
+            {"id": "PG2", "name": "Build"},
+        ]
+        for item in self.document["boundaries"] + self.document["elements"]:
+            item["pageId"] = "PG1"
+        self.document["elements"].append(
+            {
+                "id": "X99",
+                "name": "Build worker",
+                "kind": "external",
+                "boundaryIds": [],
+                "material": False,
+                "evidenceIds": ["E001"],
+                "pageId": "PG2",
+            }
+        )
+        forward = self.document["flows"][0]
+        self.document["flows"].append(
+            {
+                **forward,
+                "id": "F2",
+                "name": "Return",
+                "sourceId": forward["targetId"],
+                "targetId": forward["sourceId"],
+                "material": False,
+            }
+        )
+        self.assertEqual(self.verifier.validate_document(self.document), [])
+        controls = {
+            "data-store": "Encrypted",
+            "process": "AuthenticationScheme",
+            "external": "AuthenticatesItself",
+            "actor": "AuthenticatesItself",
+        }
+        manifest = {
+            "schema": "tmforge-manifest",
+            "version": 1,
+            "name": "Multi-page layout regression",
+            "boundaries": [
+                {"alias": item["id"], "name": f"{item['id']}: {item['name']}"}
+                for item in self.document["boundaries"]
+            ],
+            "elements": [
+                {
+                    "alias": item["id"],
+                    "name": f"{item['id']}: {item['name']}",
+                    "kind": {"data-store": "store", "actor": "external"}.get(
+                        item["kind"], item["kind"]
+                    ),
+                    **(
+                        {"boundary": item["boundaryIds"][0]}
+                        if item["boundaryIds"]
+                        else {}
+                    ),
+                    "props": {controls[item["kind"]]: "Unknown"},
+                }
+                for item in self.document["elements"]
+            ],
+            "flows": [
+                {
+                    "alias": item["id"],
+                    "name": f"{item['id']}: {item['name']}",
+                    "from": item["sourceId"],
+                    "to": item["targetId"],
+                    "props": {"Protocol": "Unknown"},
+                }
+                for item in self.document["flows"]
+            ],
+        }
+
+        def run(command: list[str]) -> None:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="tmforge-plugin-pages-") as directory:
+            package = Path(directory).resolve()
+            ledger, source, candidate, model, exported = [
+                package / name
+                for name in (
+                    "analysis.json",
+                    "source.tm.json",
+                    "candidate.tm.json",
+                    "model.tm7",
+                    "exported.tm.json",
+                )
+            ]
+            ledger.write_text(json.dumps(self.document), encoding="utf-8")
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+            run(
+                [
+                    sys.executable,
+                    "-B",
+                    str(SCRIPTS / "layout.py"),
+                    str(ledger),
+                    "--manifest",
+                    str(source),
+                    "--out",
+                    str(candidate),
+                ]
+            )
+            run([*invocation, "apply", str(candidate), "--out", str(model)])
+            inventories: dict[str, Any] = {}
+            checks = self.verifier.tmforge_model_checks(
+                model, package, invocation, 60, inventories
+            )
+            self.assertTrue(all(check["status"] == "pass" for check in checks), checks)
+            parity = self.verifier.model_inventory_check(self.document, inventories)
+            self.assertEqual(parity["status"], "pass", parity)
+            geometry = check_layout.check(model, ledger)
+            self.assertTrue(geometry["ok"], geometry)
+            self.assertEqual(len(geometry["pages"]), 2)
+            self.assertEqual(geometry["obstructedLabels"], 0, geometry)
+            run(
+                [
+                    *invocation,
+                    "export",
+                    "--geometry",
+                    "--out",
+                    str(exported),
+                    str(model),
+                ]
+            )
+            actual = json.loads(exported.read_text(encoding="utf-8"))
+            for kind in ("elements", "flows"):
+                restored = {item["alias"]: item for item in actual[kind]}
+                for original in manifest[kind]:
+                    self.assertEqual(
+                        restored[original["alias"]]["name"], original["name"]
+                    )
+                    for property_name, value in original["props"].items():
+                        self.assertEqual(
+                            restored[original["alias"]]["props"][property_name], value
+                        )
+            self.assertEqual(json.loads(source.read_text()), manifest)
 
     def test_optional_nested_objects_use_schema_field_names(self) -> None:
         document = copy.deepcopy(self.document)
@@ -1782,7 +2170,8 @@ class FlowLabelSpacingTests(unittest.TestCase):
         )
         assert spec is not None and spec.loader is not None
         self.layout = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.layout)
+        with patch.object(sys, "path", [str(SCRIPTS), *sys.path]):
+            spec.loader.exec_module(self.layout)
         self.members = {"left": ["P1"], "middle": ["P2"], "right": ["P3"]}
         self.columns = [["left"], ["middle"], ["right"]]
         self.elements: list[dict[str, Any]] = [
@@ -1833,6 +2222,57 @@ class FlowLabelSpacingTests(unittest.TestCase):
             self.layout.column_gaps(self.members, self.columns, [huge]), [420.0, 420.0]
         )
 
+    def test_six_columns_wrap_without_dropping_shapes_or_memberships(self) -> None:
+        elements = [
+            {"id": f"P{index}", "boundaryIds": [f"TB{index}"]} for index in range(1, 7)
+        ]
+        flows = [
+            {
+                "id": f"F{index}",
+                "name": "request",
+                "sourceId": f"P{index}",
+                "targetId": f"P{index + 1}",
+            }
+            for index in range(1, 6)
+        ]
+        original = copy.deepcopy((elements, flows))
+        boxes, score = self.layout.compute(elements, flows)
+        self.assertEqual(len(boxes), 12)
+        self.assertLessEqual(
+            max(box[0] + box[2] for box in boxes.values()), self.layout.MAX_CANVAS_X
+        )
+        self.assertLessEqual(
+            max(box[1] + box[3] for box in boxes.values()), self.layout.MAX_CANVAS_Y
+        )
+        self.assertGreater(boxes["TB6"][1], boxes["TB1"][1] + boxes["TB1"][3])
+        for element in elements:
+            child = boxes[element["id"]]
+            parent = boxes[element["boundaryIds"][0]]
+            self.assertGreaterEqual(child[0], parent[0])
+            self.assertGreaterEqual(child[1], parent[1])
+            self.assertLessEqual(child[0] + child[2], parent[0] + parent[2])
+            self.assertLessEqual(child[1] + child[3], parent[1] + parent[3])
+        self.assertEqual((elements, flows), original)
+        self.assertEqual(self.layout.compute(elements, flows), (boxes, score))
+
+    def test_slot_permutation_prefers_clear_labels_over_shorter_edges(self) -> None:
+        members = {"left": ["P1", "P2"], "middle": ["P3", "P4"], "right": ["P5", "P6"]}
+        elements = [
+            {"id": alias, "boundaryIds": [group]}
+            for group, aliases in members.items()
+            for alias in aliases
+        ]
+        flows = [{"id": "F1", "name": "request", "sourceId": "P1", "targetId": "P5"}]
+        columns = [[group] for group in members]
+        before = self.layout._place(members, members, columns)
+        self.assertTrue(self.layout.label_obstructions(elements, flows, before))
+        boxes, score = self.layout.compute(elements, flows, columns=columns)
+        self.assertEqual(self.layout.label_obstructions(elements, flows, boxes), [])
+        self.assertEqual(score[0], 0)
+        self.assertEqual(
+            self.layout.compute(elements, flows, columns=columns), (boxes, score)
+        )
+
     def test_intermediate_shape_obstruction_is_reported(self) -> None:
         boxes, _ = self.layout.compute(self.elements, [self.flow], columns=self.columns)
         failures = self.layout.label_obstructions(self.elements, [self.flow], boxes)
@@ -1844,6 +2284,170 @@ class FlowLabelSpacingTests(unittest.TestCase):
             ),
             failures,
         )
+
+    def test_page_layouts_are_independent_and_selectable(self) -> None:
+        document = {
+            "pages": [{"id": "PG1", "name": "Runtime"}, {"id": "PG2", "name": "Build"}],
+            "boundaries": [],
+            "elements": [{"id": "P1", "pageId": "PG1"}, {"id": "P2", "pageId": "PG2"}],
+            "flows": [],
+        }
+        original = copy.deepcopy(document)
+        layouts = self.layout.compute_pages(document)
+        self.assertEqual([layout["id"] for layout in layouts], ["PG1", "PG2"])
+        self.assertEqual(set(layouts[0]["boxes"]), {"P1"})
+        self.assertEqual(set(layouts[1]["boxes"]), {"P2"})
+        self.assertEqual(layouts[0]["boxes"]["P1"], layouts[1]["boxes"]["P2"])
+        for selector in ("PG2", "Build", "2"):
+            self.assertEqual(
+                self.layout.compute_pages(document, page=selector), [layouts[1]]
+            )
+        with self.assertRaisesRegex(ValueError, "unknown or ambiguous page"):
+            self.layout.compute_pages(document, page="missing")
+        self.assertEqual(document, original)
+        document["flows"] = [{"id": "F1", "sourceId": "P1", "targetId": "P2"}]
+        with self.assertRaisesRegex(ValueError, "different pages"):
+            self.layout.compute_pages(document)
+        document["flows"][0]["targetId"] = "missing"
+        with self.assertRaisesRegex(ValueError, "declared elements"):
+            self.layout.compute_pages(document)
+
+    def test_cli_page_json_and_input_errors(self) -> None:
+        document = {
+            "pages": [{"id": "PG1", "name": "Runtime"}],
+            "elements": [{"id": "P1", "pageId": "PG1"}],
+            "flows": [],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "analysis.json"
+            ledger.write_text(json.dumps(document), encoding="utf-8")
+            output, errors = io.StringIO(), io.StringIO()
+            with (
+                patch.object(
+                    sys,
+                    "argv",
+                    ["layout.py", str(ledger), "--json", "--page", "Runtime"],
+                ),
+                redirect_stdout(output),
+                redirect_stderr(errors),
+            ):
+                self.assertEqual(self.layout.main(), 0)
+            result = json.loads(output.getvalue())
+            self.assertEqual(result["pages"][0]["id"], "PG1")
+            self.assertEqual(set(result["pages"][0]["boxes"]), {"P1"})
+            for content in ("invalid json", "[]", '{"pages": []}'):
+                with self.subTest(content=content):
+                    ledger.write_text(content, encoding="utf-8")
+                    output, errors = io.StringIO(), io.StringIO()
+                    with (
+                        patch.object(sys, "argv", ["layout.py", str(ledger), "--json"]),
+                        redirect_stdout(output),
+                        redirect_stderr(errors),
+                    ):
+                        self.assertEqual(self.layout.main(), 2)
+                    self.assertEqual(output.getvalue(), "")
+                    self.assertIn("ERROR:", errors.getvalue())
+
+    def test_manifest_refresh_preserves_controls_stencils_and_direction(self) -> None:
+        document = {
+            "pages": [{"id": "PG1", "name": "Runtime"}, {"id": "PG2", "name": "Build"}],
+            "boundaries": [],
+            "elements": [
+                {"id": "P1", "name": "Sender", "boundaryIds": [], "pageId": "PG1"},
+                {"id": "P2", "name": "Receiver", "boundaryIds": [], "pageId": "PG1"},
+            ],
+            "flows": [
+                {"id": "F1", "name": "request", "sourceId": "P1", "targetId": "P2"}
+            ],
+        }
+        manifest = {
+            "schema": "tmforge-manifest",
+            "version": 1,
+            "name": "Preserved model",
+            "elements": [
+                {
+                    "alias": item["id"],
+                    "name": f"{item['id']}: {item['name']}",
+                    "kind": "process",
+                    "stencil": "web-application",
+                    "props": {"AuthenticationScheme": "Unknown"},
+                }
+                for item in document["elements"]
+            ],
+            "flows": [
+                {
+                    "alias": "F1",
+                    "from": "P1",
+                    "to": "P2",
+                    "name": "F1: request",
+                    "props": {"Protocol": "Unknown"},
+                }
+            ],
+        }
+        original = copy.deepcopy(manifest)
+        layouts = self.layout.compute_pages(document)
+        result = self.layout.manifest_with_layout(document, manifest, layouts)
+        self.assertEqual(manifest, original)
+        self.assertEqual(result["flows"], manifest["flows"])
+        self.assertEqual(
+            result["pages"],
+            [{"alias": "PG1", "name": "Runtime"}, {"alias": "PG2", "name": "Build"}],
+        )
+        for item, before in zip(result["elements"], manifest["elements"]):
+            self.assertEqual(item["props"], before["props"])
+            self.assertEqual(item["stencil"], before["stencil"])
+            self.assertEqual(item["page"], "PG1")
+            self.assertTrue(
+                all(type(item[field]) is int for field in ("x", "y", "width", "height"))
+            )
+        self.assertEqual(
+            self.layout.manifest_with_layout(document, result, layouts), result
+        )
+        for field, value in (("from", "P2"), ("alias", "F99"), ("name", "wrong")):
+            broken = copy.deepcopy(manifest)
+            broken["flows"][0][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                self.layout.manifest_with_layout(document, broken, layouts)
+        with tempfile.TemporaryDirectory() as directory:
+            ledger, template, destination = [
+                Path(directory) / name
+                for name in ("analysis.json", "model.tm.json", "candidate.tm.json")
+            ]
+            ledger.write_text(json.dumps(document), encoding="utf-8")
+            template.write_text(json.dumps(manifest), encoding="utf-8")
+            arguments = [
+                "layout.py",
+                str(ledger),
+                "--manifest",
+                str(template),
+                "--out",
+                str(destination),
+            ]
+            with (
+                patch.object(sys, "argv", arguments),
+                redirect_stdout(io.StringIO()),
+                redirect_stderr(io.StringIO()),
+            ):
+                self.assertEqual(self.layout.main(), 0)
+            self.assertEqual(json.loads(destination.read_text()), result)
+            self.assertEqual(json.loads(template.read_text()), original)
+            with (
+                patch.object(sys, "argv", [*arguments[:-1], str(ledger)]),
+                redirect_stderr(io.StringIO()),
+            ):
+                self.assertEqual(self.layout.main(), 2)
+            self.assertEqual(json.loads(ledger.read_text()), document)
+            destination.write_text("previous candidate", encoding="utf-8")
+            warned = copy.deepcopy(layouts)
+            warned[0]["warnings"] = ["fixture collision"]
+            with (
+                patch.object(sys, "argv", [*arguments, "--strict"]),
+                patch.object(self.layout, "compute_pages", return_value=warned),
+                redirect_stdout(io.StringIO()),
+                redirect_stderr(io.StringIO()),
+            ):
+                self.assertEqual(self.layout.main(), 1)
+            self.assertEqual(destination.read_text(), "previous candidate")
 
     def test_cli_reports_obstruction_in_text_and_json_modes(self) -> None:
         flows = [
@@ -1857,7 +2461,7 @@ class FlowLabelSpacingTests(unittest.TestCase):
                 json.dumps({"elements": self.elements, "flows": flows}),
                 encoding="utf-8",
             )
-            for options in ([], ["--json"]):
+            for options in ([], ["--json"], ["--strict"], ["--json", "--strict"]):
                 with self.subTest(options=options):
                     output, errors = io.StringIO(), io.StringIO()
                     with (
@@ -1865,9 +2469,11 @@ class FlowLabelSpacingTests(unittest.TestCase):
                         redirect_stdout(output),
                         redirect_stderr(errors),
                     ):
-                        self.assertEqual(self.layout.main(), 1)
+                        self.assertEqual(
+                            self.layout.main(), 1 if "--strict" in options else 0
+                        )
                     self.assertIn("overlaps P2", errors.getvalue())
-                    if options:
+                    if "--json" in options:
                         self.assertIn("P1", json.loads(output.getvalue()))
 
     def test_cli_still_accepts_a_clear_adjacent_layout(self) -> None:

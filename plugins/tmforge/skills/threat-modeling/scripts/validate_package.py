@@ -311,6 +311,11 @@ def model_inventory_check(
         for kind, ledger_kind in kinds.items()
     }
     seen: dict[str, set[str]] = {kind: set() for kind in kinds}
+    pages = {
+        str(page["id"]): str(page["name"])
+        for page in as_object_list(document.get("pages")) or []
+    }
+    seen_pages: set[str] = set()
     counts = {kind: 0 for kind in kinds}
     errors: list[str] = []
     for model, outputs in sorted(inventories.items()):
@@ -330,6 +335,15 @@ def model_inventory_check(
             or len(set(headers)) != len(headers)
         ):
             errors.append(f"{model}: missing or ambiguous diagram headers")
+        if pages:
+            for header in headers:
+                if header not in pages.values():
+                    errors.append(
+                        f"{model}: unexpected diagram {header!r}; declare it in ledger pages"
+                    )
+                elif str(header) in seen_pages:
+                    errors.append(f"{model}: duplicate ledger page {header!r}")
+                seen_pages.add(str(header))
         component_ids: dict[str, str] = {}
         aliases: dict[str, list[tuple[str, JsonObject]]] = {kind: [] for kind in kinds}
         for kind in kinds:
@@ -346,6 +360,20 @@ def model_inventory_check(
                     if label != expected[kind][alias].get("name"):
                         errors.append(f"{model}: {alias} name differs from the ledger")
                     seen[kind].add(alias)
+                    if pages:
+                        page_owner = expected[kind][alias]
+                        if kind == "flows":
+                            page_owner = expected["components"].get(
+                                str(page_owner.get("sourceId")), {}
+                            )
+                        expected_header = pages.get(str(page_owner.get("pageId")))
+                        if (
+                            get_case_insensitive(item, "diagramHeader")
+                            != expected_header
+                        ):
+                            errors.append(
+                                f"{model}: {alias} page differs from ledger page {expected_header!r}"
+                            )
                 identifier = normalize_guid(get_case_insensitive(item, "id"))
                 if identifier is None:
                     errors.append(f"{model}: {alias} has no model identifier")
@@ -388,6 +416,10 @@ def model_inventory_check(
                     errors.append(
                         f"{model}: diagram {header!r} {field} disagrees with its inventory"
                     )
+    if pages:
+        missing_pages = sorted(set(pages.values()) - seen_pages)
+        if missing_pages:
+            errors.append(f"missing ledger pages: {', '.join(missing_pages)}")
     for kind in kinds:
         missing = sorted(expected[kind].keys() - seen[kind])
         if missing:

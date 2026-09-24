@@ -7,6 +7,7 @@ import math
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import cast
 
 from generate_suppressions import artifact_stream
 
@@ -77,6 +78,22 @@ def read_geometry(path: Path) -> dict[str, object]:
     """Extract boundary boxes, element boxes, and connector segments from a ``.tm7``."""
     with artifact_stream(path) as stream:
         root = ET.parse(stream).getroot()
+    geometry = _surface_geometry(root)
+    surfaces = list(root.iter(MODEL + "DrawingSurfaceModel"))
+    if len(surfaces) > 1:
+        geometry["pages"] = [
+            {
+                **_surface_geometry(surface),
+                "id": surface.findtext(ABSTRACTS + "Guid", ""),
+                "name": surface.findtext(MODEL + "Header") or f"Diagram {index}",
+            }
+            for index, surface in enumerate(surfaces, start=1)
+        ]
+    return geometry
+
+
+def _surface_geometry(root: ET.Element) -> dict[str, object]:
+    """Extract geometry from one surface without mixing page coordinate systems."""
     boundaries: dict[str, dict[str, object]] = {}
     elements: dict[str, dict[str, object]] = {}
     by_guid: dict[str, tuple[str, str]] = {}
@@ -225,6 +242,59 @@ def _covers(outer: dict[str, object], inner: dict[str, object]) -> bool:
 def check(model_path: Path, analysis_path: Path | None) -> dict[str, object]:
     """Return a machine-readable layout report for one ``.tm7``."""
     geometry = read_geometry(model_path)
+    ledger: dict = {}
+    if analysis_path is not None:
+        with artifact_stream(analysis_path) as stream:
+            ledger = json.loads(stream.read().decode("utf-8"))
+    pages = cast(list[dict[str, object]], geometry.get("pages", []))
+    if not pages:
+        return _check_geometry(model_path, geometry, ledger)
+    reports = [
+        {
+            **_check_geometry(model_path, page, ledger),
+            "page": page["name"],
+            "id": page["id"],
+        }
+        for page in pages
+    ]
+    failures = [
+        f"{report['page']}: {message}"
+        for report in reports
+        for message in cast(list[str], report["failures"])
+    ]
+    warnings = [
+        f"{report['page']}: {message}"
+        for report in reports
+        for message in cast(list[str], report["warnings"])
+    ]
+    canvases = [cast(dict[str, float], report["canvas"]) for report in reports]
+    return {
+        "model": str(model_path),
+        **{
+            field: sum(cast(int, report[field]) for report in reports)
+            for field in (
+                "boundaries",
+                "elements",
+                "connectors",
+                "crossings",
+                "obstructedLabels",
+            )
+        },
+        "columns": max(cast(int, report["columns"]) for report in reports),
+        "canvas": {
+            field: max(canvas[field] for canvas in canvases) for field in canvases[0]
+        },
+        "failures": failures,
+        "warnings": warnings,
+        "ok": not failures,
+        "pages": reports,
+    }
+
+
+def _check_geometry(
+    model_path: Path, geometry: dict[str, object], ledger: dict
+) -> dict[str, object]:
+    """Check only objects that share a drawing surface."""
     boundaries: dict[str, dict[str, object]] = geometry["boundaries"]  # type: ignore[assignment]
     elements: dict[str, dict[str, object]] = geometry["elements"]  # type: ignore[assignment]
     connectors: list[dict[str, object]] = geometry["connectors"]  # type: ignore[assignment]
@@ -234,9 +304,7 @@ def check(model_path: Path, analysis_path: Path | None) -> dict[str, object]:
 
     home: dict[str, str] = {}
     parents: dict[str, str] = {}
-    if analysis_path is not None:
-        with artifact_stream(analysis_path) as stream:
-            ledger = json.loads(stream.read().decode("utf-8"))
+    if ledger:
         for element in ledger.get("elements", []):
             ids = element.get("boundaryIds") or []
             # Only the first boundary is representable in a .tm7 drawing surface.

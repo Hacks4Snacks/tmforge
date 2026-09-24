@@ -144,6 +144,9 @@ The ledger contains:
 
 Do not hand-maintain duplicate counts or inventories in rendered documents.
 
+For multi-page diagrams, declare `pages: [{"id": "PG1", "name": "Runtime"}, ...]` and a `pageId` on every boundary and element.
+Flows require one shared page. IDs stay globally unique; page names are unique and ordered. Omit `pages` for legacy ledgers.
+
 ### Declare a boundary axis and keep boundaries flat
 
 Every boundary declares an `axis` naming the kind of trust change it represents: `authority`, `host`,
@@ -203,6 +206,7 @@ prove stability by validating a rebuilt ledger against its predecessor with `val
 For a new model, freeze the discovered inventory, sort it, then allocate:
 
 - Scope inputs: precedence order, then normalized `(kind, reference)` -> `SI001`, `SI002`, ...
+- Pages: authored view order -> `PG1`, `PG2`, ...; preserve IDs when reordering pages.
 - Boundaries: normalized `(parent ID, name)` order -> `TB1`, `TB2`, ...
 - Elements: kind order `actor`, `external`, `process`, `data-store`, then normalized `(boundary IDs, name)`; use
   `A1`, `X1`, `P1`, and `DS1` respectively.
@@ -215,9 +219,9 @@ On update, allocate the next numeric suffix for that prefix after the highest ex
 then sort arrays by natural ID order. Sort coverage by natural target ID and category order `S`, `T`, `R`, `I`, `D`,
 `E`.
 
-A `name` is a label, not a description. It is drawn on the diagram beside its ID, unwrapped, so a long one covers the
-shapes around it; keep a flow name to a terse phrase and put the explanation in `data-flow.md`, which is keyed by the
-same ID and is where a reviewer reads it. The tmforge skill records the exact budget and the check that enforces it.
+Ledger `name` fields contain the bare phrase, never the ID: `{"id":"F1","name":"Submit request"}`. The manifest
+and diagram display `F1: Submit request`; renderers add the prefix exactly once. Keep names terse and put fuller
+explanations in linked evidence claims or threat descriptions, which the document renderer carries into the report.
 
 For new threat IDs:
 
@@ -443,7 +447,8 @@ python3 <skill-directory>/scripts/validate_changed_packages.py verify --root <re
 
 Use the same root for both commands. Without `--root`, the current Git worktree is discovered from the working
 directory, not from the installed script. An explicit root supports non-Git directories. `--state-dir` isolates
-parallel sessions on the same worktree; default snapshots live in temporary storage, outside the installed plugin.
+parallel sessions; the default is private `~/.copilot-threat-model-validation`. macOS system `/var` and `/tmp` aliases
+work, but user-created state symlinks are refused. Runtime caches such as `.vscode-test` are excluded from discovery.
 
 `verify` runs the unified verifier against each package whose files changed since the snapshot, and exits non-zero
 when any package fails. Pass `--all` to validate every retained package without a baseline, and `--keep` to retain
@@ -466,13 +471,14 @@ package whose diagram draws an element outside its boundary or overlaps shapes, 
 a trust claim; it warns on single-column stacking, connector crossings, and unreadable aspect ratios. Fix the
 canonical ledger, rerender, and rerun the verifier before delivery.
 
-Diagram geometry belongs in the manifest. Derive it with
-[the layout generator](./scripts/layout.py), which layers boundaries left to right by flow direction, grids elements
-inside their own boundary, and searches orderings to minimise crossings. It permutes exhaustively only within small
-groups, so a dense model can settle in a poor local minimum; pass `--restarts <n> --seed <n>` to sample randomised
-starting orders and keep the best result. Restarts cost time roughly linearly, so raise them only while crossings
-remain. Inspect any generated `.tm7` directly with [the layout checker](./scripts/check_layout.py). Never repair a
-diagram with an automatic layout pass; see the tmforge skill for why that silently breaks containment.
+Diagram geometry belongs in the manifest. [The layout generator](./scripts/layout.py) sizes label-aware gaps, wraps
+complete columns into rows, and minimizes label-on-shape obstructions before crossings and length. Use seeded
+`--restarts N --seed N` for local minima. Declared pages are laid out independently; `--page PG1` selects one preview.
+`--manifest model.tm.json --out candidate.tm.json` refreshes all geometry and page assignments while preserving
+controls, stencils, and flow direction. It refuses mismatched inventories instead of adding or dropping content.
+Preview warnings go to stderr with exit `0`; `--strict` returns `1` on warnings and does not publish `--out`. Input
+errors return `2`. Check the generated `.tm7` with [the layout checker](./scripts/check_layout.py); prediction is not
+proof of final label placement. Use the tmforge skill's labels-only workflow when shapes already have correct placement.
 
 Rebuilding a package by hand invites a stale artifact, because the steps are order-dependent and a skipped one usually
 fails silently rather than loudly. Drive the whole sequence with
@@ -489,6 +495,4 @@ python3 <skill-directory>/scripts/rebuild_package.py <package-directory> \
 Run compatible local formatting and stricter package gates when discovered. If a required validator cannot run,
 report the artifact as `unvalidated`; do not silently substitute a weaker verdict.
 
-Capture repeatable friction separately from product findings: missing indexes or ownership metadata, inaccessible
-evidence, unclear boundaries or flows, missing stencils/properties/rules, and recurring control patterns. Recommend the
-smallest reusable documentation, tooling, or instruction improvement, or report `None`.
+Capture repeatable tool friction separately from product findings; recommend the smallest reusable fix, or report `None`.

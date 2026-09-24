@@ -21,6 +21,7 @@ from typing import Generator, cast
 from generate_suppressions import (
     artifact_stream,
     output_directory,
+    system_path,
     validate_output_entry,
 )
 
@@ -37,6 +38,8 @@ SKIP_DIRECTORIES = {
     ".ruff_cache",
     ".tox",
     ".venv",
+    ".vscode-test",
+    ".vscode-test-web",
     "__pycache__",
     "node_modules",
     "vendor",
@@ -161,7 +164,7 @@ def private_state_directory(
     descriptor = None
     try:
         if os.name == "posix":
-            absolute = path.absolute()
+            absolute = system_path(path)
             flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
             descriptor = os.open(absolute.anchor, flags)
             validate_private_state(

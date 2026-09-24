@@ -25,14 +25,17 @@ TIMEOUT_SECONDS = 300
 # `tmforge analyze` names the flagged object either inside brackets after a short kind
 # label, or inline after "The". Both forms end with the stable `ID=<guid>` descriptor.
 TARGET = re.compile(
-    r"Diagram \d+: (?:[A-Za-z ]*\[(?P<bracketed>[^\[\]]*?ID=[0-9a-fA-F-]{36})\s*\]"
+    r"^(?P<model>.+?): (?:[A-Za-z ]*\[(?P<bracketed>[^\[\]]*?ID=[0-9a-fA-F-]{36})\s*\]"
     r"|The (?P<plain>.*?ID=[0-9a-fA-F-]{36}))"
 )
 HEAD = re.compile(
-    r"^(?P<file>.+?): \w+ (?P<rule>TM\d+): (?P<model>Diagram \d+): ",
+    r"^(?P<file>.+?): \w+ (?P<rule>TM\d+): ",
 )
 # Aliases are the ledger ids rendered into the element name by the manifest.
-NAMED = re.compile(r"^(?:DS|P|F|X|A)\d+: (?P<name>.+?) \(Generic ")
+NAMED = re.compile(
+    r"^(?:DS|TB|P|F|X|A)\d+(?::\s*|\s+)(?P<name>.+) "
+    r"\([^()\r\n]+\) ID=[0-9a-fA-F-]{36}$"
+)
 
 
 def parse_findings(text: str) -> list[dict[str, str]]:
@@ -40,9 +43,9 @@ def parse_findings(text: str) -> list[dict[str, str]]:
     findings: list[dict[str, str]] = []
     for line in text.splitlines():
         head = HEAD.match(line)
-        target = TARGET.search(line)
         if head is None:
             continue
+        target = TARGET.match(line[head.end() :])
         if target is None:
             raise ValueError(f"unparsed analyzer diagnostic: {line}")
         descriptor = target.group("bracketed") or target.group("plain")
@@ -51,7 +54,7 @@ def parse_findings(text: str) -> list[dict[str, str]]:
                 "rule": head.group("rule"),
                 # `model` names the drawing surface, not the file. Using the path here
                 # makes tmforge skip the suppression with a TM0001 warning.
-                "model": head.group("model"),
+                "model": target.group("model"),
                 "target": descriptor.strip(),
             }
         )
@@ -75,7 +78,10 @@ def build_document(
     for finding in findings:
         name = target_name(finding["target"])
         if name is None:
-            missing.append(f"{finding['rule']}: unparsed target {finding['target']!r}")
+            missing.append(
+                f"{finding['rule']}: target name must start with a ledger alias "
+                f"('ALIAS: Name' or 'ALIAS Name'): {finding['target']!r}"
+            )
             continue
         text = justifications.get(finding["rule"], {}).get(name)
         if not text:
@@ -179,9 +185,25 @@ def validate_output_entry(info: os.stat_result, directory: bool = False) -> None
         )
 
 
+def system_path(path: Path) -> Path:
+    """Expand only macOS's root-owned temporary-directory aliases, not user links."""
+    absolute = path.absolute()
+    if sys.platform == "darwin" and absolute.parts[1:2] in (("var",), ("tmp",)):
+        alias = Path(absolute.anchor) / absolute.parts[1]
+        expected = Path("/private") / alias.name
+        info = alias.lstat()
+        if (
+            stat.S_ISLNK(info.st_mode)
+            and info.st_uid == 0
+            and alias.parent / os.readlink(alias) == expected
+        ):
+            return expected.joinpath(*absolute.parts[2:])
+    return absolute
+
+
 @contextmanager
 def output_directory(path: Path, create: bool = False) -> Iterator[int | None]:
-    absolute = path.absolute()
+    absolute = system_path(path)
     descriptor = None
     handles = ExitStack()
     try:
@@ -299,7 +321,9 @@ def run_self_test() -> int:
 
     unnamed = [{"rule": "TM1014", "model": "Diagram 1", "target": "no alias prefix"}]
     document, missing = build_document(unnamed, {}, "model.tm7")
-    assert missing == ["TM1014: unparsed target 'no alias prefix'"], missing
+    assert (
+        len(missing) == 1 and "target name must start with a ledger alias" in missing[0]
+    ), missing
 
     justifications = {
         "TM1014": {"Snapshot volume": "Accurate and intended finding."},

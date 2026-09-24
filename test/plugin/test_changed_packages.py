@@ -173,7 +173,14 @@ class ChangedPackagesTests(unittest.TestCase):
         self.assertEqual(list(self.state.glob("*.json")), [])
 
     def test_caches_are_not_discovered_as_packages(self):
-        for name in ("__pycache__", ".mypy_cache", ".pytest_cache", ".venv"):
+        for name in (
+            "__pycache__",
+            ".mypy_cache",
+            ".pytest_cache",
+            ".venv",
+            ".vscode-test",
+            ".vscode-test-web",
+        ):
             cache = self.root / name
             cache.mkdir()
             (cache / "analysis.json").write_text("invalid", encoding="utf-8")
@@ -259,6 +266,22 @@ class PackageDiscoveryTests(unittest.TestCase):
     def snapshot(self) -> None:
         with redirect_stdout(io.StringIO()):
             self.assertEqual(self.checker.snapshot(self.root, self.state), 0)
+
+    def test_vscode_runtime_links_do_not_block_repository_discovery(self) -> None:
+        cache = self.root / "src" / "extension" / ".vscode-test"
+        cache.mkdir(parents=True)
+        outside = self.root.parent / "downloaded-runtime"
+        outside.mkdir()
+        (outside / "analysis.json").write_text("not a package", encoding="utf-8")
+        try:
+            (cache / "Electron Framework").symlink_to(outside, target_is_directory=True)
+        except OSError as exc:
+            self.skipTest(f"symlinks are unavailable: {exc}")
+        self.snapshot()
+        self.assertEqual(
+            list(self.checker.read_state(self.baseline)["files"]), ["packages/example"]
+        )
+        self.assertEqual(self.verify(check_all=True)[0], 0)
 
     def verify(self, check_all: bool = False) -> tuple[int, str]:
         output = io.StringIO()
@@ -698,6 +721,29 @@ class BaselineStorageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not links"):
             self.snapshot()
         self.assertEqual(list(outside.iterdir()), [])
+
+    @unittest.skipUnless(sys.platform == "darwin", "macOS system directory aliases")
+    def test_system_temp_aliases_allow_private_state_without_following_user_links(
+        self,
+    ) -> None:
+        for prefix in ("/var/tmp", "/tmp"):
+            with (
+                self.subTest(prefix=prefix),
+                tempfile.TemporaryDirectory(dir=prefix) as temporary,
+            ):
+                self.state = Path(temporary) / "state"
+                self.baseline = self.checker.state_path(self.repository, self.state)
+                self.snapshot()
+                self.assertEqual(
+                    self.checker.read_state(self.baseline)["root"], str(self.repository)
+                )
+                outside = Path(temporary) / "outside"
+                outside.mkdir(mode=0o700)
+                linked = Path(temporary) / "linked-state"
+                self.link(linked, outside, directory=True)
+                with self.assertRaisesRegex(ValueError, "not links"):
+                    self.checker.write_state(linked / "baseline.json", {})
+                self.assertEqual(list(outside.iterdir()), [])
 
     def test_intermediate_state_links_are_rejected_before_read_or_create(self) -> None:
         outside = self.root / "outside-directory"

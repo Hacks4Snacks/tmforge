@@ -500,7 +500,14 @@ def check_id_stability(
     element while remaining syntactically valid, which is why this is checked rather
     than trusted.
     """
-    for section in ("boundaries", "elements", "flows", "assets", "threatActors"):
+    for section in (
+        "pages",
+        "boundaries",
+        "elements",
+        "flows",
+        "assets",
+        "threatActors",
+    ):
         current = {
             str(item.get("id")): str(item.get("name"))
             for item in as_object_list(document.get(section)) or []
@@ -789,6 +796,109 @@ def schema_field_errors(document: JsonObject) -> list[str]:
     return visit(document, schema, "")
 
 
+def page_errors(document: JsonObject) -> list[str]:
+    """Validate page membership without changing topology or choosing a default page."""
+    errors: list[str] = []
+    pages = as_object_list(document.get("pages")) or []
+    boundaries = as_object_list(document.get("boundaries")) or []
+    elements = as_object_list(document.get("elements")) or []
+    flows = as_object_list(document.get("flows")) or []
+    if "pages" in document and not pages:
+        errors.append("pages must be a non-empty array of page objects")
+    page_ids: set[str] = set()
+    names: set[str] = set()
+    for page in pages:
+        identifier, name = page.get("id"), page.get("name")
+        if (
+            not isinstance(identifier, str)
+            or re.fullmatch(r"PG[0-9]+", identifier) is None
+        ):
+            errors.append(f"invalid page id: {identifier!r}; use PG1, PG2, ...")
+        elif identifier in page_ids:
+            errors.append(f"duplicate page id: {identifier}")
+        else:
+            page_ids.add(identifier)
+        if not isinstance(name, str) or not name.strip():
+            errors.append(f"page {identifier}: name must be a non-empty string")
+        elif name in names:
+            errors.append(f"duplicate page name: {name!r}")
+        else:
+            names.add(name)
+    for kind, items in (("boundaries", boundaries), ("elements", elements)):
+        for item in items:
+            page_id = item.get("pageId")
+            if pages and (not isinstance(page_id, str) or page_id not in page_ids):
+                errors.append(
+                    f"{kind}.{item.get('id')}: pageId must name a declared page"
+                )
+            elif not pages and "pageId" in item:
+                errors.append(
+                    f"{kind}.{item.get('id')}: pageId requires a pages declaration"
+                )
+    boundary_index = {str(item.get("id")): item for item in boundaries}
+    element_index = {str(item.get("id")): item for item in elements}
+    for boundary in boundaries:
+        parent = boundary_index.get(str(boundary.get("parentId")))
+        if parent and parent.get("pageId") != boundary.get("pageId"):
+            errors.append(
+                f"boundaries.{boundary.get('id')}: parent boundary is on another page"
+            )
+    for element in elements:
+        for boundary_id in as_string_list(element.get("boundaryIds")) or []:
+            member_boundary = boundary_index.get(boundary_id)
+            if member_boundary and member_boundary.get("pageId") != element.get(
+                "pageId"
+            ):
+                errors.append(
+                    f"elements.{element.get('id')}: boundary {boundary_id} is on another page"
+                )
+    for flow in flows:
+        source = element_index.get(str(flow.get("sourceId")))
+        target = element_index.get(str(flow.get("targetId")))
+        if source is None or target is None:
+            errors.append(
+                f"flows.{flow.get('id')}: sourceId and targetId must name declared elements"
+            )
+            continue
+        if source and target and source.get("pageId") != target.get("pageId"):
+            errors.append(
+                f"flows.{flow.get('id')}: endpoints are on different pages; "
+                "tmforge connectors must stay on one page"
+            )
+    return errors
+
+
+def page_views(document: JsonObject) -> list[tuple[JsonObject, JsonObject]]:
+    """Return ordered, page-local views of a ledger, retaining the legacy single view."""
+    errors = page_errors(document)
+    if errors:
+        raise ValueError("; ".join(errors))
+    pages = as_object_list(document.get("pages")) or []
+    if not pages:
+        return [({}, document)]
+    views: list[tuple[JsonObject, JsonObject]] = []
+    for page in pages:
+        view = dict(document)
+        view.pop("pages", None)
+        for kind in ("boundaries", "elements"):
+            view[kind] = [
+                item
+                for item in as_object_list(document.get(kind)) or []
+                if item.get("pageId") == page["id"]
+            ]
+        element_ids = {
+            str(item["id"]) for item in as_object_list(view["elements"]) or []
+        }
+        view["flows"] = [
+            flow
+            for flow in as_object_list(document.get("flows")) or []
+            if flow.get("sourceId") in element_ids
+            and flow.get("targetId") in element_ids
+        ]
+        views.append((page, view))
+    return views
+
+
 def validate_document(document: object) -> list[str]:
     """Return all deterministic contract violations in a ledger."""
     errors: list[str] = []
@@ -815,7 +925,7 @@ def validate_document(document: object) -> list[str]:
         "summary",
     }
     missing = sorted(required - set(root))
-    unknown = sorted(set(root) - required)
+    unknown = sorted(set(root) - required - {"pages"})
     if missing:
         error(f"missing top-level fields: {missing}")
     if unknown:
@@ -823,6 +933,7 @@ def validate_document(document: object) -> list[str]:
     errors.extend(schema_field_errors(root))
     if errors:
         return errors
+    errors.extend(page_errors(root))
     if root.get("schemaVersion") != 1:
         error("schemaVersion must be 1")
 
@@ -977,6 +1088,13 @@ def validate_document(document: object) -> list[str]:
                 error(f"duplicate {name} id: {item_id}")
             index[item_id] = item
             ids.append(item_id)
+            label = item.get("name")
+            if name in {"boundaries", "elements", "flows"} and isinstance(label, str):
+                if re.match(rf"^{re.escape(item_id)}(?:\s|:|$)", label.strip()):
+                    error(
+                        f"{name}.{item_id}.name: use the bare phrase without '{item_id}'; "
+                        f"renderers add '{item_id}: ' to the diagram name"
+                    )
         if ids != sorted(ids, key=natural_key):
             error(f"{name} must be sorted by natural id order")
         return index
