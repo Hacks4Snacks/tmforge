@@ -13,16 +13,36 @@ permissions:
   contents: read
 
 jobs:
-  plugin:
-    name: Copilot plugin
-    runs-on: ubuntu-latest
+  plugin-tests:
+    name: Copilot plugin (${{ matrix.os }}, Python ${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.10", "3.14"]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
 
       - name: Validate plugin and portable scripts
         env:
           PYTHONDONTWRITEBYTECODE: "1"
-        run: python3 -B -m unittest discover -s test/plugin -v
+        run: python -B -m unittest discover -s test/plugin -v
+
+  plugin:
+    name: Copilot plugin
+    needs: plugin-tests
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every plugin platform test
+        env:
+          PLUGIN_TEST_RESULT: ${{ needs.plugin-tests.result }}
+        run: '[[ "$PLUGIN_TEST_RESULT" == "success" ]]'
 
   build-test:
     name: Build & test
