@@ -751,7 +751,7 @@ class BaselineStorageTests(unittest.TestCase):
         outside = self.root / "outside-directory"
         outside.mkdir(mode=0o700)
         self.link(self.state, outside, directory=True)
-        with self.assertRaisesRegex(ValueError, "not links"):
+        with self.assertRaisesRegex(ValueError, "not links|symlink or reparse point"):
             self.snapshot()
         self.assertEqual(list(outside.iterdir()), [])
 
@@ -785,9 +785,13 @@ class BaselineStorageTests(unittest.TestCase):
         self.link(link, outside, directory=True)
         for state in (link / "new-state", link / ".." / "new-state"):
             with self.subTest(state=state), redirect_stdout(io.StringIO()):
-                with self.assertRaisesRegex(ValueError, "not links"):
+                with self.assertRaisesRegex(
+                    ValueError, "not links|symlink or reparse point"
+                ):
                     self.checker.snapshot(self.repository, state)
-                with self.assertRaisesRegex(ValueError, "not links"):
+                with self.assertRaisesRegex(
+                    ValueError, "not links|symlink or reparse point"
+                ):
                     self.checker.read_state(
                         self.checker.state_path(self.repository, state)
                     )
