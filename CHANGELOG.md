@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.1](https://github.com/Hacks4Snacks/tmforge/compare/v0.13.0...v0.13.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* Harden Plugin Components ([#132](https://github.com/Hacks4Snacks/tmforge/issues/132)) ([372ec06](https://github.com/Hacks4Snacks/tmforge/commit/372ec066e729e96b5249f12fa2712df8012ddaab))
+
 ## [0.13.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.12.1...v0.13.0) (2026-09-23)
 
 
