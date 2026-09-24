@@ -484,12 +484,12 @@ suppression verification, rendering, and package verification in a candidate bef
 `model.tm.json` and `model.tm7`; use `--manifest` and `--model` for another convention. Missing required artifacts
 fail their step. `--manifest-command` runs as argv in candidate cwd: absolute script paths, relative package paths;
 no shell operators. Regenerate the ledger before invoking the driver; the manifest step cannot change it. Missing or
-unchanged staged manifest output fails; use `--allow-unchanged-manifest` only for an intentional no-op. Hashes and cwd
+unchanged output fails; evidence/prose-only re-baselining commonly needs `--allow-unchanged-manifest` after review. Hashes/cwd
 are reported. Absolute owned-package paths bypass staging; commands are not sandboxed. Document-only mode needs no CLI.
 
 ```bash
-python3 <skill-directory>/scripts/rebuild_package.py <package-directory> \
-  --manifest-command "python3 <layout-script> analysis.json --manifest model.tm.json --out model.tm.json" \
+python3 <skill-directory>/scripts/rebuild_package.py <package-directory> --tmforge 'dotnet /absolute/tmforge.dll' \
+  --manifest-command 'python3 <layout-script> analysis.json --manifest model.tm.json --out model.tm.json --tmforge "dotnet /absolute/tmforge.dll"' \
     --justifications <justifications.json> --baseline <previous-analysis.json>
 ```
 

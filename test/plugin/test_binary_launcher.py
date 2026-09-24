@@ -7,6 +7,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shlex
 import shutil
 import stat
@@ -1234,6 +1235,51 @@ class BinaryLauncherTests(unittest.TestCase):
 
 
 class WrapperIntegrationTests(unittest.TestCase):
+    def test_documented_nested_cli_quoting_survives_rebuild_parsing(self):
+        reference = PLUGIN / "skills/threat-modeling-tmforge/references/cli-workflow.md"
+        examples = re.findall(
+            r"```bash\n(.*?)\n```", reference.read_text(encoding="utf-8"), re.DOTALL
+        )
+        example = next(block for block in examples if block.startswith("TMF="))
+        assignment, command_text = example.split("\n", 1)
+        invocation = shlex.split(assignment)[0].split("=", 1)[1]
+        shell_arguments = [
+            argument.replace("$TMF", invocation)
+            for argument in shlex.split(command_text.replace("\\\n", ""))
+        ]
+        selected_cli = ["dotnet", "/absolute/tools path/tmforge.dll"]
+        script = PLUGIN / "skills/threat-modeling/scripts/rebuild_package.py"
+        rebuild = load_script("plugin_nested_cli_documentation_test", script)
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory).resolve()
+            (package / "analysis.json").write_text("{}", encoding="utf-8")
+            (package / "model.tm.json").write_text("{}", encoding="utf-8")
+            calls: list[list[str]] = []
+
+            def run(command, cwd=None, descriptor=None):
+                calls.append(command)
+                if command[:2] == ["python3", "/path/to/layout.py"]:
+                    self.assertEqual(command[-2:], ["--tmforge", invocation])
+                    self.assertEqual(shlex.split(command[-1]), selected_cli)
+                    (cwd / "model.tm.json").write_text(
+                        '{"name":"regenerated"}', encoding="utf-8"
+                    )
+                if command[:3] == [*selected_cli, "apply"]:
+                    (cwd / "model.tm7").write_bytes(b"candidate model")
+                return 0, "{}"
+
+            arguments = [str(script), str(package), *shell_arguments[3:], "--json"]
+            with (
+                patch.object(sys, "argv", arguments),
+                patch.object(rebuild, "run", side_effect=run),
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(rebuild.main(), 0)
+            self.assertEqual(calls[0], [*selected_cli, "--version"])
+            self.assertTrue(
+                any(command[:3] == [*selected_cli, "apply"] for command in calls)
+            )
+
     def test_manifest_command_must_refresh_its_staged_output(self):
         script = PLUGIN / "skills/threat-modeling/scripts/rebuild_package.py"
         rebuild = load_script("plugin_manifest_refresh_test", script)

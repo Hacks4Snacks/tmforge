@@ -46,6 +46,20 @@ When a core validator accepts `--tmforge`, provide the complete command string, 
 function. For example: `--tmforge 'python3 "/absolute/installed-skill/scripts/tmforge.py" --'`. Quote paths containing
 spaces. The wrapper preserves the caller's working directory, output streams, and CLI exit code.
 
+Inside `--manifest-command`, quote the entire nested CLI value for the driver's second argument parse:
+
+```bash
+TMF='dotnet "/absolute/tools path/tmforge.dll"'
+python3 /path/to/rebuild_package.py /path/to/package \
+  --tmforge "$TMF" \
+  --manifest-command "python3 /path/to/layout.py analysis.json --manifest model.tm.json --out model.tm.json --restarts 8 --seed 7 --tmforge '$TMF'"
+```
+
+The inner single quotes must reach the driver: `--tmforge $TMF` inside the command string fragments a multi-word
+invocation even when the outer command string is quoted. This example assumes `TMF` contains no literal apostrophe;
+for generated commands or arbitrary paths, build each argument list with Python `shlex.join`, including the nested
+CLI argument. Do not repair quoting by blindly joining argv tokens, which loses path boundaries.
+
 ## Existing Model Baseline
 
 Before deciding whether an existing artifact is current or modifying it, run the installed equivalents of:
@@ -175,6 +189,10 @@ Keep package input/output paths relative (for example `--manifest model.tm.json 
 owned-package paths bypass staging. Use an absolute script path, and regenerate `analysis.json` before the rebuild.
 The command is argv, not shell syntax; put multi-step generation in a wrapper script. Missing or unchanged staged
 manifest output fails by default; `--allow-unchanged-manifest` explicitly permits an intended byte-identical rebuild.
+Evidence-claim, baseline, scope-reference, or prose-only ledger edits commonly leave the manifest unchanged: add
+that flag after confirming the edit does not affect generated properties. The command and all downstream checks
+still run. There is no universal manifest-relevant ledger projection for custom commands: evidence changes can
+alter encoded controls, and generators can also depend on external files or configuration.
 
 `tmforge layout` rearranges the whole diagram. Newer versions are trust-boundary aware — every component keeps the
 boundary it was inside, each boundary is resized around its members, and columns wrap instead of running off the
