@@ -60,6 +60,7 @@
           "$ref": "#/$defs/ownershipDecision"
         },
         "baseline": {
+          "description": "Evidence revision and date only. Model acceptance and approvers are tracked externally, for example through pull-request approvals.",
           "type": "object",
           "additionalProperties": false,
           "required": ["revision", "date"],
@@ -71,10 +72,6 @@
             "date": {
               "type": "string",
               "format": "date"
-            },
-            "approvedBy": {
-              "type": "string",
-              "minLength": 1
             }
           }
         },

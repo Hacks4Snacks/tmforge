@@ -255,7 +255,7 @@ def windows_cache_handle(
     kernel.CloseHandle.restype = wintypes.BOOL
     handle = kernel.CreateFileW(
         str(path),
-        0x80 if directory else 0x80000000,
+        0x81 if directory else 0x80000000,
         3 if directory else 1,
         None,
         3,
@@ -295,7 +295,7 @@ def cache_directory(
     with ExitStack() as stack:
         if os.name == "nt":
             for directory in [*reversed(path.parents), path]:
-                if create:
+                if create and not directory.exists():
                     try:
                         directory.mkdir(mode=0o700)
                     except FileExistsError:

@@ -957,8 +957,6 @@ def validate_document(document: object) -> list[str]:
         baseline = as_object(scope.get("baseline"))
         if baseline is None or not baseline.get("revision"):
             error("verified lifecycle requires baseline.revision")
-        if baseline is None or not baseline.get("approvedBy"):
-            error("verified lifecycle requires baseline.approvedBy")
 
     exclusions = as_string_list(scope.get("exclusions"))
     if exclusions is None:

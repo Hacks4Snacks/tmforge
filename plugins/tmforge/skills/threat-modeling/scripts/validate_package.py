@@ -951,7 +951,6 @@ else:
         baseline = {
             "revision": "a" * 40,
             "date": "2026-09-16",
-            "approvedBy": "fixture reviewer",
         }
         sidecar = package_directory / "threat-model.tm.evidence.json"
         for ledger_state, sidecar_state, revision, date, expected_status in (

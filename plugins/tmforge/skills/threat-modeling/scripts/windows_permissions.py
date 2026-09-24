@@ -36,7 +36,7 @@ def windows_directory_handle(path: Path) -> Generator[None, None, None]:
     kernel.GetFileInformationByHandleEx.restype = wintypes.BOOL
     kernel.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel.CloseHandle.restype = wintypes.BOOL
-    handle = kernel.CreateFileW(str(path), 0x80, 3, None, 3, 0x02200000, None)
+    handle = kernel.CreateFileW(str(path), 0x81, 3, None, 3, 0x02200000, None)
     if handle == ctypes.c_void_p(-1).value:
         raise ctypes.WinError(ctypes.get_last_error())
     try:
@@ -176,10 +176,8 @@ def validate_windows_acl(
     trusted = {current_user, "S-1-5-18", "S-1-5-32-544"}
     if not private:
         trusted.add("S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464")
-    if owner not in ({current_user} if private else trusted):
-        raise ValueError(
-            "Storage paths must have a trusted owner; private entries must belong to the current user"
-        )
+    if owner not in trusted:
+        raise ValueError("Storage paths must have a trusted owner")
     write_access = 0x500D0150
     if private:
         write_access |= 0x2 | 0x4
@@ -188,6 +186,8 @@ def validate_windows_acl(
             continue
         if kind != 0:
             raise ValueError("Cannot verify this Windows storage ACL entry")
+        if trustee == "S-1-3-4":
+            trustee = owner
         if mask & write_access and trustee not in trusted:
             raise ValueError(
                 "Storage paths must not grant write access to other Windows principals"

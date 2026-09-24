@@ -158,6 +158,8 @@ Keep artifact completion separate from review lifecycle:
 - `unvalidated`: required structural tooling could not run.
 
 Never promote a model to `verified` without both a recorded baseline and explicit human approval in the task context.
+Model acceptance and approver identities belong in the external review system, such as pull-request approvals,
+not in generated ledgers or reports. Do not invent approval metadata.
 
 ## Completion Contract
 

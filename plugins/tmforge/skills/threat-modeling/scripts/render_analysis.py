@@ -487,13 +487,12 @@ def render_threat_model(
     lines.extend(("## Evidence Baseline", ""))
     append_table(
         lines,
-        ("Revision", "Date", "Approved By"),
+        ("Revision", "Date"),
         (
             [
                 (
                     baseline.get("revision"),
                     baseline.get("date"),
-                    baseline.get("approvedBy"),
                 )
             ]
             if baseline

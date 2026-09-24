@@ -1112,16 +1112,27 @@ class PackageContractTests(unittest.TestCase):
             self.document, {"model.tm7": self.outputs}
         )
 
-    def test_verified_lifecycle_requires_named_approval(self) -> None:
+    def test_verified_lifecycle_requires_baseline_not_embedded_approval(self) -> None:
         self.document["scope"]["lifecycle"] = "verified"
+        self.document["scope"].pop("baseline", None)
+        self.assertIn(
+            "verified lifecycle requires baseline.revision",
+            self.verifier.validate_document(self.document),
+        )
         self.document["scope"]["baseline"] = {
             "revision": "fixture-revision",
             "date": "2026-09-23",
         }
-        errors = self.verifier.validate_document(self.document)
-        self.assertIn("verified lifecycle requires baseline.approvedBy", errors)
-        self.document["scope"]["baseline"]["approvedBy"] = "fixture reviewer"
         self.assertEqual(self.verifier.validate_document(self.document), [])
+        report = self.verifier.render_documents(self.document)["threat-model.md"]
+        self.assertRegex(report, r"(?m)^\|\s*Revision\s*\|\s*Date\s*\|$")
+        self.assertIn("fixture-revision", report)
+        self.assertNotIn("Approved By", report)
+        self.document["scope"]["baseline"]["approvedBy"] = "invented approver"
+        self.assertIn(
+            "scope.baseline: unknown fields: ['approvedBy']",
+            self.verifier.validate_document(self.document),
+        )
 
     def test_ledger_names_are_bare_phrases_not_display_labels(self) -> None:
         for kind in ("boundaries", "elements", "flows"):
@@ -1466,7 +1477,6 @@ class PackageContractTests(unittest.TestCase):
         document["scope"]["baseline"] = {
             "revision": "a" * 40,
             "date": "2026-09-22",
-            "approvedBy": "reviewer",
         }
         document["scope"]["inputs"][0]["provider"] = "manual"
         document["assets"][0]["owner"] = "service-owner"

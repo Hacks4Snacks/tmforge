@@ -17,10 +17,10 @@ import tarfile
 import tempfile
 import unittest
 import zipfile
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from typing import cast
+from typing import Any, cast
 from unittest.mock import Mock, patch
 
 PLUGIN = Path(__file__).resolve().parents[2] / "plugins" / "tmforge"
@@ -599,6 +599,7 @@ class BinaryLauncherTests(unittest.TestCase):
                 errors = io.StringIO()
                 with (
                     self.subTest(cache=cache, action=action),
+                    patch.object(launcher, "runtime_id", return_value="win-x64"),
                     patch.object(launcher, "download") as download,
                     patch.object(launcher.subprocess, "run") as process,
                     redirect_stdout(io.StringIO()),
@@ -719,6 +720,102 @@ class BinaryLauncherTests(unittest.TestCase):
             launcher.validate_windows_cache_acl(
                 current_user, current_user, [(5, 0, 2, other_user)], True
             )
+
+    def test_windows_cache_acl_accepts_trusted_owners_and_owner_rights(self):
+        current_user = "S-1-5-21-1-2-3-1001"
+        entries = [
+            (0, 0x03, 0x1F01FF, trustee)
+            for trustee in ("S-1-5-18", "S-1-5-32-544", "S-1-3-4")
+        ]
+        for private in (False, True):
+            for owner in (current_user, "S-1-5-18", "S-1-5-32-544"):
+                with self.subTest(owner=owner, private=private):
+                    launcher.validate_windows_cache_acl(
+                        owner, current_user, entries, private
+                    )
+            for owner in ("S-1-5-21-1-2-3-1002", "S-1-1-0", "S-1-3-4"):
+                with (
+                    self.subTest(owner=owner, private=private),
+                    self.assertRaisesRegex(ValueError, "owner"),
+                ):
+                    launcher.validate_windows_cache_acl(
+                        owner, current_user, entries, private
+                    )
+        for trustee in ("S-1-5-21-1-2-3-1002", "S-1-1-0", "S-1-5-32-545"):
+            with (
+                self.subTest(trustee=trustee),
+                self.assertRaisesRegex(ValueError, "write access"),
+            ):
+                launcher.validate_windows_cache_acl(
+                    current_user,
+                    current_user,
+                    [*entries, (0, 0, 0x1F01FF, trustee)],
+                    True,
+                )
+
+    def test_windows_directory_handles_request_read_access(self):
+        permissions = launcher.windows_permissions_module()
+        kernel = Mock()
+        kernel.CreateFileW.return_value = 123
+
+        def file_information(
+            handle: int, kind: int, attributes: Any, size: int
+        ) -> bool:
+            self.assertEqual(handle, 123)
+            self.assertEqual(kind, 9)
+            self.assertEqual(size, ctypes.sizeof(attributes._obj))
+            attributes._obj[0] = 0x10
+            return True
+
+        kernel.GetFileInformationByHandleEx.side_effect = file_information
+        for opener, options in (
+            (permissions.windows_directory_handle, {}),
+            (launcher.windows_cache_handle, {"directory": True}),
+        ):
+            kernel.reset_mock()
+            with (
+                self.subTest(opener=opener.__name__),
+                patch.object(permissions.sys, "platform", "win32"),
+                patch.object(ctypes, "WinDLL", return_value=kernel, create=True),
+                patch.dict(sys.modules, {"msvcrt": Mock()}),
+            ):
+                with opener(self.directory, **options):
+                    kernel.CreateFileW.assert_called_once_with(
+                        str(self.directory), 0x81, 3, None, 3, 0x02200000, None
+                    )
+                    kernel.CloseHandle.assert_not_called()
+            kernel.CloseHandle.assert_called_once_with(123)
+
+    def test_windows_cache_creation_does_not_recreate_existing_ancestors(self):
+        original_mkdir = Path.mkdir
+        created: list[Path] = []
+
+        def mkdir(
+            path: Path,
+            mode: int = 0o777,
+            parents: bool = False,
+            exist_ok: bool = False,
+        ) -> None:
+            if path.exists():
+                raise PermissionError("cannot recreate an existing Windows root")
+            created.append(path)
+            return original_mkdir(path, mode, parents, exist_ok)
+
+        with (
+            patch.object(launcher, "os", SimpleNamespace(name="nt")),
+            patch.object(Path, "mkdir", mkdir),
+            patch.object(
+                launcher, "windows_cache_handle", return_value=nullcontext(123)
+            ) as handles,
+            patch.object(launcher, "validate_cache_entry") as validate,
+        ):
+            with launcher.cache_directory(self.cache, self.cache, create=True):
+                self.assertTrue(self.cache.is_dir())
+        expected = [*reversed(self.cache.parents), self.cache]
+        self.assertEqual(created, [self.cache])
+        self.assertEqual([entry.args[0] for entry in handles.call_args_list], expected)
+        self.assertEqual([entry.args[0] for entry in validate.call_args_list], expected)
+        validate.assert_called_with(self.cache, private=True)
 
     def test_windows_token_user_passes_sid_pointer_to_conversion(self):
         import struct
@@ -2380,6 +2477,7 @@ class WrapperIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             package = Path(directory).resolve()
             original_stat = os.stat
+            original_lstat = Path.lstat
 
             def reparse(path, *args, **kwargs):
                 if (
@@ -2391,10 +2489,18 @@ class WrapperIntegrationTests(unittest.TestCase):
                     )
                 return original_stat(path, *args, **kwargs)
 
+            def reparse_lstat(path: Path) -> os.stat_result | SimpleNamespace:
+                if path == package:
+                    return SimpleNamespace(
+                        st_mode=stat.S_IFDIR, st_file_attributes=0x400
+                    )
+                return original_lstat(path)
+
             errors = io.StringIO()
             with (
                 patch.object(sys, "argv", [str(script), str(package)]),
                 patch.object(os, "stat", side_effect=reparse),
+                patch.object(Path, "lstat", reparse_lstat),
                 patch.object(rebuild, "run") as run,
                 redirect_stderr(errors),
             ):
