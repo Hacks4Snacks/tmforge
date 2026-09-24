@@ -66,7 +66,10 @@ def _group_of(members: dict[str, list[str]]) -> dict[str, str]:
 
 
 def derive_columns(
-    members: dict[str, list[str]], edges: list[tuple[str, str]]
+    members: dict[str, list[str]],
+    edges: list[tuple[str, str]],
+    *,
+    rng: random.Random | None = None,
 ) -> list[list[str]]:
     """Layer groups left to right by following flow direction between them.
 
@@ -86,7 +89,10 @@ def derive_columns(
 
     def walk(group: str) -> None:
         state[group] = 1
-        for neighbour in sorted(adjacency[group]):
+        neighbours = sorted(adjacency[group])
+        if rng is not None:
+            rng.shuffle(neighbours)
+        for neighbour in neighbours:
             if state[neighbour] == 1:
                 continue  # back edge: dropping it breaks the cycle
             acyclic[group].add(neighbour)
@@ -94,7 +100,10 @@ def derive_columns(
                 walk(neighbour)
         state[group] = 2
 
-    for group in sorted(members):
+    roots = sorted(members)
+    if rng is not None:
+        rng.shuffle(roots)
+    for group in roots:
         if state[group] == 0:
             walk(group)
 
@@ -351,16 +360,14 @@ def compute(
     reads better than the one implied by flow direction. Complete columns wrap before
     the canvas edge; label-on-shape collisions are minimized before crossings and length.
 
-    Descent from the sorted order reaches a local optimum, and a group larger than
-    ``MAX_PERMUTATION_GROUP`` is never permuted at all, so a lower-crossing arrangement
-    can remain unreachable. Pass ``restarts`` to descend again from that many seeded
-    shuffles and keep the best result. The seed is fixed, so the output stays
-    deterministic and a rendered diagram does not churn between runs. Use a small value
-    while iterating and a larger one for the delivered artifact; when repeated restarts
-    agree, the remaining crossings are evidence of the topology rather than of placement.
+    Restarts vary cycle-breaking and column assignment as well as within-group order.
+    Explicit columns remain fixed. The baseline is always a candidate, so more restarts
+    cannot worsen the score for a fixed seed. Repeated output is deterministic but does
+    not prove optimality or that remaining crossings are inherent in the topology.
     """
     members = _groups(elements)
     edges = [(flow["sourceId"], flow["targetId"]) for flow in flows]
+    automatic_columns = columns is None
     if columns is None:
         columns = derive_columns(members, edges)
     else:
@@ -381,20 +388,37 @@ def compute(
     gaps = column_gaps(members, columns, flows)
     best = _refine(order, members, columns, edges, gaps, elements, flows)
     best_order = {key: list(value) for key, value in order.items()}
+    best_columns, best_gaps = columns, gaps
 
     if restarts > 0:
         rng = random.Random(seed)
-        keys = sorted(order)
         for _ in range(restarts):
-            candidate = {key: list(order[key]) for key in keys}
-            for key in keys:
+            candidate_columns = (
+                derive_columns(members, edges, rng=rng)
+                if automatic_columns
+                else columns
+            )
+            candidate = {key: list(members[key]) for key in sorted(members)}
+            for index, column in enumerate(candidate_columns):
+                candidate[f"__col{index}"] = list(column)
+            for key in sorted(candidate):
                 rng.shuffle(candidate[key])
-            score = _refine(candidate, members, columns, edges, gaps, elements, flows)
+            candidate_gaps = column_gaps(members, candidate_columns, flows)
+            score = _refine(
+                candidate,
+                members,
+                candidate_columns,
+                edges,
+                candidate_gaps,
+                elements,
+                flows,
+            )
             if score < best:
                 best = score
                 best_order = {key: list(value) for key, value in candidate.items()}
+                best_columns, best_gaps = candidate_columns, candidate_gaps
 
-    return _place(best_order, members, columns, gaps), (best[1], best[2])
+    return _place(best_order, members, best_columns, best_gaps), (best[1], best[2])
 
 
 def compute_pages(

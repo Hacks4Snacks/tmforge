@@ -451,9 +451,9 @@ parallel sessions; the default is private `~/.copilot-threat-model-validation`. 
 work, but user-created state symlinks are refused. Runtime caches such as `.vscode-test` are excluded from discovery.
 
 `verify` runs the unified verifier against each package whose files changed since the snapshot, and exits non-zero
-when any package fails. Pass `--all` to validate every retained package without a baseline, and `--keep` to retain
-the baseline for a later run. This detects document-only edits too, so a hand-edited generated Markdown file is
-caught rather than silently diverging from its ledger.
+when any package fails. `--all` selects directories with `analysis.json`, not standalone model fixtures or build
+outputs. It ignores the baseline and cannot discover a deleted ledger; use snapshot/verify for that protection.
+`--keep` retains the baseline. Session verification catches deleted ledgers and hand-edited generated documents.
 
 The ledger validator enforces structure, unique and natural ID ordering, referential integrity, evidence references,
 complete STRIDE coverage, category consistency, score arithmetic, risk mapping, controlled statuses, and canonical
@@ -473,18 +473,17 @@ canonical ledger, rerender, and rerun the verifier before delivery.
 
 Diagram geometry belongs in the manifest. [The layout generator](./scripts/layout.py) sizes label-aware gaps, wraps
 complete columns into rows, and minimizes label-on-shape obstructions before crossings and length. Use seeded
-`--restarts N --seed N` for local minima. Declared pages are laid out independently; `--page PG1` selects one preview.
+`--restarts N --seed N` to vary automatic cycle-breaking/layering and slots; equal results do not prove optimality.
 `--manifest model.tm.json --out candidate.tm.json` refreshes all geometry and page assignments while preserving
-controls, stencils, and flow direction. It refuses mismatched inventories instead of adding or dropping content.
+controls, stencils, and flow direction. Pages are independent; `--page PG1` selects a preview. Inventory mismatches fail.
 Preview warnings go to stderr with exit `0`; `--strict` returns `1` on warnings and does not publish `--out`. Input
 errors return `2`. Check the generated `.tm7` with [the layout checker](./scripts/check_layout.py); prediction is not
 proof of final label placement. Use the tmforge skill's labels-only workflow when shapes already have correct placement.
 
-Rebuilding a package by hand invites a stale artifact, because the steps are order-dependent and a skipped one usually
-fails silently rather than loudly. Drive the whole sequence with
-[the rebuild driver](./scripts/rebuild_package.py), which regenerates the manifest, validates the ledger, applies the
-manifest through tmforge, checks layout, regenerates and verifies the suppression sidecar, renders, and runs the
-package verifier, stopping at the first failure:
+[The rebuild driver](./scripts/rebuild_package.py) runs manifest generation, ledger validation, apply, native layout,
+suppression verification, rendering, and package verification in a candidate before promotion. Defaults are
+`model.tm.json` and `model.tm7`; use `--manifest` and `--model` for another convention. Missing required artifacts
+fail their consuming step, never silently skip it. Document-only workflows need no model or CLI.
 
 ```bash
 python3 <skill-directory>/scripts/rebuild_package.py <package-directory> \

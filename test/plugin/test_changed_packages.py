@@ -471,8 +471,9 @@ class PackageDiscoveryTests(unittest.TestCase):
                     self.ledger.unlink()
                 for check_all in (False, True):
                     code, output = self.verify(check_all)
-                    self.assertEqual(code, 1, output)
-                    self.assertIn("missing canonical ledger", output)
+                    self.assertEqual(code, 0 if check_all else 1, output)
+                    if not check_all:
+                        self.assertIn("missing canonical ledger", output)
                     self.assertTrue(self.baseline.is_file())
                 self.ledger.write_text(self.ledger_content, encoding="utf-8")
                 renamed.unlink(missing_ok=True)
@@ -480,22 +481,54 @@ class PackageDiscoveryTests(unittest.TestCase):
                 self.assertEqual(code, 0, output)
                 self.assertFalse(self.baseline.exists())
 
-    def test_new_orphan_fails_verify_and_all(self) -> None:
+    def test_new_orphan_fails_session_verify_but_is_not_an_all_target(self) -> None:
         self.snapshot()
         orphan = self.root / "orphan"
         orphan.mkdir()
         (orphan / "model.tm.evidence.json").write_text("{}", encoding="utf-8")
         for check_all in (False, True):
             code, output = self.verify(check_all)
-            self.assertEqual(code, 1, output)
-            self.assertIn("missing canonical ledger", output)
+            self.assertEqual(code, 0 if check_all else 1, output)
+            if not check_all:
+                self.assertIn("missing canonical ledger", output)
             self.assertTrue(self.baseline.is_file())
 
-    def test_all_discovers_existing_orphan_without_baseline(self) -> None:
+    def test_all_requires_a_ledger_without_a_baseline(self) -> None:
         self.ledger.unlink()
+        with patch.object(self.checker, "validate_paths") as validate:
+            code, output = self.verify(check_all=True)
+        self.assertEqual(code, 0, output)
+        validate.assert_not_called()
+
+    def test_all_does_not_hash_or_validate_standalone_model_artifacts(self) -> None:
+        for index in range(18):
+            directory = (
+                self.root / ("out", "test/Fixtures", "examples")[index % 3] / str(index)
+            )
+            directory.mkdir(parents=True)
+            (directory / "fixture.tm7").write_bytes(b"not a retained package")
+        with (
+            patch.object(self.checker, "validate_paths", return_value=[]) as validate,
+            patch.object(
+                self.checker, "file_digest", wraps=self.checker.file_digest
+            ) as digest,
+        ):
+            code, output = self.verify(check_all=True)
+        self.assertEqual(code, 0, output)
+        validate.assert_called_once_with(self.root, ["packages/example"], None, 300)
+        self.assertTrue(digest.called)
+        self.assertTrue(
+            all(
+                call.args[0].is_relative_to(self.package)
+                for call in digest.call_args_list
+            )
+        )
+
+    def test_all_still_rejects_an_invalid_canonical_ledger(self) -> None:
+        self.ledger.write_text("{}", encoding="utf-8")
         code, output = self.verify(check_all=True)
         self.assertEqual(code, 1, output)
-        self.assertIn("missing canonical ledger", output)
+        self.assertIn("missing top-level fields", output)
 
     def test_each_companion_can_identify_an_orphan(self) -> None:
         orphan = self.root / "orphan"

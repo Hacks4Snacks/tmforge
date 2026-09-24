@@ -1234,6 +1234,114 @@ class BinaryLauncherTests(unittest.TestCase):
 
 
 class WrapperIntegrationTests(unittest.TestCase):
+    def test_rebuild_custom_names_and_formal_missing_defaults_are_explicit(self):
+        script = PLUGIN / "skills/threat-modeling/scripts/rebuild_package.py"
+        rebuild = load_script("plugin_rebuild_custom_names_test", script)
+        for supplied in (True, False):
+            with (
+                self.subTest(supplied=supplied),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                package = Path(directory).resolve()
+                (package / "analysis.json").write_text(
+                    '{"scope":{"mode":"formal-package"}}', encoding="utf-8"
+                )
+                (package / "threat-model.tm.json").write_text("{}", encoding="utf-8")
+                before = {path.name: path.read_bytes() for path in package.iterdir()}
+                arguments = [
+                    str(script),
+                    str(package),
+                    "--tmforge",
+                    "mock-tmforge",
+                    "--json",
+                ]
+                if supplied:
+                    arguments += [
+                        "--model",
+                        "threat-model.tm7",
+                        "--manifest",
+                        "threat-model.tm.json",
+                    ]
+                calls: list[list[str]] = []
+
+                def run(command, cwd=None, descriptor=None):
+                    calls.append(command)
+                    if command[:2] == ["mock-tmforge", "apply"]:
+                        self.assertEqual(
+                            command[2:],
+                            ["threat-model.tm.json", "--out", "threat-model.tm7"],
+                        )
+                        (cwd / "threat-model.tm7").write_bytes(b"rebuilt candidate")
+                    return 0, "{}"
+
+                output = io.StringIO()
+                with (
+                    patch.object(sys, "argv", arguments),
+                    patch.object(rebuild, "run", side_effect=run),
+                    redirect_stdout(output),
+                ):
+                    self.assertEqual(rebuild.main(), 0 if supplied else 1)
+                report = json.loads(output.getvalue())
+                if supplied:
+                    self.assertEqual(
+                        (package / "threat-model.tm7").read_bytes(),
+                        b"rebuilt candidate",
+                    )
+                    self.assertIsNone(report["failedStep"])
+                else:
+                    self.assertEqual(report["failedStep"], "apply")
+                    self.assertFalse(
+                        any(
+                            command[:2] == ["mock-tmforge", "apply"]
+                            for command in calls
+                        )
+                    )
+                    self.assertEqual(
+                        {path.name: path.read_bytes() for path in package.iterdir()},
+                        before,
+                    )
+
+    def test_rebuild_missing_artifact_fails_at_its_consumer(self):
+        script = PLUGIN / "skills/threat-modeling/scripts/rebuild_package.py"
+        rebuild = load_script("plugin_rebuild_missing_input_test", script)
+        for step, missing, option in (
+            ("apply", "model.tm.json", "--manifest"),
+            ("layout", "model.tm7", "--model"),
+        ):
+            with self.subTest(step=step), tempfile.TemporaryDirectory() as directory:
+                package = Path(directory).resolve()
+                (package / "analysis.json").write_text("{}", encoding="utf-8")
+                present = "model.tm7" if step == "apply" else "model.tm.json"
+                (package / present).write_bytes(b"owned artifact")
+                before = {path.name: path.read_bytes() for path in package.iterdir()}
+                output = io.StringIO()
+                with (
+                    patch.object(
+                        sys,
+                        "argv",
+                        [
+                            str(script),
+                            str(package),
+                            "--tmforge",
+                            "mock-tmforge",
+                            "--json",
+                        ],
+                    ),
+                    patch.object(rebuild, "run", return_value=(0, "{}")),
+                    redirect_stdout(output),
+                ):
+                    self.assertEqual(rebuild.main(), 1)
+                report = json.loads(output.getvalue())
+                self.assertEqual(report["failedStep"], step)
+                failure = next(item for item in report["steps"] if item["step"] == step)
+                self.assertEqual(failure["status"], "fail")
+                self.assertIn(missing, failure["detail"])
+                self.assertIn(option, failure["detail"])
+                self.assertEqual(report["steps"][-1]["status"], "not-run")
+                self.assertEqual(
+                    {path.name: path.read_bytes() for path in package.iterdir()}, before
+                )
+
     def test_explicit_empty_or_malformed_invocations_are_usage_errors(self):
         with tempfile.TemporaryDirectory() as directory:
             package = Path(directory).resolve()
@@ -1304,13 +1412,13 @@ class WrapperIntegrationTests(unittest.TestCase):
                     self.assertNotEqual(cwd, package)
                     self.assertEqual(cwd.parent, package.parent)
                     candidates.append(cwd)
-                    (cwd / "threat-model.tm.json").write_text("{}")
+                    (cwd / "model.tm.json").write_text("{}")
                 if command[: len(wrapper) + 1] == [*wrapper, "apply"]:
                     self.assertEqual(cwd, candidates[0])
-                    (candidates[0] / "threat-model.tm7").write_bytes(
+                    (candidates[0] / "model.tm7").write_bytes(
                         b"test fixture, not a real model"
                     )
-                self.assertFalse((package / "threat-model.tm7").exists())
+                self.assertFalse((package / "model.tm7").exists())
                 return 0, "{}"
 
             arguments = [
@@ -1349,10 +1457,10 @@ class WrapperIntegrationTests(unittest.TestCase):
             self.assertEqual(calls[1], generator)
             self.assertEqual(calls[3][: len(wrapper)], wrapper)
             self.assertEqual(
-                (package / "threat-model.tm7").read_bytes(),
+                (package / "model.tm7").read_bytes(),
                 b"test fixture, not a real model",
             )
-            self.assertTrue((package / "threat-model.tm.json").is_file())
+            self.assertTrue((package / "model.tm.json").is_file())
             self.assertFalse(candidates[0].exists())
             for command in (calls[5], calls[-1]):
                 self.assertIn("--tmforge", command)
@@ -1374,11 +1482,11 @@ class WrapperIntegrationTests(unittest.TestCase):
                     package.mkdir()
                     before = {
                         "analysis.json": b"original ledger",
-                        "threat-model.tm7": b"original model",
+                        "model.tm7": b"original model",
                         "threat-model.md": b"original report",
                     }
                     if existing:
-                        before["threat-model.tm.json"] = b"original manifest"
+                        before["model.tm.json"] = b"original manifest"
                     for name, content in before.items():
                         (package / name).write_bytes(content)
                     external = root / "external.json"
@@ -1409,7 +1517,7 @@ class WrapperIntegrationTests(unittest.TestCase):
                         if command == ["mock-generator"]:
                             assert cwd is not None
                             candidates.append(cwd)
-                            manifest = cwd / "threat-model.tm.json"
+                            manifest = cwd / "model.tm.json"
                             manifest.unlink(missing_ok=True)
                             if kind == "directory":
                                 manifest.mkdir()
@@ -1477,9 +1585,9 @@ class WrapperIntegrationTests(unittest.TestCase):
         rebuild = load_script("plugin_rebuild_candidate_test", script)
         with tempfile.TemporaryDirectory() as directory:
             package = Path(directory).resolve()
-            model = package / "threat-model.tm7"
+            model = package / "model.tm7"
             model.write_bytes(b"previous model")
-            (package / "threat-model.tm.json").write_text("{}", encoding="utf-8")
+            (package / "model.tm.json").write_text("{}", encoding="utf-8")
 
             def run(
                 command: list[str],
@@ -1519,9 +1627,9 @@ class WrapperIntegrationTests(unittest.TestCase):
                 package = Path(directory).resolve()
                 files = (
                     "analysis.json",
-                    "threat-model.tm.json",
-                    "threat-model.tm7",
-                    "threat-model.tm.suppressions.json",
+                    "model.tm.json",
+                    "model.tm7",
+                    "model.tm.suppressions.json",
                     "data-flow.md",
                     "threat-model.md",
                 )
@@ -1538,7 +1646,7 @@ class WrapperIntegrationTests(unittest.TestCase):
                     if command[:2] == ["mock-tmforge", "apply"]:
                         assert cwd is not None
                         candidates.append(cwd)
-                        (cwd / "threat-model.tm7").write_bytes(b"new model")
+                        (cwd / "model.tm7").write_bytes(b"new model")
                         return (
                             (1, "apply failed") if failed_step == "apply" else (0, "{}")
                         )
@@ -1616,7 +1724,7 @@ class WrapperIntegrationTests(unittest.TestCase):
                     "model.tm.suppressions.json": b"original sidecar",
                     "analysis.json": b"original ledger",
                     "data-flow.md": None,
-                    "threat-model.tm7": b"original model",
+                    "model.tm7": b"original model",
                 }
                 for name, content in before.items():
                     if content is not None:
@@ -1626,7 +1734,7 @@ class WrapperIntegrationTests(unittest.TestCase):
                 replace = rebuild.BoundDirectory.replace_from
 
                 def fail(destination, source, name):
-                    if source.path == candidate and name == "threat-model.tm7":
+                    if source.path == candidate and name == "model.tm7":
                         raise failure("injected promotion failure")
                     replace(destination, source, name)
 
@@ -1653,7 +1761,7 @@ class WrapperIntegrationTests(unittest.TestCase):
     def test_promotion_rechecks_outputs_and_preserves_concurrent_edits(self):
         script = PLUGIN / "skills/threat-modeling/scripts/rebuild_package.py"
         rebuild = load_script("plugin_promotion_concurrency_test", script)
-        for edited_name in ("analysis.json", "threat-model.tm7"):
+        for edited_name in ("analysis.json", "model.tm7"):
             with (
                 self.subTest(edited_name=edited_name),
                 tempfile.TemporaryDirectory() as directory,
@@ -1664,7 +1772,7 @@ class WrapperIntegrationTests(unittest.TestCase):
                 candidate.mkdir()
                 before = {
                     "analysis.json": b"old ledger",
-                    "threat-model.tm7": b"old model",
+                    "model.tm7": b"old model",
                 }
                 for name, content in before.items():
                     (package / name).write_bytes(content)
@@ -1791,11 +1899,9 @@ class WrapperIntegrationTests(unittest.TestCase):
                 package = Path(directory).resolve()
                 arguments = [str(script), str(package), "--json"]
                 if source == "manifest":
-                    (package / "threat-model.tm.json").write_text(
-                        "{}", encoding="utf-8"
-                    )
+                    (package / "model.tm.json").write_text("{}", encoding="utf-8")
                 elif source == "model":
-                    (package / "threat-model.tm7").write_bytes(b"existing model")
+                    (package / "model.tm7").write_bytes(b"existing model")
                 else:
                     arguments += ["--manifest-command", "generate-manifest"]
                 (package / "threat-model.md").write_bytes(b"existing report")

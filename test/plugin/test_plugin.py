@@ -2273,6 +2273,85 @@ class FlowLabelSpacingTests(unittest.TestCase):
             self.layout.compute(elements, flows, columns=columns), (boxes, score)
         )
 
+    def test_seeded_restarts_explore_cycle_layerings_without_mutating_topology(
+        self,
+    ) -> None:
+        elements = [
+            {"id": f"P{index}", "boundaryIds": [f"TB{index}"]} for index in range(1, 5)
+        ]
+        flows = [
+            {
+                "id": f"F{index}",
+                "name": "hop",
+                "sourceId": f"P{index}",
+                "targetId": f"P{index % 4 + 1}",
+            }
+            for index in range(1, 5)
+        ]
+        original = copy.deepcopy((elements, flows))
+        derive = self.layout.derive_columns
+        visited: list[list[list[str]]] = []
+
+        def record(*args, **kwargs):
+            columns = derive(*args, **kwargs)
+            visited.append(columns)
+            return columns
+
+        with patch.object(self.layout, "derive_columns", side_effect=record):
+            result = self.layout.compute(elements, flows, restarts=8, seed=7)
+        self.assertEqual(len(visited), 9)
+        self.assertGreater(
+            len({tuple(tuple(column) for column in columns) for columns in visited}), 1
+        )
+        self.assertEqual(
+            self.layout.compute(elements, flows, restarts=8, seed=7), result
+        )
+        self.assertEqual((elements, flows), original)
+        columns = [[f"TB{index}"] for index in range(1, 5)]
+        with patch.object(self.layout, "derive_columns") as derive_fixed:
+            fixed = self.layout.compute(
+                elements, flows, columns=columns, restarts=8, seed=7
+            )
+        derive_fixed.assert_not_called()
+        self.assertEqual(fixed, self.layout.compute(elements, flows, columns=columns))
+
+    def test_restarts_improve_a_fixed_layering_local_minimum(self) -> None:
+        elements = [
+            {"id": f"P{index}", "boundaryIds": [f"TB{index}"]} for index in range(1, 6)
+        ]
+        pairs = [(1, 2), (1, 4), (2, 3), (2, 5), (5, 1), (5, 2), (5, 4)]
+        flows = [
+            {
+                "id": f"F{index}",
+                "name": "hop",
+                "sourceId": f"P{source}",
+                "targetId": f"P{target}",
+            }
+            for index, (source, target) in enumerate(pairs, start=1)
+        ]
+        original = copy.deepcopy((elements, flows))
+        baseline, baseline_score = self.layout.compute(elements, flows)
+        self.assertEqual(baseline_score[0], 1)
+        self.assertEqual(self.layout.label_obstructions(elements, flows, baseline), [])
+        previous = (0, *baseline_score)
+        for restarts in (1, 4, 8):
+            with self.subTest(restarts=restarts):
+                boxes, score = self.layout.compute(
+                    elements, flows, restarts=restarts, seed=0
+                )
+                current = (
+                    len(self.layout.label_obstructions(elements, flows, boxes)),
+                    *score,
+                )
+                self.assertLessEqual(current, previous)
+                self.assertEqual(
+                    self.layout.compute(elements, flows, restarts=restarts, seed=0),
+                    (boxes, score),
+                )
+                previous = current
+        self.assertEqual(previous[:2], (0, 0))
+        self.assertEqual((elements, flows), original)
+
     def test_intermediate_shape_obstruction_is_reported(self) -> None:
         boxes, _ = self.layout.compute(self.elements, [self.flow], columns=self.columns)
         failures = self.layout.label_obstructions(self.elements, [self.flow], boxes)

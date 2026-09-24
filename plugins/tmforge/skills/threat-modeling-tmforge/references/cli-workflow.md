@@ -136,9 +136,13 @@ Consequences for authoring:
 - **Derive geometry; do not invent it.** The layout generator provided by the loaded `threat-modeling` skill sizes each
   column gap from labels, wraps complete columns into rows, and optimizes label-on-shape obstructions before crossings
   and length. Preview warnings are stderr diagnostics with exit `0`, so subprocess `check=True` is supported.
-  Add `--strict` to return `1` on warnings; malformed input returns `2`. Seeded restarts can escape local minima.
+  Add `--strict` to return `1` on warnings; malformed input returns `2`. Seeded restarts explore alternate automatic
+  cycle-breaking/layering and within-group order; explicitly supplied columns stay fixed. Equal output across seeds
+  means no better candidate was found, not that the remaining crossings are unavoidable. More restarts may not help.
 - **Let tmforge place new labels, then verify.** CLI authoring and structural `.tm7` exports try to place new flow
   labels clear of shapes and other labels by adjusting curve handles. This is not a guarantee that every label fits.
+  A straight-line preview collision can disappear in the generated artifact; do not change evidenced names or flows
+  merely to clear a prediction. The native artifact check, not preview `--strict`, is the delivery gate.
   Preserving native saves retain existing connector geometry unless edited; they do not automatically tidy the model.
   Confirm the result with `tmforge layout --check <model> --json`; it exits non-zero while any label is still
   covered. When the installed version has no `--check`, use

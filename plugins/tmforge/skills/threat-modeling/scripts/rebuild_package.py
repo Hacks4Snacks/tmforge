@@ -339,6 +339,7 @@ def rebuild(
     results: list[dict[str, object]],
     failed: str | None,
     directory: BoundDirectory | None = None,
+    model_steps: bool = True,
 ) -> dict[str, object]:
     ledger = package / args.ledger
     model = package / args.model
@@ -353,20 +354,24 @@ def rebuild(
         validate += ["--baseline", str(args.baseline.resolve())]
     steps.append(("ledger", validate, package))
 
-    if tmforge is not None:
+    if model_steps and tmforge is not None:
         steps.append(
             ("apply", [*tmforge, "apply", manifest.name, "--out", model.name], package)
         )
     steps.append(
         (
             "layout",
-            [
-                sys.executable,
-                str(SCRIPTS / "check_layout.py"),
-                model.name,
-                "--analysis",
-                ledger.name,
-            ],
+            (
+                [
+                    sys.executable,
+                    str(SCRIPTS / "check_layout.py"),
+                    model.name,
+                    "--analysis",
+                    ledger.name,
+                ]
+                if model_steps
+                else None
+            ),
             package,
         )
     )
@@ -382,7 +387,7 @@ def rebuild(
         ]
         if tmforge is not None:
             suppressions += ["--tmforge", shlex.join(tmforge)]
-        steps.append(("suppressions", suppressions, package))
+        steps.append(("suppressions", suppressions if model_steps else None, package))
     steps.append(
         (
             "render",
@@ -423,7 +428,16 @@ def rebuild(
                 else artifact_bytes(package / input_name)
             )
             if content is None:
-                results.append({"step": name, "status": "skipped"})
+                option = "--manifest" if name == "apply" else "--model"
+                results.append(
+                    {
+                        "step": name,
+                        "status": "fail",
+                        "detail": f"Required input {input_name!r} is missing; check {option} "
+                        "or the preceding generation step. No outputs were promoted.",
+                    }
+                )
+                failed = name
                 continue
         code, output = (
             run(command, cwd, descriptor=directory.descriptor)
@@ -449,9 +463,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("package", type=Path, help="package directory")
     parser.add_argument("--ledger", default="analysis.json", help="ledger file name")
-    parser.add_argument("--model", default="threat-model.tm7", help="model file name")
+    parser.add_argument("--model", help="model file name (default: model.tm7)")
     parser.add_argument(
-        "--manifest", default="threat-model.tm.json", help="manifest file name"
+        "--manifest", help="manifest file name (default: model.tm.json)"
     )
     parser.add_argument(
         "--manifest-command",
@@ -472,6 +486,11 @@ def main() -> int:
     )
     parser.add_argument("--json", action="store_true", help="emit the report as JSON")
     args = parser.parse_args()
+    args.model_requested = args.model is not None or args.manifest is not None
+    if args.model is None:
+        args.model = "model.tm7"
+    if args.manifest is None:
+        args.manifest = "model.tm.json"
 
     package = args.package.absolute()
     for name in (args.ledger, args.model, args.manifest):
@@ -518,11 +537,23 @@ def run_package(
     parent.check_identity()
     results: list[dict[str, object]] = []
     failed: str | None = None
-    if (
+    try:
+        ledger = json.loads(owned.read(args.ledger) or b"{}")
+    except (ValueError, UnicodeDecodeError):
+        ledger = {}
+    scope = ledger.get("scope", {}) if isinstance(ledger, dict) else {}
+    model_steps = bool(
         owned.read(args.manifest) is not None
         or owned.read(args.model) is not None
         or args.manifest_command
-    ):
+        or args.justifications is not None
+        or args.model_requested
+        or (
+            isinstance(scope, dict)
+            and scope.get("mode") in {"formal-package", "update"}
+        )
+    )
+    if model_steps:
         if tmforge is None:
             code, output = (
                 1,
@@ -544,7 +575,9 @@ def run_package(
         results.append(prerequisite)
 
     if failed is not None:
-        report = rebuild(args, package, tmforge, results, failed)
+        report = rebuild(
+            args, package, tmforge, results, failed, model_steps=model_steps
+        )
     else:
         outputs = (
             args.ledger,
@@ -564,7 +597,13 @@ def run_package(
                 copy_tree(owned, candidate)
                 before = {name: candidate.read(name) for name in outputs}
                 report = rebuild(
-                    args, candidate.path, tmforge, results, None, directory=candidate
+                    args,
+                    candidate.path,
+                    tmforge,
+                    results,
+                    None,
+                    directory=candidate,
+                    model_steps=model_steps,
                 )
                 if report["valid"]:
                     owned.check_identity()

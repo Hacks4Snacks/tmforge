@@ -321,11 +321,13 @@ def package_digest(package_directory: Path) -> str:
     return digest.hexdigest()
 
 
-def snapshot_packages(root: Path) -> dict[str, str]:
+def snapshot_packages(root: Path, *, require_ledger: bool = False) -> dict[str, str]:
     """Return hashes for retained packages under the repository root."""
     snapshot: dict[str, str] = {}
     package_directories: set[Path] = set()
     for package_directory, filenames in checked_directories(root):
+        if require_ledger and "analysis.json" not in filenames:
+            continue
         has_package_documents = any(
             name in PACKAGE_DOCUMENTS or name.endswith(".tm.evidence.json")
             for name in filenames
@@ -469,7 +471,7 @@ def verify(
     timeout: int = 300,
 ) -> int:
     """Validate packages changed since the baseline, or every package."""
-    after = snapshot_packages(root)
+    after = snapshot_packages(root, require_ledger=check_all)
     path = state_path(root, state_directory)
 
     if check_all:
@@ -651,7 +653,7 @@ def main() -> int:
         "--all",
         action="store_true",
         dest="check_all",
-        help="Validate every retained package, ignoring the baseline.",
+        help="Validate every directory with analysis.json, ignoring the baseline and standalone model artifacts.",
     )
     verify_parser.add_argument(
         "--keep",
