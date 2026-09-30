@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.13.1...v0.14.0) (2026-09-30)
+
+
+### Features
+
+* support an override option for imported objects ([#137](https://github.com/Hacks4Snacks/tmforge/issues/137)) ([1ecd03d](https://github.com/Hacks4Snacks/tmforge/commit/1ecd03d69546e09e6070b3af488a4595ee4774ac))
+* support model note creation ([#139](https://github.com/Hacks4Snacks/tmforge/issues/139)) ([c7e95b2](https://github.com/Hacks4Snacks/tmforge/commit/c7e95b272ec38ff0a227d44a788da707e5da9810))
+
 ## [0.13.1](https://github.com/Hacks4Snacks/tmforge/compare/v0.13.0...v0.13.1) (2026-09-24)
 
 
