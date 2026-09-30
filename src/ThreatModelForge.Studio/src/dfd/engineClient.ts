@@ -222,6 +222,7 @@ export interface DocumentDiagnostic {
 
 export interface PreflightResult {
   success: boolean;
+  canRecover?: boolean;
   format?: string;
   targetFormat?: string;
   diagnostics: DocumentDiagnostic[];
@@ -294,6 +295,7 @@ export interface IEngineClient {
   preflight(bytes: Uint8Array, formatId?: string, targetFormat?: string): Promise<PreflightResult>;
   /** Reads a document in any registered format into the canonical tmforge-json model. */
   readFile(bytes: Uint8Array, formatId?: string): Promise<TmForgeModel>;
+  recoverTm7(bytes: Uint8Array): Promise<TmForgeModel>;
   /**
    * Materializes a declarative authoring manifest into a model. A manifest is a threat model's
    * reviewable source rather than a model document, so it has no registered format and cannot go
@@ -383,6 +385,7 @@ function toPreflight(dto: components['schemas']['PreflightResultDto'] | undefine
   });
   return {
     success: dto.success && !diagnostics.some((item) => item.severity === 'error'),
+    ...(dto.canRecover === true && !dto.success && dto.format === 'tm7' ? { canRecover: true } : {}),
     format: dto.format ?? undefined,
     targetFormat: dto.targetFormat ?? undefined,
     diagnostics,
@@ -849,6 +852,10 @@ class OfflineEngineClient implements IEngineClient {
     return Promise.reject(new Error('Document preflight requires the .NET engine. Wait for the engine to load or connect to the API. Nothing was changed.'));
   }
 
+  public recoverTm7(): Promise<TmForgeModel> {
+    return Promise.reject(new Error('TM7 recovery requires the .NET engine. Nothing was changed.'));
+  }
+
   public applyManifest(): Promise<TmForgeModel> {
     // Building a manifest resolves aliases, derives stable ids, places elements inside their
     // boundaries, and validates every property against the schema. Re-implementing that here would
@@ -1062,6 +1069,16 @@ class HttpEngineClient implements IEngineClient {
     return toModel(data);
   }
 
+  public async recoverTm7(bytes: Uint8Array): Promise<TmForgeModel> {
+    const { data, error, response } = await this.client.POST('/v1/model/recover/tm7', {
+      body: { contentBase64: toBase64(bytes) },
+    });
+    if (!response.ok || !data) {
+      throw new Error(error?.detail ?? `TM7 recovery failed (${response.status}). Nothing was changed.`);
+    }
+    return toModel(data);
+  }
+
   public async applyManifest(manifestJson: string): Promise<TmForgeModel> {
     const { data, response } = await this.client.POST('/v1/model/manifest', {
       body: { manifest: manifestJson },
@@ -1151,6 +1168,7 @@ interface WasmEngineExports {
   Detect(contentBase64: string): string;
   Preflight(contentBase64: string, formatId: string, targetFormat: string): string;
   ReadFile(contentBase64: string, formatId: string): string;
+  RecoverTm7(contentBase64: string): string;
   ApplyManifest(manifestJson: string): string;
   ExportTm7(tmforgeJson: string): string;
   SaveTm7(contentBase64: string, tmforgeJson: string): string;
@@ -1262,6 +1280,10 @@ export class WasmEngineClient implements IEngineClient {
   public async readFile(bytes: Uint8Array, formatId?: string): Promise<TmForgeModel> {
     const dto = JSON.parse(await this.invoke('ReadFile', toBase64(bytes), formatId ?? '')) as components['schemas']['TmForgeModelDto'];
     return toModel(dto);
+  }
+
+  public async recoverTm7(bytes: Uint8Array): Promise<TmForgeModel> {
+    return toModel(JSON.parse(await this.invoke('RecoverTm7', toBase64(bytes))) as components['schemas']['TmForgeModelDto']);
   }
 
   public async applyManifest(manifestJson: string): Promise<TmForgeModel> {

@@ -250,6 +250,7 @@ const MANIFEST_NAME_SUFFIXES = [/\.json$/i, /\.(manifest|tm)$/i];
 interface OpenedDocument {
   model: TmForgeModel;
   nativeSource?: NativeSource;
+  recovered?: boolean;
   /** The format Save writes in: the source format when it is writable, else tmforge-json. */
   saveFormat: string;
   /** The name to bind, using a new name for manifests and read-only source formats. */
@@ -922,7 +923,8 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
     const baseline = layoutStateRef.current.workspaceJson;
     finishPreflight(false);
     const result = await engine.preflight(bytes, format, target);
-    if (preserveNative) {
+    const recovery = operation === 'import' && result.canRecover === true && !result.success;
+    if (preserveNative && !recovery) {
       result.targetFormat = undefined;
       result.diagnostics = result.diagnostics.filter(item => item.code !== 'conversion.generated-register').map(item => {
         if (item.code === 'conversion.knowledge-base') return { ...item, code: 'native.analysis-rules', severity: 'info' as const,
@@ -941,10 +943,10 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
     if (!result.success || result.diagnostics.some(item => item.severity !== 'info')) {
       const accepted = await new Promise<boolean>((resolve) => {
         preflightDecision.current = resolve;
-        setPreflightReview({ title: result.success ? `Review ${operation}` : `${operation === 'import' ? 'Import' : 'Export'} blocked`, result, operation });
+        setPreflightReview({ title: recovery ? 'Review recovery import' : result.success ? `Review ${operation}` : `${operation === 'import' ? 'Import' : 'Export'} blocked`, result, operation });
       });
       ensureCurrent();
-      if (!accepted || !result.success) {
+      if (!accepted || (!result.success && !recovery)) {
         throw new DOMException('Preflight cancelled.', 'AbortError');
       }
     }
@@ -1891,7 +1893,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
       const detected = await engine.detect(bytes).catch(() => null);
       ensureNotSuperseded();
       const preserveNative = detected?.id === 'tm7' && !host;
-      await checkDocument(bytes, detected?.id, detected?.id === 'tmforge-json' ? undefined : 'tmforge-json', 'import', preserveNative);
+      const assessment = await checkDocument(bytes, detected?.id, detected?.id === 'tmforge-json' ? undefined : 'tmforge-json', 'import', preserveNative);
       ensureNotSuperseded();
       const version = preflightVersion.current;
       const complete = (opened: OpenedDocument) => {
@@ -1901,6 +1903,15 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
         }
         return opened;
       };
+      if (!assessment.success && assessment.canRecover) {
+        return complete({
+          model: await engine.recoverTm7(bytes),
+          saveFormat: 'tmforge-json',
+          fileName: `${name.replace(/\.tm7$/i, '')}.recovered.tmforge.json`,
+          bindable: false,
+          recovered: true,
+        });
+      }
       if (detected) {
         const bindable = detected.canWrite;
         return complete({
@@ -1942,10 +1953,11 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
       try {
         const opened = await readDocument(new Uint8Array(await file.arrayBuffer()), file.name, reviewVersion);
         if (host) {
-          await host.create(opened.model, modelNameForManifest(file.name));
+          await host.create(opened.model, opened.recovered ? opened.fileName : modelNameForManifest(file.name));
           return;
         }
-        loadModel(opened.model, Boolean(opened.nativeSource), opened.nativeSource);
+        loadModel(opened.model, Boolean(opened.nativeSource) || opened.recovered, opened.nativeSource);
+        if (opened.recovered) setSavedJson('');
         // A hidden <input> gives no writable handle, so Save falls back to Save As / download.
         fileHandleRef.current = null;
         fileFormatRef.current = opened.saveFormat;
@@ -1966,7 +1978,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
         const file = await host.open();
         if (file) {
           const opened = await readDocument(file.bytes, file.name, reviewVersion);
-          await host.create(opened.model, modelNameForManifest(file.name));
+          await host.create(opened.model, opened.recovered ? opened.fileName : modelNameForManifest(file.name));
         }
       } catch (error) {
         if (!isAbortError(error)) toast(error instanceof Error ? error.message : 'Could not open that file.', 'error');
@@ -1982,7 +1994,8 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
       const [handle] = await picker.showOpenFilePicker();
       const file = await handle.getFile();
       const opened = await readDocument(new Uint8Array(await file.arrayBuffer()), handle.name, reviewVersion);
-      loadModel(opened.model, Boolean(opened.nativeSource), opened.nativeSource);
+      loadModel(opened.model, Boolean(opened.nativeSource) || opened.recovered, opened.nativeSource);
+      if (opened.recovered) setSavedJson('');
       fileHandleRef.current = opened.bindable ? handle : null;
       fileFormatRef.current = opened.saveFormat;
       setFileName(opened.fileName);

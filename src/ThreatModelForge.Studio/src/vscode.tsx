@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ReactFlowProvider } from '@xyflow/react';
 import { Editor } from './dfd/Editor';
+import { PreflightDialog } from './dfd/PreflightDialog';
 import { WasmEngineClient } from './dfd/engineClient';
 import type { EditorHost } from './dfd/editorContext';
 import { listenForHostMessages, StudioBridge, type StudioDocument } from './vscodeHost';
@@ -29,9 +30,11 @@ async function encode(blob: Blob): Promise<string> {
 function Studio() {
   const [document, setDocument] = useState<StudioDocument>();
   const [error, setError] = useState('');
+  const [reviewRecovery, setReviewRecovery] = useState(false);
+  const [recovering, setRecovering] = useState(false);
   const command = (method: string) => { void bridge.command(method).catch(failure => setError(String(failure))); };
   useEffect(() => {
-    bridge.onDocument = value => { setDocument(value); if (value.error) setError(value.error); };
+    bridge.onDocument = value => { setDocument(value); setError(value.error ?? ''); setReviewRecovery(value.preflight?.canRecover === true); };
     bridge.onStatus = value => setDocument(current => current ? { ...current, ...value } : current);
     bridge.onError = setError;
     const stopListening = listenForHostMessages(message => bridge.receive(message));
@@ -58,11 +61,18 @@ function Studio() {
   return <>
     <div className="host-bar">
       <button className="btn" onClick={() => command('source')}>Open source</button>
+      {document?.preflight?.canRecover && <button className="btn" disabled={recovering} onClick={() => setReviewRecovery(true)}>Review recovery import</button>}
       {error && <span role="alert">{error}</span>}
     </div>
     {document?.warnings?.length ? <div className="host-warnings" role="status">{document.warnings.map(message => <p key={message}>{message}</p>)}</div> : null}
     {host && !document?.error ? <ReactFlowProvider><Editor host={host} /></ReactFlowProvider>
       : <p role="status" className="host-status">{document?.error ?? 'Loading model...'}</p>}
+    {reviewRecovery && document?.preflight && <PreflightDialog title="Review recovery import" result={document.preflight} operation="import" onDecision={proceed => {
+      setReviewRecovery(false);
+      if (!proceed || recovering) return;
+      setRecovering(true);
+      void bridge.request('recover', { version: document.version }).catch(failure => setError(String(failure))).finally(() => setRecovering(false));
+    }} />}
   </>;
 }
 

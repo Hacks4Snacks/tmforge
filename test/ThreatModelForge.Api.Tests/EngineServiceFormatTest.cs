@@ -994,6 +994,7 @@ namespace ThreatModelForge.Api.Tests
             PreflightResultDto result = DocumentPreflight.Inspect(bytes, format);
 
             Assert.IsFalse(result.Success);
+            Assert.IsFalse(result.CanRecover);
             Assert.IsTrue(result.Diagnostics.Any(item => item.Code == code), string.Join("; ", result.Diagnostics.Select(item => item.Code + ": " + item.Message)));
             CollectionAssert.AreEqual(original, bytes);
         }
@@ -1086,6 +1087,114 @@ namespace ThreatModelForge.Api.Tests
 
             Assert.AreEqual(2, diagnostics.Count(item => item.Code == "model.duplicate-id"));
             Assert.IsTrue(diagnostics.Any(item => item.Code == "model.unresolved-endpoint"));
+            Assert.IsFalse(new PreflightResultDto { Format = "tm7", Diagnostics = diagnostics }.CanRecover);
+        }
+
+        /// <summary>Only a TM7 import with unresolved endpoints alone offers an explicit recovery copy.</summary>
+        [TestMethod]
+        public void PreflightOffersRecoveryWithoutRelaxingStrictValidation()
+        {
+            ThreatModel model = new ThreatModel();
+            DrawingSurfaceModel page = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "Recovery" };
+            Connector flow = new Connector { Guid = Guid.NewGuid(), SourceGuid = Guid.Empty, TargetGuid = Guid.NewGuid() };
+            page.Lines.Add(flow.Guid, flow);
+            model.DrawingSurfaceList.Add(page);
+            using MemoryStream stream = new MemoryStream();
+            model.Save(stream);
+            byte[] source = stream.ToArray();
+
+            PreflightResultDto result = DocumentPreflight.Inspect(source, targetFormat: "tmforge-json");
+
+            Assert.IsFalse(result.Success);
+            Assert.IsTrue(result.CanRecover);
+            Assert.IsTrue(DocumentPreflight.Inspect(source).CanRecover);
+            Assert.IsFalse(DocumentPreflight.Inspect(source, targetFormat: "tm7").CanRecover);
+            Assert.IsFalse(new PreflightResultDto { Format = "drawio", Diagnostics = result.Diagnostics }.CanRecover);
+            Assert.IsFalse(new PreflightResultDto { Format = "tm7" }.CanRecover);
+            CollectionAssert.AreEqual(source, stream.ToArray());
+        }
+
+        /// <summary>Recovery preserves valid pages and identities while omitting broken flows and scoped threats only.</summary>
+        /// <param name="crossPage">Whether the broken endpoint belongs to another page rather than being unattached.</param>
+        [TestMethod]
+        [DataRow(false)]
+        [DataRow(true)]
+        public void RecoverTm7ProducesSeparateValidatedCopy(bool crossPage)
+        {
+            ThreatModel model = new ThreatModel();
+            DrawingSurfaceModel page = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "Context" };
+            DrawingSurfaceModel otherPage = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "Details" };
+            model.DrawingSurfaceList.Add(page);
+            model.DrawingSurfaceList.Add(otherPage);
+            DiagramEditor editor = new DiagramEditor(model);
+            Guid source = editor.AddElement(page, StencilKind.Process, 30, 40);
+            Guid target = editor.AddElement(page, StencilKind.DataStore, 350, 40);
+            Guid otherTarget = editor.AddElement(otherPage, StencilKind.Process, 60, 80);
+            Guid validFlow = editor.AddConnector(page, source, target);
+            Guid brokenFlow = editor.AddConnector(page, source, target);
+            ((Connector)page.Lines[brokenFlow]).TargetGuid = crossPage ? otherTarget : Guid.Empty;
+            DiagramElementHelper.SetName((Connector)page.Lines[brokenFlow], "Create MOBO Resource");
+            model.AllThreatsDictionary.Add("manual:kept", new Threat
+            {
+                Id = 1, InteractionKey = "manual:kept", Title = "Retained decision", SourceGuid = source,
+                State = ThreatState.NotApplicable, StateInformation = "Reviewed control",
+            });
+            model.AllThreatsDictionary.Add("manual:omitted", new Threat
+            {
+                Id = 2, InteractionKey = "manual:omitted", Title = "Broken flow decision", FlowGuid = brokenFlow,
+            });
+            using MemoryStream stream = new MemoryStream();
+            model.Save(stream);
+            byte[] bytes = stream.ToArray();
+            byte[] original = bytes.ToArray();
+
+            TmForgeModelDto recovered = EngineService.RecoverTm7(bytes);
+
+            Assert.HasCount(2, recovered.Diagrams!);
+            Assert.AreEqual(page.Guid.ToString("D"), recovered.Diagrams![0].Id);
+            Assert.AreEqual("Context", recovered.Diagrams[0].Name);
+            Assert.AreEqual("Details", recovered.Diagrams[1].Name);
+            Assert.HasCount(2, recovered.Elements!);
+            Assert.AreEqual(30, recovered.Elements!.Single(element => element.Id == source.ToString("D")).X);
+            Assert.HasCount(1, recovered.Flows!);
+            Assert.AreEqual(validFlow.ToString("D"), recovered.Flows![0].Id);
+            Assert.AreEqual(validFlow.ToString("D"), recovered.Diagrams[0].Flows!.Single().Id);
+            Assert.AreEqual(otherTarget.ToString("D"), recovered.Diagrams[1].Elements!.Single().Id);
+            Assert.AreEqual("manual:kept", recovered.Threats!.Single().Id);
+            Assert.AreEqual("Accepted", recovered.Threats!.Single().State);
+            Assert.IsTrue(DocumentPreflight.Inspect(EngineService.Convert(recovered, "tmforge-json")).Success);
+            Assert.IsFalse(EngineService.RunAnalysis(recovered, null).Findings.Any(finding => finding.RuleId == "engine-error"));
+            Assert.IsTrue(DocumentPreflight.Inspect(bytes).CanRecover);
+            CollectionAssert.AreEqual(original, bytes);
+        }
+
+        /// <summary>Recovery never bypasses parsing, size, identity or diagnostic completeness checks.</summary>
+        [TestMethod]
+        public void RecoverTm7RefusesOtherFailures()
+        {
+            Assert.Throws<ArgumentNullException>(() => EngineService.RecoverTm7(null!));
+            Assert.Throws<InvalidDataException>(() => EngineService.RecoverTm7(Encoding.UTF8.GetBytes("<ThreatModel>")));
+            Assert.Throws<InvalidDataException>(() => EngineService.RecoverTm7(new byte[JsonDocumentPreflight.MaxBytes + 1]));
+            Assert.Throws<InvalidDataException>(() => EngineService.RecoverTm7(Encoding.UTF8.GetBytes("{\"schema\":\"tmforge-json\"}")));
+            ThreatModel model = new ThreatModel();
+            DrawingSurfaceModel page = new DrawingSurfaceModel { Guid = Guid.NewGuid() };
+            model.DrawingSurfaceList.Add(page);
+            Connector flow = new Connector { Guid = page.Guid };
+            page.Lines.Add(flow.Guid, flow);
+            using MemoryStream duplicate = new MemoryStream();
+            model.Save(duplicate);
+            Assert.Throws<InvalidDataException>(() => EngineService.RecoverTm7(duplicate.ToArray()));
+
+            page.Lines.Clear();
+            for (int index = 0; index <= JsonDocumentPreflight.MaxDiagnostics; index++)
+            {
+                Connector detached = new Connector { Guid = Guid.NewGuid() };
+                page.Lines.Add(detached.Guid, detached);
+            }
+
+            using MemoryStream truncated = new MemoryStream();
+            model.Save(truncated);
+            Assert.Throws<InvalidDataException>(() => EngineService.RecoverTm7(truncated.ToArray()));
         }
 
         /// <summary>Text diagrams use shared preflight, analysis and native export without inventing controls.</summary>

@@ -47,6 +47,7 @@ and `/openapi` are matched first.
 | `POST /v1/model/merge` | Model | Merge base/ours/theirs canonical models and return the merged model plus conflicts. |
 | `POST /v1/model/read` | Model | Parse uploaded bytes (base64) into the canonical model. |
 | `POST /v1/model/preflight?to=<format>` | Model | Check source bytes and optionally preview conversion losses without writing or analyzing. |
+| `POST /v1/model/recover/tm7` | Model | Explicitly create a canonical recovery copy without unresolved flows and their scoped threats. |
 | `POST /v1/model/manifest` | Model | Materialize a declarative authoring manifest into a model (the `tmforge apply` build). |
 | `POST /v1/model/compare` | Model | Read-only structural, boundary-crossing, and findings comparison of two canonical model snapshots. |
 | `POST /v1/model/layout` | Model | Return geometry-only updates after preserving every boundary membership and actual flow crossing; unsafe candidates are refused atomically. |
@@ -103,7 +104,7 @@ endpoint to `POST /v1/model/preflight`. `formatId` is optional; it can also be `
 explicitly selected legacy manifests. The optional `to` query parameter selects a writable conversion
 target. No rule evaluation, file write, or remote content resolution occurs.
 
-The response is `{success,format,targetFormat,diagnostics}`. Each diagnostic contains a stable
+The response is `{success,canRecover,format,targetFormat,diagnostics}`. Each diagnostic contains a stable
 `code`, `severity` (`error`, `warning`, `info`), source `path`, and actionable `message`. JSON
 diagnostics use JSONPath locations; foreign-reader failures may include a provider-specific location
 in their message. An assessment that finds input errors still returns HTTP **200** with
@@ -118,6 +119,23 @@ diagnostic budget is exhausted, so a truncated result cannot look successful.
 The WASM `Preflight(contentBase64, formatId, targetFormat)` export returns the same result; empty
 strings omit the two format selections. MCP exposes `preflight(path, format?, to?)` with the existing
 workspace sandbox and archive limits. Neither operation accepts rule content or changes models.
+
+### Explicit TM7 recovery
+
+`canRecover: true` means the source is TM7, all blocking errors are unresolved flow endpoints, and
+the target is omitted or `tmforge-json`. `success` remains **false**: normal import or conversion
+is still blocked. Clients must present the diagnostics and obtain explicit recovery consent.
+
+After consent, send `{ "contentBase64": "..." }` to `POST /v1/model/recover/tm7`, or call WASM
+`RecoverTm7(contentBase64)`. Both return a validated `TmForgeModelDto` for a **separate canonical
+copy**. Broken flows and threats scoped to them are omitted, never reconnected heuristically.
+Unrelated pages, objects, identities and supported authored threat edits are retained. Native-only
+data remains in the original source and is subject to the canonical conversion warnings.
+
+The operation rechecks the original bytes and refuses other failures, including malformed XML,
+identity collisions, input limits and truncated diagnostics, with HTTP **400**. It writes no files
+and does not change validation policy. Clients must not bind the returned copy to the source's
+save destination or describe analysis of the reduced copy as analysis of the complete source.
 
 ## Native TM7 saving
 

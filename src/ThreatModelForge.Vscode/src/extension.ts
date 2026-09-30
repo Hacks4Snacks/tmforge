@@ -103,7 +103,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}),
 	);
 	for (const document of vscode.workspace.textDocuments) if (sourceFormat(document, studio)) void inspect(document);
-	return { inspect, diagnostics, tools, edit: studio.edit.bind(studio), nativeSource: studio.nativeSource.bind(studio), waitUntilRendered: studio.waitUntilRendered.bind(studio) };
+	return { inspect, diagnostics, tools, edit: studio.edit.bind(studio), recover: studio.recover.bind(studio), nativeSource: studio.nativeSource.bind(studio), waitUntilRendered: studio.waitUntilRendered.bind(studio) };
 }
 
 function toDiagnostics(result: Inspection, document: vscode.TextDocument): vscode.Diagnostic[] {

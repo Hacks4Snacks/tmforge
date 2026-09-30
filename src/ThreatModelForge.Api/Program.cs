@@ -154,6 +154,19 @@ namespace ThreatModelForge.Api
                 .WithName("PreflightModel")
                 .WithTags("Model");
 
+            app.MapPost(
+                "/v1/model/recover/tm7",
+                (FileContentDto file, CancellationToken cancellationToken) =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return TypedResults.Ok(EngineService.RecoverTm7(Convert.FromBase64String(file.ContentBase64)));
+                })
+                .WithName("RecoverTm7")
+                .WithSummary("Creates a separate canonical recovery copy of a TM7 with unresolved flow endpoints.")
+                .WithDescription("Requires explicit recovery consent. Omits unresolved flows and their scoped threats; native-only content remains in the source. Other structural errors are not overridable.")
+                .ProducesProblem(StatusCodes.Status400BadRequest)
+                .WithTags("Model");
+
             // A declarative authoring manifest is a threat model's reviewable source, not one of the
             // registered model formats, so /v1/detect cannot claim it and /v1/model/read cannot parse
             // it. Materializing it here lets a client open a manifest without shelling out to the CLI.

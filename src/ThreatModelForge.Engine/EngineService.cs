@@ -436,6 +436,50 @@ namespace ThreatModelForge.Engine
             };
         }
 
+        /// <summary>Creates a validated canonical recovery copy, omitting unresolved TM7 flows and their scoped threats.</summary>
+        /// <param name="content">The original TM7 bytes, which are never modified.</param>
+        /// <returns>A separate canonical model; native-only data remains in the original document.</returns>
+        public static TmForgeModelDto RecoverTm7(byte[] content)
+        {
+            PreflightResultDto preflight = DocumentPreflight.Inspect(content, Tm7Format.FormatId, TmForgeJsonFormat.FormatId);
+            if (!preflight.CanRecover)
+            {
+                throw new InvalidDataException("TM7 recovery requires unresolved flow endpoints without other structural errors. "
+                    + string.Join(" ", preflight.Diagnostics.Where(item => item.Severity == "error").Select(item => item.Message)));
+            }
+
+            using MemoryStream input = new MemoryStream(content, writable: false);
+            ThreatModel model = ThreatModel.Load(input);
+            HashSet<Guid> omitted = new HashSet<Guid>();
+            foreach (DrawingSurfaceModel page in model.DrawingSurfaceList)
+            {
+                foreach (KeyValuePair<Guid, object> entry in page.Lines.Where(entry => entry.Value is Connector flow
+                    && (!page.Borders.ContainsKey(flow.SourceGuid) || !page.Borders.ContainsKey(flow.TargetGuid))).ToArray())
+                {
+                    omitted.Add(((Connector)entry.Value).Guid);
+                    page.Lines.Remove(entry.Key);
+                }
+            }
+
+            foreach (KeyValuePair<string, Threat> entry in model.AllThreatsDictionary.Where(entry =>
+                omitted.Contains(entry.Value.SourceGuid) || omitted.Contains(entry.Value.TargetGuid) || omitted.Contains(entry.Value.FlowGuid)).ToArray())
+            {
+                model.AllThreatsDictionary.Remove(entry.Key);
+            }
+
+            using MemoryStream recovered = new MemoryStream();
+            model.Save(recovered);
+            TmForgeModelDto result = ReadModel(recovered.ToArray(), Tm7Format.FormatId);
+            PreflightResultDto validated = DocumentPreflight.Inspect(JsonSerializer.SerializeToUtf8Bytes(result, CanonicalJsonOptions), TmForgeJsonFormat.FormatId);
+            if (!validated.Success)
+            {
+                throw new InvalidDataException("The recovery copy is still invalid. "
+                    + string.Join(" ", validated.Diagnostics.Where(item => item.Severity == "error").Select(item => item.Message)));
+            }
+
+            return result;
+        }
+
         /// <summary>Saves canvas edits against an original native TM7 document.</summary>
         /// <param name="original">The original document bytes.</param>
         /// <param name="edited">The edited canvas model.</param>

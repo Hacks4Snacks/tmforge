@@ -317,9 +317,20 @@ openability guarantee from another product. Retain the source document when warn
 
 The command, API, WASM and MCP return the same diagnostic codes, severities, paths and messages.
 Studio reviews warnings before **Open File**, **Save** with an engine, or **Export** continues;
-blocking errors cannot be accepted. Rejection and cancellation leave the current workspace
+blocking errors stop the normal operation. Rejection and cancellation leave the current workspace
 unchanged. Native JSON saves retain the Studio wire model rather than performing a format
 conversion, so they do not warn about losing their own analysis settings.
+
+For TM7 imports whose only errors are unattached or cross-page flow endpoints, Studio and the
+VS Code extension offer **Import recovery copy** after explicit review. This creates a separate,
+unsaved canonical model with the broken flows and threats scoped to them omitted. No endpoints
+are guessed or reconnected. Native-only content, including the embedded template, full generated
+register and line trust boundaries, stays in the original file; conversion warnings describe these
+losses. Review the copy against the original before relying on its analysis.
+
+The original is never bound as the recovery copy's save destination. Recovery does not override
+malformed XML, duplicate or empty identities, size/depth limits, or an exhausted diagnostic budget.
+Ordinary preflight, saves, exports, CLI conversion and other formats retain their strict behavior.
 
 Preflight and CLI conversion accept at most 8 MiB of source content. Canonical JSON reads are strict
 UTF-8 with an optional BOM and a nesting limit of 64. At most 100 diagnostics are returned, with an

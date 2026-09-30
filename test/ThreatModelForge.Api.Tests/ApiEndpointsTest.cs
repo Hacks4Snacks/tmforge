@@ -13,6 +13,7 @@ namespace ThreatModelForge.Api.Tests
     using Microsoft.AspNetCore.Mvc.Testing;
     using Microsoft.VisualStudio.TestTools.UnitTesting;
     using ThreatModelForge.Engine;
+    using ThreatModelForge.Model;
 
     /// <summary>
     /// Tests the hosted <c>/v1</c> surface over real HTTP. The rest of this project drives
@@ -413,6 +414,39 @@ namespace ThreatModelForge.Api.Tests
 
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
             Assert.IsTrue(JsonNode.DeepEquals(JsonNode.Parse(expected), JsonNode.Parse(await response.Content.ReadAsStringAsync())));
+        }
+
+        /// <summary>The recovery endpoint is opt-in, validates the result and refuses unrelated errors.</summary>
+        /// <returns>A task.</returns>
+        [TestMethod]
+        public async Task Recovery_ReturnsValidatedCopyAndRejectsUnreadableInput()
+        {
+            ThreatModel native = new ThreatModel();
+            DrawingSurfaceModel page = new DrawingSurfaceModel { Guid = Guid.NewGuid(), Header = "Recovery" };
+            native.DrawingSurfaceList.Add(page);
+            Connector flow = new Connector { Guid = Guid.NewGuid(), SourceGuid = Guid.Empty, TargetGuid = Guid.Empty };
+            page.Lines.Add(flow.Guid, flow);
+            using MemoryStream stream = new MemoryStream();
+            native.Save(stream);
+            string request = JsonSerializer.Serialize(new { contentBase64 = Convert.ToBase64String(stream.ToArray()) });
+            using HttpResponseMessage preflight = await PostJson("/v1/model/preflight?to=tmforge-json", request);
+            using JsonDocument assessment = JsonDocument.Parse(await preflight.Content.ReadAsStringAsync());
+            Assert.IsFalse(assessment.RootElement.GetProperty("success").GetBoolean());
+            Assert.IsTrue(assessment.RootElement.GetProperty("canRecover").GetBoolean());
+
+            using HttpResponseMessage response = await PostJson("/v1/model/recover/tm7", request);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            string recovered = await response.Content.ReadAsStringAsync();
+            Assert.IsTrue(DocumentPreflight.Inspect(Encoding.UTF8.GetBytes(recovered)).Success);
+            using JsonDocument body = JsonDocument.Parse(recovered);
+            Assert.AreEqual(0, body.RootElement.GetProperty("flows").GetArrayLength());
+            Assert.IsFalse(DocumentPreflight.Inspect(stream.ToArray()).Success);
+
+            string invalidRequest = JsonSerializer.Serialize(new { contentBase64 = Base64("<ThreatModel>") });
+            using HttpResponseMessage invalid = await PostJson("/v1/model/recover/tm7", invalidRequest);
+            Assert.AreEqual(HttpStatusCode.BadRequest, invalid.StatusCode);
+            Assert.AreEqual("application/problem+json", invalid.Content.Headers.ContentType?.MediaType);
         }
 
         /// <summary>Verifies format detection answers with the format it recognized.</summary>
