@@ -1626,6 +1626,40 @@
           }
         }
       },
+      "Note": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Gets or sets the note identifier.",
+            "format": "int32"
+          },
+          "message": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Gets or sets the note text."
+          },
+          "date": {
+            "type": "string",
+            "description": "Gets or sets the time the note was recorded.",
+            "format": "date-time"
+          },
+          "addedBy": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Gets or sets the author of the note."
+          }
+        },
+        "description": "A free-text note recorded against the threat model."
+      },
       "PackDto": {
         "type": "object",
         "properties": {
@@ -2363,6 +2397,15 @@
                 "$ref": "#/components/schemas/MetaInformation"
               }
             ]
+          },
+          "notes": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Note"
+            }
           },
           "elements": {
             "type": [

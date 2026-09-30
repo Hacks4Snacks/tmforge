@@ -205,6 +205,47 @@ beforeEach(() => {
   engineState.hosted = undefined;
 });
 
+describe('Model notes in Studio', () => {
+  it('restores, edits, adds and deletes notes with undo/redo without changing the diagram', async () => {
+    const note = { id: 7, message: 'Original scope', date: '2026-09-30T12:00:00.1234567Z', addedBy: 'Reviewer' };
+    await mountEditor({ ...chain(), notes: [note] } as TmForgeModel);
+    expect(screen.getByLabelText('Note 7 text')).toHaveValue(note.message);
+    selectNodes('a');
+    await waitFor(() => expect(within(inspector()).getByLabelText('Name')).toBeInTheDocument());
+    fireEvent.click(screen.getByTitle('Model notes'));
+    expect(document.querySelector('.save-status')).toHaveClass('clean');
+    expect(undoButton()).toBeDisabled();
+
+    fireEvent.focus(screen.getByLabelText('Note 7 text'));
+    fireEvent.change(screen.getByLabelText('Note 7 text'), { target: { value: 'Updated scope\nEvidence' } });
+    const readNotes = () => (JSON.parse(window.localStorage.getItem(STORAGE_KEY)!) as { model: TmForgeModel }).model.notes;
+    await waitFor(() => expect(readNotes()).toEqual([{ ...note, message: 'Updated scope\nEvidence' }]), { timeout: 3000 });
+    expect(document.querySelector('.save-status')).toHaveClass('dirty');
+    fireEvent.click(undoButton());
+    expect(screen.getByLabelText('Note 7 text')).toHaveValue(note.message);
+    expect(undoButton()).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+    expect(screen.getByLabelText('Note 7 text')).toHaveValue('Updated scope\nEvidence');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add note' }));
+    expect(screen.getByLabelText('Note 1 text')).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete note 7' }));
+    expect(screen.queryByLabelText('Note 7 text')).not.toBeInTheDocument();
+    fireEvent.click(undoButton());
+    expect(screen.getByLabelText('Note 7 text')).toHaveValue('Updated scope\nEvidence');
+    fireEvent.click(undoButton());
+    expect(screen.queryByLabelText('Note 1 text')).not.toBeInTheDocument();
+    await waitFor(() => expect(readNotes()).toEqual([{ ...note, message: 'Updated scope\nEvidence' }]), { timeout: 3000 });
+    expect(persisted()).toEqual({ elements: ['a', 'b', 'c'], flows: ['ab', 'bc'] });
+
+    const recovered = (JSON.parse(window.localStorage.getItem(STORAGE_KEY)!) as { model: TmForgeModel }).model;
+    cleanup();
+    await mountEditor(recovered);
+    expect(screen.getByLabelText('Note 7 text')).toHaveValue('Updated scope\nEvidence');
+    expect(screen.getByLabelText('Note 7 author')).toHaveValue('Reviewer');
+  });
+});
+
 describe('Hosted Studio documents', () => {
   async function makeHost(): Promise<EditorHost> {
     const { offlineEngine } = await import('./engineClient');
@@ -217,6 +258,29 @@ describe('Hosted Studio documents', () => {
       undo: vi.fn(), redo: vi.fn(), chooseTheme: vi.fn(),
     };
   }
+
+  it('publishes model notes and accepts host undo without echoing a second edit', async () => {
+    const { Editor } = await import('./Editor');
+    const host = await makeHost();
+    const note = { id: 4, message: 'Host scope', date: '2026-09-30T12:00:00Z', addedBy: 'Reviewer' };
+    host.model.notes = [note];
+    const view = render(<ReactFlowProvider><Editor host={host} /></ReactFlowProvider>);
+    await screen.findByLabelText('Note 4 text');
+    expect(host.onChange).not.toHaveBeenCalled();
+
+    fireEvent.focus(screen.getByLabelText('Note 4 text'));
+    fireEvent.change(screen.getByLabelText('Note 4 text'), { target: { value: 'Host edit' } });
+    await waitFor(() => expect(host.onChange).toHaveBeenCalledOnce());
+    const [before, after] = vi.mocked(host.onChange).mock.calls[0];
+    expect(before.notes).toEqual([note]);
+    expect(after.notes).toEqual([{ ...note, message: 'Host edit' }]);
+    expect(after.elements).toEqual(before.elements);
+    expect(after.flows).toEqual(before.flows);
+
+    view.rerender(<ReactFlowProvider><Editor host={{ ...host, model: { ...host.model, notes: [{ ...note }] } }} /></ReactFlowProvider>);
+    await waitFor(() => expect(screen.getByLabelText('Note 4 text')).toHaveValue('Host scope'));
+    expect(host.onChange).toHaveBeenCalledOnce();
+  });
 
   it('exports the host native document without converting or rebuilding it', async () => {
     const { Editor } = await import('./Editor');

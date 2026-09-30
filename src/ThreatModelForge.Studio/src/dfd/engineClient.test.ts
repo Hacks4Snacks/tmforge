@@ -119,6 +119,21 @@ describe('looksLikeManifest — routing an unidentified document', () => {
 });
 
 describe('engine model normalization', () => {
+  it('retains native note fields and timestamp precision across normalization and offline saves', async () => {
+    const note = { id: '7', message: 'Scope\nEvidence <review>', date: '2026-09-30T12:00:00.1234567Z', addedBy: 'Reviewer' };
+    const model = toModel({ notes: [note] });
+    expect(model.notes).toEqual([{ ...note, id: 7 }]);
+    expect((await offlineEngine.read(await offlineEngine.write(model))).notes).toEqual(model.notes);
+    expect(toModel({ notes: [] }).notes).toEqual([]);
+    expect(toModel({}).notes).toBeUndefined();
+  });
+
+  it('normalizes absent native note fields without inventing author or date information', () => {
+    expect(toModel({ notes: [{ id: 1, message: null, addedBy: null }] }).notes).toEqual([
+      { id: 1, message: undefined, addedBy: undefined, date: '0001-01-01T00:00:00' },
+    ]);
+  });
+
   it('restores native canvas labels and ports', () => {
     const model = toModel({ flows: [{ id: 'flow', source: 'a', target: 'b', labelOffset: { x: 32, y: -20 }, sourceHandle: 'r', targetHandle: 'l' }] });
     expect(model.flows[0]).toMatchObject({ labelOffset: { x: 32, y: -20 }, sourceHandle: 'r', targetHandle: 'l' });

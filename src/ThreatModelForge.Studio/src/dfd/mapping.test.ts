@@ -50,6 +50,17 @@ describe('mapping — property round-trip (inspector edits reach the engine)', (
     expect(modelFromPages(pagesFromModel(graph)).diagrams).toBeUndefined();
   });
 
+  it('preserves model-wide notes and distinguishes clearing notes from an older model', () => {
+    const pages = [{ id: 'p1', name: 'Context', nodes, edges }, { id: 'p2', name: 'Detail', nodes: [], edges: [] }];
+    const notes = [{ id: 7, message: 'Scope\nEvidence', date: '2026-09-30T12:00:00.1234567Z', addedBy: 'Reviewer' }];
+    const model = modelFromPages(pages, undefined, undefined, undefined, notes);
+
+    expect(model.notes).toEqual(notes);
+    expect(model.diagrams).toHaveLength(2);
+    expect(modelFromPages(pages, undefined, undefined, undefined, []).notes).toEqual([]);
+    expect(modelFromPages(pages)).not.toHaveProperty('notes');
+  });
+
   it('omits the properties key entirely for an element with no custom properties', () => {
     const model = toModel(nodes, edges);
     // n2 (User) had an empty properties bag — it should not serialize a properties object.

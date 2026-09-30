@@ -320,6 +320,7 @@ async function verifyCopilotTools(api: { tools: ReturnType<typeof createCopilotT
 		if (invalid.diagrams?.length) invalid.diagrams[0].flows = invalid.flows;
 		await assert.rejects(invoke('tmforge_update_model', { uri: created.uri, revision: updated.revision, model: invalid }), /missing/i);
 		assert.equal(document.getText(), changed, 'Invalid topology changed the model');
+		await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
 		await vscode.commands.executeCommand('undo');
 		await waitForText(document, original);
 		await api.waitUntilRendered(document);

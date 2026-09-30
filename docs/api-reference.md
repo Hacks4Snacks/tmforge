@@ -158,6 +158,12 @@ page-scoped entries while retaining model-wide decisions. Unrelated threats rema
 The saved canvas overlay is filtered to match; no deleted-ID list or retired register is persisted.
 Renames, page moves, property changes and unavailable or disabled rules do not trigger this cascade.
 
+Model-wide notes use the canonical `notes` array with native `id`, `message`, `date`, and `addedBy`
+fields. A supplied array replaces the notes collection; `notes: []` explicitly clears it. Omitting
+`notes` or supplying `null` leaves native notes unchanged for compatibility with older clients.
+Note edits preserve unrelated XML and retain unrecognized fields on surviving notes by native ID.
+Recorded dates and authors are caller-owned; changing text does not refresh them automatically.
+
 Changed generated-threat decisions are materialized with the host's active rule bundle. Missing or
 mismatched expected packs block new generated threats, not unrelated preserving edits. Existing
 native/manual threats are never wholesale replaced by analysis. Studio view fields (`labelOffset`,
@@ -233,7 +239,7 @@ representations of a shared object/page, such as aliases versus exported GUIDs, 
 comparison instead of manufacturing resolutions. Different effective rule selections warn because
 the resulting delta can reflect rule configuration rather than a changed security condition.
 
-This is not a complete document/register diff. Metadata and author-owned threat-record differences
+This is not a complete document/register diff. Metadata, model notes, and author-owned threat-record differences
 produce warnings; manual threat content, priority, justification, and orphaned triage are not reviewed
 field by field. Preflight foreign source bytes with `to=tmforge-json` before reading them, and retain
 those import-loss diagnostics with the review. The endpoint receives canonical snapshots, so it cannot

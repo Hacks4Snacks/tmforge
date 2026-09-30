@@ -65,6 +65,97 @@ namespace ThreatModelForge.Api.Tests
             Assert.AreEqual("writes", restored.Flows[0].Name);
         }
 
+        /// <summary>Model notes survive every engine-backed model format and reach the model report.</summary>
+        /// <param name="format">The model format.</param>
+        [TestMethod]
+        [DataRow("tm7")]
+        [DataRow("tmforge-json")]
+        public void ModelNotesSurviveEngineRoundTrips(string format)
+        {
+            Note note = new Note
+            {
+                Id = 7, Message = "Scope <review>\nEvidence & assumptions", AddedBy = "Reviewer",
+                Date = new DateTime(2026, 9, 30, 12, 0, 0, DateTimeKind.Utc),
+            };
+            TmForgeModelDto model = WithNotes(ConnectedModel(), new[] { note });
+            Assert.AreEqual(EngineService.DescribeAnalysis(ConnectedModel()).Model.Fingerprint, EngineService.DescribeAnalysis(model).Model.Fingerprint);
+
+            TmForgeModelDto restored = EngineService.ReadModel(EngineService.Convert(model, format), format);
+
+            Assert.IsNotNull(restored.Notes);
+            Assert.HasCount(1, restored.Notes);
+            Assert.AreEqual(JsonSerializer.Serialize(note), JsonSerializer.Serialize(restored.Notes[0]));
+            string report = Encoding.UTF8.GetString(EngineService.Report(restored, "html"));
+            StringAssert.Contains(report, "Scope &lt;review&gt;");
+            TmForgeModelDto authored = AuthoringService.AddThreat(restored, new AddThreatRequest
+            {
+                Id = "notes-check", Title = "Manual review", Category = "Spoofing",
+            }).Model!;
+            Assert.AreEqual(JsonSerializer.Serialize(restored.Notes), JsonSerializer.Serialize(authored.Notes));
+        }
+
+        /// <summary>Native note changes leave every unrelated XML member and the original register intact.</summary>
+        [TestMethod]
+        public void SaveTm7EditsModelNotesWithoutChangingOtherNativeXml()
+        {
+            Note first = new Note { Id = 7, Message = "Original scope", AddedBy = "Reviewer", Date = new DateTime(2026, 9, 30) };
+            Note second = new Note { Id = 12, Message = "Remove this note", Date = new DateTime(2026, 9, 29) };
+            byte[] original = EngineService.Convert(WithNotes(ConnectedModel(), new[] { first, second }), "tm7");
+            XDocument source = XDocument.Parse(Encoding.UTF8.GetString(original));
+            XElement[] sourceNotes = source.Root!.Elements().Single(element => element.Name.LocalName == "Notes").Elements().ToArray();
+            XName extension = XNamespace.Get("urn:tmforge:test") + "Evidence";
+            sourceNotes[0].Add(new XElement(extension, "Keep with note 7"));
+            sourceNotes[1].Add(new XElement(extension, "Remove with note 12"));
+            original = Encoding.UTF8.GetBytes(source.ToString());
+            TmForgeModelDto baseline = EngineService.ReadModel(original, "tm7");
+            CollectionAssert.AreEqual(original, EngineService.SaveTm7(original, baseline));
+            Note edited = new Note { Id = first.Id, Message = "Updated scope\nKeep the timestamp", AddedBy = first.AddedBy, Date = first.Date };
+            Note added = new Note { Id = 13, Message = "New evidence", AddedBy = "Author", Date = new DateTime(2026, 9, 30, 12, 0, 0, DateTimeKind.Utc) };
+            TmForgeModelDto requested = WithNotes(baseline, new[] { edited, added });
+
+            byte[] saved = EngineService.SaveTm7(original, requested);
+            TmForgeModelDto restored = EngineService.ReadModel(saved, "tm7");
+
+            Assert.AreEqual(JsonSerializer.Serialize(requested.Notes), JsonSerializer.Serialize(restored.Notes));
+            XDocument before = XDocument.Parse(Encoding.UTF8.GetString(original));
+            XDocument after = XDocument.Parse(Encoding.UTF8.GetString(saved));
+            XElement notes = after.Root!.Elements().Single(element => element.Name.LocalName == "Notes");
+            CollectionAssert.AreEqual(new[] { "Keep with note 7" }, notes.Descendants(extension).Select(element => element.Value).ToArray());
+            Assert.IsNull(notes.Elements().Last().Element(extension));
+            before.Root!.Elements().Single(element => element.Name.LocalName == "Notes").ReplaceWith(new XElement(notes));
+            after.Root.Element(XNamespace.Get("urn:tmforge:studio:v1") + "State")?.Remove();
+            Assert.IsTrue(XNode.DeepEquals(before, after));
+            CollectionAssert.AreEqual(saved, EngineService.SaveTm7(saved, restored));
+            CollectionAssert.AreEqual(original, EngineService.SaveTm7(original, baseline, null, saved));
+
+            byte[] cleared = EngineService.SaveTm7(original, WithNotes(baseline, Array.Empty<Note>()), null, saved);
+            Assert.AreEqual(0, EngineService.ReadModel(cleared, "tm7").Notes?.Count ?? 0);
+            CollectionAssert.AreEqual(original, EngineService.SaveTm7(original, baseline, null, cleared));
+            CollectionAssert.AreEqual(original, EngineService.SaveTm7(original, WithNotes(baseline, null)));
+        }
+
+        /// <summary>Older Studio state without notes still exposes the authoritative native collection.</summary>
+        [TestMethod]
+        public void ModelNotesSurviveOlderStudioState()
+        {
+            byte[] original = EngineService.Convert(ConnectedModel(), "tm7");
+            TmForgeModelDto baseline = EngineService.ReadModel(original, "tm7");
+            Note note = new Note { Id = 1, Message = "Native note", Date = new DateTime(2026, 9, 30) };
+            byte[] saved = EngineService.SaveTm7(original, WithNotes(baseline, new[] { note }));
+            XDocument document = XDocument.Parse(Encoding.UTF8.GetString(saved));
+            XElement state = document.Root!.Element(XNamespace.Get("urn:tmforge:studio:v1") + "State") ?? throw new InvalidOperationException();
+            JsonNode value = JsonNode.Parse(state.Value) ?? throw new InvalidOperationException();
+            JsonObject model = value["model"]?.AsObject() ?? throw new InvalidOperationException();
+            model.Remove("notes");
+            state.Value = value.ToJsonString();
+            byte[] legacy = Encoding.UTF8.GetBytes(document.ToString());
+
+            TmForgeModelDto restored = EngineService.ReadModel(legacy, "tm7");
+
+            Assert.AreEqual("Native note", restored.Notes?.Single().Message);
+            CollectionAssert.AreEqual(legacy, EngineService.SaveTm7(legacy, restored));
+        }
+
         /// <summary>Reopened native models accept newly generated threats without losing the original register.</summary>
         [TestMethod]
         public void SaveTm7AcceptsNewlyGeneratedThreatsAfterReopening()
@@ -1032,6 +1123,33 @@ namespace ThreatModelForge.Api.Tests
             Assert.AreEqual(target == "drawio", result.Diagnostics.Any(item => item.Code == "conversion.properties"));
         }
 
+        /// <summary>Preflight reports notes lost by diagram formats and refuses unsupported Threat Dragon notes.</summary>
+        /// <param name="target">The target format.</param>
+        /// <param name="code">The expected diagnostic, or empty when notes are preserved.</param>
+        /// <param name="success">Whether conversion remains available.</param>
+        [TestMethod]
+        [DataRow("drawio", "conversion.notes", true)]
+        [DataRow("vsdx", "conversion.notes", true)]
+        [DataRow("threat-dragon", "conversion.threat-dragon.unsupported", false)]
+        [DataRow("tm7", "", true)]
+        public void PreflightModelNotesConversion(string target, string code, bool success)
+        {
+            TmForgeModelDto model = WithNotes(ConnectedModel(), new[] { new Note { Id = 1, Message = "Keep this note" } });
+            byte[] bytes = EngineService.Convert(model, "tmforge-json");
+
+            PreflightResultDto result = DocumentPreflight.Inspect(bytes, targetFormat: target);
+
+            Assert.AreEqual(success, result.Success);
+            if (code.Length > 0)
+            {
+                Assert.IsTrue(result.Diagnostics.Any(item => item.Code == code && item.Message.Contains("notes", StringComparison.Ordinal)));
+            }
+            else
+            {
+                Assert.IsFalse(result.Diagnostics.Any(item => item.Path == "$.notes"));
+            }
+        }
+
         /// <summary>Canonical conversion warns about line boundaries, embedded rules and the generated register.</summary>
         [TestMethod]
         public void PreflightReportsTm7ProjectionLosses()
@@ -1356,6 +1474,13 @@ namespace ThreatModelForge.Api.Tests
             };
             byte[] elements = EngineService.Convert(manyElements, "tmforge-json");
             StringAssert.Contains(Assert.Throws<InvalidDataException>(() => EngineService.InspectFile(elements)).Message, "1024 elements");
+        }
+
+        private static TmForgeModelDto WithNotes(TmForgeModelDto model, IReadOnlyList<Note>? notes)
+        {
+            JsonNode document = JsonSerializer.SerializeToNode(model) ?? throw new InvalidOperationException();
+            document["Notes"] = JsonSerializer.SerializeToNode(notes);
+            return document.Deserialize<TmForgeModelDto>() ?? throw new InvalidOperationException();
         }
 
         private static TmForgeModelDto SingleProcessModel()

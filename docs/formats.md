@@ -67,7 +67,11 @@ The shape Studio and the API speak: elements, flows, trust boundaries, names, an
 optional analysis selection (disabled packs/rules) and an author-owned threat overlay, risk
 acceptance, and per-threat edits (state, priority, mitigation, description), plus manually-authored
 threats. An optional `metadata` object retains the model name, owner, description, contributors, and
-reviewer. Imported manual threats and diagrams carry informational provenance in their optional
+reviewer. An optional `notes` array retains native model notes: integer `id`, free-text `message`,
+ISO-8601 `date`, and optional `addedBy`. IDs, recorded dates, authors, and line breaks survive
+canonical JSON and `.tm7` round trips. Models without notes remain valid; empty native collections
+are omitted from canonical output. Notes are documentation, not analysis inputs or threat triage.
+Imported manual threats and diagrams carry informational provenance in their optional
 `source` objects, including Threat Dragon identifiers and methodology.
 Multi-page models carry a `diagrams` array (one entry per page, with its name); a named or explicitly
 identified single page also retains that array. The flat `elements`/`flows` mirror the first page for
@@ -80,7 +84,7 @@ than lossless. Use it to bridge Studio and the CLI.
 
 A structural mapping to and from mxGraph: nodes, flows, trust boundaries, names, and geometry, with
 each draw.io page mapped to a diagram. Import recognizes the shapes this provider writes and its
-documented style convention. Knowledge-base attributes and generated threats are not represented.
+documented style convention. Knowledge-base attributes, model notes, and generated threats are not represented.
 
 ### `vsdx` (Microsoft Visio)
 
@@ -89,7 +93,8 @@ re-imported**, so multi-page models keep their pages. Structure (nodes, flows, t
 names, geometry) is preserved; element custom properties and associated threats are written as
 per-shape **Visio Shape Data** (visible in Visio's Shape Data pane) and re-imported as custom
 properties. The rich threat model itself is not reconstructed, so the mapping is structural. Import
-recognizes packages this provider wrote and the documented master/shape convention.
+recognizes packages this provider wrote and the documented master/shape convention. Model notes
+are not preserved; conversion preflight reports their loss.
 
 ### `threat-dragon` (OWASP Threat Dragon v2)
 

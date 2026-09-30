@@ -164,6 +164,7 @@ export function modelFromPages(
   analysis?: TmForgeAnalysis,
   threats?: TmForgeModel['threats'],
   metadata?: TmForgeModel['metadata'],
+  notes?: TmForgeModel['notes'],
 ): TmForgeModel {
   const perPage = pages.map((p) => ({ page: p, graph: toModel(p.nodes, p.edges) }));
   const first = perPage[0]?.graph;
@@ -190,6 +191,9 @@ export function modelFromPages(
   }
   if (metadata) {
     model.metadata = metadata;
+  }
+  if (notes) {
+    model.notes = notes;
   }
   return model;
 }

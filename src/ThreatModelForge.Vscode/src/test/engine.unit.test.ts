@@ -66,6 +66,33 @@ test('bundled worker supports Studio catalogs, analysis and native export', asyn
   } finally { worker.dispose(); }
 });
 
+test('bundled WASM saves, reports and clears model notes without changing analysis', async () => {
+  const worker = new EngineWorker(runtime, 30000, sourceWorker);
+  try {
+    const bytes = await readFile(resolve(__dirname, '../../../../examples/webshop.tm7'));
+    const content = bytes.toString('base64');
+    const baseline = await worker.invoke('ReadFile', [content, 'tm7']);
+    const model = JSON.parse(baseline);
+    const notes = [{ id: 7, message: 'Scope <review>\nEvidence & assumptions', date: '2026-09-30T12:00:00.1234567Z', addedBy: 'Reviewer' }];
+    model.notes = notes;
+    const json = JSON.stringify(model);
+    assert.equal(await worker.invoke('Analysis', [json]), await worker.invoke('Analysis', [baseline]));
+    const saved = await worker.invoke('SaveTm7', [content, json]);
+    const restored = await worker.invoke('ReadFile', [saved, 'tm7']);
+    assert.deepEqual(JSON.parse(restored).notes, notes);
+    assert.equal(await worker.invoke('SaveTm7', [saved, restored]), saved);
+    const report = Buffer.from(await worker.invoke('Report', [restored, 'html']), 'base64').toString();
+    assert.match(report, /Scope &lt;review&gt;/);
+    const canonical = await worker.invoke('ConvertModel', [restored, 'tmforge-json']);
+    assert.deepEqual(JSON.parse(Buffer.from(canonical, 'base64').toString()).notes, notes);
+    model.notes = [];
+    const cleared = await worker.invoke('SaveTm7WithPrevious', [content, JSON.stringify(model), saved]);
+    assert.deepEqual(JSON.parse(await worker.invoke('ReadFile', [cleared, 'tm7'])).notes ?? [], []);
+    const undone = await worker.invoke('SaveTm7WithPrevious', [content, json, cleared]);
+    assert.deepEqual(JSON.parse(await worker.invoke('ReadFile', [undone, 'tm7'])).notes, notes);
+  } finally { worker.dispose(); }
+});
+
 test('Copilot manifest candidates have stable identities and reject invalid topology without a CLI', async () => {
   const worker = new EngineWorker(runtime, 30000, sourceWorker);
   const manifest = {

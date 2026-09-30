@@ -209,6 +209,7 @@ namespace ThreatModelForge.Formats
                 Schema = SchemaToken,
                 Version = "0.1",
                 Metadata = model.MetaInformation,
+                Notes = model.Notes.Count > 0 ? model.Notes.ToArray() : null,
                 Elements = diagrams.Count > 0 ? diagrams[0].Elements : Array.Empty<TmForgeJsonElement>(),
                 Flows = diagrams.Count > 0 ? diagrams[0].Flows : Array.Empty<TmForgeJsonFlow>(),
                 Diagrams = diagrams.Count > 0 && (diagrams.Count > 1
@@ -265,6 +266,11 @@ namespace ThreatModelForge.Formats
                 ?? new TmForgeJsonModel();
 
             ThreatModel model = new ThreatModel { Version = "1.0", MetaInformation = document.Metadata };
+            if (document.Notes != null)
+            {
+                model.Notes.AddRange(document.Notes);
+            }
+
             DiagramEditor editor = new DiagramEditor(model);
 
             if (document.Diagrams != null && document.Diagrams.Count > 0)

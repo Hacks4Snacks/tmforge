@@ -2,7 +2,7 @@ import createClient, { type Client } from 'openapi-fetch';
 import { FALLBACK_PACKS, FALLBACK_STENCILS } from './stencils';
 import { normalizeKind } from './types';
 import type { DfdKind, ThreatLifecycleState, ThreatTriage, TmForgeModel } from './types';
-import type { components, paths } from './engine/schema';
+import type { components, paths } from './engine/schema.js';
 
 export type Severity = 'info' | 'warning' | 'error';
 
@@ -636,6 +636,12 @@ export function toModel(dto: components['schemas']['TmForgeModelDto']): TmForgeM
     schema: 'tmforge-json',
     version: '0.1',
     metadata: dto.metadata ?? undefined,
+    notes: dto.notes?.map(note => ({
+      id: Number(note.id ?? 0),
+      message: note.message ?? undefined,
+      date: note.date ?? '0001-01-01T00:00:00',
+      addedBy: note.addedBy ?? undefined,
+    })),
     elements: elements(dto.elements),
     flows: flows(dto.flows),
     diagrams: dto.diagrams?.map((page) => ({

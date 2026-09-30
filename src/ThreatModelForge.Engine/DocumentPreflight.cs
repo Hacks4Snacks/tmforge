@@ -224,6 +224,11 @@ namespace ThreatModelForge.Engine
             }
             else if (target == DrawIoFormat.FormatId || target == VisioFormat.FormatId)
             {
+                if (model.Notes.Count > 0)
+                {
+                    JsonDocumentPreflight.Add(diagnostics, "conversion.notes", "$.notes", "Model notes are not preserved by this diagram format. Keep the source model to retain them.", "warning");
+                }
+
                 if (model.AllThreatsDictionary.Count > 0)
                 {
                     string message = target == DrawIoFormat.FormatId

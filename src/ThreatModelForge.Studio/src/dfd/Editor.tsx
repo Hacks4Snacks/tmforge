@@ -123,6 +123,7 @@ interface StoredWorkspace {
   analysis?: TmForgeAnalysis;
   threats?: ThreatTriage[];
   metadata?: TmForgeModel['metadata'];
+  notes?: TmForgeModel['notes'];
   nativeSource?: NativeSource;
   savedJson?: string;
   fileName?: string;
@@ -141,7 +142,7 @@ export function loadStoredWorkspace(): StoredWorkspace | null {
         if (parsed.nativeSource) fromBase64(parsed.nativeSource.contentBase64);
         const pages = pagesFromModel(parsed.model);
         const activePageId = pages.some((p) => p.id === parsed.activePageId) ? parsed.activePageId! : pages[0].id;
-        return { pages, activePageId, analysis: parsed.model.analysis, threats: parsed.model.threats, metadata: parsed.model.metadata,
+        return { pages, activePageId, analysis: parsed.model.analysis, threats: parsed.model.threats, metadata: parsed.model.metadata, notes: parsed.model.notes,
           nativeSource: parsed.nativeSource, savedJson: parsed.savedJson,
           fileName: typeof parsed.fileName === 'string' ? parsed.fileName : undefined,
           saveFormat: typeof parsed.saveFormat === 'string' ? parsed.saveFormat : undefined };
@@ -156,7 +157,7 @@ export function loadStoredWorkspace(): StoredWorkspace | null {
       const model = JSON.parse(raw) as TmForgeModel;
       if (model?.schema === 'tmforge-json') {
         const pages = pagesFromModel(model);
-        return { pages, activePageId: pages[0].id, analysis: model.analysis, threats: model.threats, metadata: model.metadata };
+        return { pages, activePageId: pages[0].id, analysis: model.analysis, threats: model.threats, metadata: model.metadata, notes: model.notes };
       }
     }
   } catch {
@@ -465,7 +466,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
   const [initialWorkspace] = useState<StoredWorkspace>(() => {
     if (!host) return INITIAL_WORKSPACE;
     const initialPages = pagesFromModel(host.model);
-    return { pages: initialPages, activePageId: initialPages[0].id, analysis: host.model.analysis, threats: host.model.threats, metadata: host.model.metadata };
+    return { pages: initialPages, activePageId: initialPages[0].id, analysis: host.model.analysis, threats: host.model.threats, metadata: host.model.metadata, notes: host.model.notes };
   });
   const initialActive = initialWorkspace.pages.find(page => page.id === initialWorkspace.activePageId) ?? initialWorkspace.pages[0];
   const [pages, setPages] = useState<PageGraph[]>(initialWorkspace.pages);
@@ -476,6 +477,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
   const [threats, setThreats] = useState<Threat[]>([]);
   const [threatTriage, setThreatTriage] = useState<ThreatTriage[]>(initialWorkspace.threats ?? []);
   const [metadata, setMetadata] = useState<TmForgeModel['metadata']>(initialWorkspace.metadata);
+  const [notes, setNotes] = useState<TmForgeModel['notes']>(initialWorkspace.notes);
   const [nativeSource, setNativeSource] = useState<NativeSource | undefined>(initialWorkspace.nativeSource);
   const nativeSourceRef = useRef(nativeSource);
   nativeSourceRef.current = nativeSource;
@@ -499,6 +501,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
   const [ruleBundle, setRuleBundle] = useState<RuleBundle>({ rulePacks: [], diagnostics: [] });
   const [ruleCatalogToken, setRuleCatalogToken] = useState(0);
   const [showRules, setShowRules] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
   const [showMerge, setShowMerge] = useState(false);
   const [compareSnapshot, setCompareSnapshot] = useState<{ model: TmForgeModel; name: string | null } | null>(null);
   const [shareRequest, setShareRequest] = useState<ShareRequest | null>(null);
@@ -523,12 +526,13 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
   const [fileName, setFileName] = useState<string | null>(initialWorkspace.fileName ?? initialWorkspace.nativeSource?.fileName ?? null);
   const { screenToFlowPosition, fitView } = useReactFlow();
   const history = useUndoRedo(nodes, edges, setNodes, setEdges, {
-    value: { pages, activePageId, threatTriage, threats, findings, nativeSource },
+    value: { pages, activePageId, threatTriage, threats, findings, notes, nativeSource },
     restore: snapshot => {
       analysisRequestRef.current++;
       setPages(snapshot.pages);
       setActivePageId(snapshot.activePageId);
       setThreatTriage(snapshot.threatTriage);
+      setNotes(snapshot.notes);
       setThreats(snapshot.threats);
       setFindings(snapshot.findings);
       const source = snapshot.nativeSource;
@@ -739,8 +743,8 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
   // the last explicit Save. A debounced localStorage write of the whole workspace (pages + active
   // tab) runs on every change as a crash-recovery net, so a reload never loses work.
   const currentModel = useMemo(() => {
-    return modelFromPages(allPages, buildAnalysis(disabledRulePacks, disabledRuleIds, expectedPacks), threatTriage, metadata);
-  }, [allPages, disabledRulePacks, disabledRuleIds, expectedPacks, threatTriage, metadata]);
+    return modelFromPages(allPages, buildAnalysis(disabledRulePacks, disabledRuleIds, expectedPacks), threatTriage, metadata, notes);
+  }, [allPages, disabledRulePacks, disabledRuleIds, expectedPacks, threatTriage, metadata, notes]);
   const currentJson = useMemo(() => JSON.stringify(currentModel), [currentModel]);
   const [savedJson, setSavedJson] = useState(initialWorkspace.savedJson ?? currentJson);
   const dirty = host?.dirty ?? (currentJson !== savedJson);
@@ -1803,13 +1807,14 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
       setThreats([]);
       setThreatTriage(model.threats ?? []);
       setMetadata(model.metadata);
+      setNotes(model.notes);
       flaggedIdsRef.current = new Set();
       analysisActiveRef.current = false;
       setSelection({ nodes: [], edges: [] });
       reset();
       // A freshly loaded model is the new saved baseline, so it does not read as dirty.
       setSavedJson(
-        JSON.stringify(modelFromPages(nextPages, buildAnalysis(nextPacks, nextRuleIds, nextExpected), model.threats, model.metadata)),
+        JSON.stringify(modelFromPages(nextPages, buildAnalysis(nextPacks, nextRuleIds, nextExpected), model.threats, model.metadata, model.notes)),
       );
       if (!host) window.setTimeout(() => fitView({ padding: 0.25, maxZoom: 1.15, duration: 300 }), 0);
     },
@@ -1828,7 +1833,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
     setTidying(false);
     setCompareSnapshot(null);
     setShowMerge(false);
-    publishedModel.current = modelFromPages(pagesFromModel(host.model), host.model.analysis, host.model.threats, host.model.metadata);
+    publishedModel.current = modelFromPages(pagesFromModel(host.model), host.model.analysis, host.model.threats, host.model.metadata, host.model.notes);
     loadModel(host.model, true);
   }, [host, loadModel, finishPreflight]);
 
@@ -1861,9 +1866,9 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
     if (!pendingShare || compareSnapshot || showMerge || preflightReview || shareRequest) return;
     beginShare({ mode: 'open', fragment: pendingShare, hasWorkspace: dirty || allPages.length > 1
       || allPages.some(page => page.nodes.length > 0 || page.edges.length > 0)
-      || threatTriage.length > 0 || metadata !== undefined || currentModel.analysis !== undefined });
+      || threatTriage.length > 0 || (notes?.length ?? 0) > 0 || metadata !== undefined || currentModel.analysis !== undefined });
     setPendingShare(null);
-  }, [pendingShare, compareSnapshot, showMerge, preflightReview, shareRequest, beginShare, dirty, allPages, threatTriage, metadata, currentModel.analysis]);
+  }, [pendingShare, compareSnapshot, showMerge, preflightReview, shareRequest, beginShare, dirty, allPages, threatTriage, notes, metadata, currentModel.analysis]);
 
   const readModelFromBytes = useCallback(
     async (bytes: Uint8Array, formatId: string): Promise<TmForgeModel> => {
@@ -2020,6 +2025,7 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
     setThreats([]);
     setThreatTriage([]);
     setMetadata(undefined);
+    setNotes(undefined);
     flaggedIdsRef.current = new Set();
     analysisActiveRef.current = false;
     setSelection({ nodes: [], edges: [] });
@@ -2096,6 +2102,12 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
         onImport={openFile}
         onSave={saveModel}
         onShare={host ? undefined : () => beginShare({ mode: 'create', json: currentJson, pageUrl: window.location.href })}
+        onNotes={() => {
+          setShowNotes(true);
+          setNodes(current => current.map(node => node.selected ? { ...node, selected: false } : node));
+          setEdges(current => current.map(edge => edge.selected ? { ...edge, selected: false } : edge));
+          setSelection({ nodes: [], edges: [] });
+        }}
         onMerge={() => setShowMerge(true)}
         onCompare={() => {
           reviewVersionRef.current += 1;
@@ -2310,6 +2322,10 @@ export function Editor({ host }: { host?: EditorHost } = {}) {
           edges={selectedEdges}
           stencils={stencils}
           propertySchema={propertySchema}
+          notes={notes}
+          notesOpen={showNotes}
+          onCloseNotes={() => setShowNotes(false)}
+          onChangeNotes={setNotes}
           onBeginNameEdit={takeSnapshot}
           onRenameNode={renameNode}
           onRenameEdge={renameEdge}

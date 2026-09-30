@@ -426,6 +426,7 @@ namespace ThreatModelForge.Engine
                 Schema = result.Schema,
                 Version = result.Version,
                 Metadata = result.Metadata,
+                Notes = result.Notes,
                 Elements = pages[0].Elements ?? Array.Empty<TmForgeElementDto>(),
                 Flows = pages[0].Flows ?? Array.Empty<TmForgeFlowDto>(),
                 Threats = result.Threats,
