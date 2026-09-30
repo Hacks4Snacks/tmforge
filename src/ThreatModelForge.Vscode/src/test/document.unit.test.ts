@@ -20,6 +20,22 @@ test('canvas edits preserve unrepresented fields, untouched geometry and formatt
 	assert.equal(text.slice(0, edit.start) + edit.text + text.slice(edit.end), changed);
 });
 
+test('model note edits preserve extra fields by native numeric identity', () => {
+	const previous = { ...model(), notes: [
+		{ id: 7, message: 'Remove this note', date: '2026-09-29T12:00:00Z' },
+		{ id: 12, message: 'Original scope', date: '2026-09-30T12:00:00.1234567Z', addedBy: 'Reviewer' },
+	] };
+	const original = { ...previous, notes: previous.notes.map(note => ({ ...note, extra: `Evidence ${note.id}` })) };
+	const added = { id: 13, message: 'New note', date: '2026-09-30T13:00:00Z' };
+	const next = { ...previous, notes: [{ ...previous.notes[1], message: 'Updated\nScope' }, added] };
+	const text = JSON.stringify(original, null, 2);
+	const changed = JSON.parse(applyModelChange(text, previous, next));
+	assert.deepEqual(changed.notes, [{ ...original.notes[1], message: 'Updated\nScope' }, added]);
+	assert.deepEqual(changed.elements, original.elements);
+	assert.equal(applyModelChange(text, previous, previous), text);
+	assert.deepEqual(JSON.parse(applyModelChange(text, previous, { ...previous, notes: [] })).notes, []);
+});
+
 test('adding a page retains original fields on the implicit first page', () => {
 	const previous = model();
 	const original = { ...previous, elements: [{ ...previous.elements[0], extra: 'retained' }] };

@@ -7,8 +7,8 @@ function object(value: unknown): value is JsonObject {
 	return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function keyed(values: unknown[]): values is (JsonObject & { id: string })[] {
-	return values.every(value => object(value) && typeof value.id === 'string');
+function keyed(values: unknown[]): values is (JsonObject & { id: string | number })[] {
+	return values.every(value => object(value) && (typeof value.id === 'string' || typeof value.id === 'number'));
 }
 
 function mergeChange(current: unknown, previous: unknown, next: unknown): unknown {

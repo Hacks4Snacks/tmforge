@@ -129,6 +129,7 @@ interface ToolbarProps {
   onImport: () => void;
   onSave: () => void;
   onShare?: () => void;
+  onNotes?: () => void;
   /** Opens the three-way merge / conflict-resolution dialog. */
   onMerge: () => void;
   onCompare: () => void;
@@ -216,6 +217,7 @@ export function Toolbar(props: ToolbarProps) {
         options={REPORT_OPTIONS}
         onSelect={props.onReport}
       />
+      {props.onNotes && <button className="btn" onClick={props.onNotes} title="Model notes">Notes</button>}
 
       <span className="toolbar-spacer" />
 

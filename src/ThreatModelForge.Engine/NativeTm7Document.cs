@@ -84,6 +84,12 @@ namespace ThreatModelForge.Engine
                 native.MetaInformation = edited.Metadata;
             }
 
+            if (edited.Notes != null && !Same(baseline.Notes, edited.Notes))
+            {
+                native.Notes.Clear();
+                native.Notes.AddRange(requested.Notes);
+            }
+
             HashSet<string> deletedThreatIds = RemoveDeletedScopes(native, originalIds);
             edited = WithoutDeletedThreats(edited, deletedThreatIds);
             ApplyThreats(native, previousThreats, edited.Threats, requested, rules, ruleErrors, deletedThreatIds);
@@ -208,9 +214,10 @@ namespace ThreatModelForge.Engine
 
         private static TmForgeModelDto WithNativeThreatScopes(TmForgeModelDto canvas, ThreatModel native)
         {
+            IReadOnlyList<Note>? notes = native.Notes.Count > 0 ? native.Notes.ToArray() : canvas.Notes;
             if (canvas.Threats == null)
             {
-                return canvas;
+                return WithThreats(canvas, null, notes);
             }
 
             Dictionary<string, Threat> register = native.AllThreatsDictionary.Values.Where(threat => !string.IsNullOrEmpty(threat.InteractionKey))
@@ -221,7 +228,7 @@ namespace ThreatModelForge.Engine
                 register.TryAdd(entry.Key, entry.Value);
             }
 
-            return WithThreats(canvas, canvas.Threats.Select(entry =>
+            ThreatStateDto[] threats = canvas.Threats.Select(entry =>
             {
                 if (entry.Manual == true || ManualThreatId.IsManual(entry.Id) || !register.TryGetValue(entry.Id, out Threat? threat))
                 {
@@ -235,7 +242,8 @@ namespace ThreatModelForge.Engine
                     Mitigation = entry.Mitigation, Source = entry.Source,
                     ElementIds = ThreatScope(threat),
                 };
-            }).ToArray());
+            }).ToArray();
+            return WithThreats(canvas, threats, notes);
         }
 
         private static string[] ThreatScope(Threat threat) => new[] { threat.SourceGuid, threat.TargetGuid, threat.FlowGuid }
@@ -248,14 +256,14 @@ namespace ThreatModelForge.Engine
                 return canvas;
             }
 
-            return WithThreats(canvas, canvas.Threats?.Where(threat => !deleted.Contains(threat.Id)).ToArray());
+            return WithThreats(canvas, canvas.Threats?.Where(threat => !deleted.Contains(threat.Id)).ToArray(), canvas.Notes);
         }
 
-        private static TmForgeModelDto WithThreats(TmForgeModelDto canvas, IReadOnlyList<ThreatStateDto>? threats)
+        private static TmForgeModelDto WithThreats(TmForgeModelDto canvas, IReadOnlyList<ThreatStateDto>? threats, IReadOnlyList<Note>? notes)
         {
             return new TmForgeModelDto
             {
-                Schema = canvas.Schema, Version = canvas.Version, Metadata = canvas.Metadata,
+                Schema = canvas.Schema, Version = canvas.Version, Metadata = canvas.Metadata, Notes = notes,
                 Diagrams = canvas.Diagrams, Elements = canvas.Elements, Flows = canvas.Flows, Analysis = canvas.Analysis,
                 Threats = threats,
             };
@@ -302,7 +310,8 @@ namespace ThreatModelForge.Engine
             TmForgeModelDto expected = ModelDtoMapper.ToDto(projected);
             TmForgeModelDto actual = ModelDtoMapper.ToDto(native);
             if (!Same(expected.Elements, actual.Elements) || !Same(expected.Flows, actual.Flows)
-                || !Same(expected.Diagrams, actual.Diagrams) || !Same(expected.Metadata, actual.Metadata))
+                || !Same(expected.Diagrams, actual.Diagrams) || !Same(expected.Metadata, actual.Metadata)
+                || (state.Model.Notes != null && !Same(expected.Notes, actual.Notes)))
             {
                 return null;
             }
@@ -1018,7 +1027,9 @@ namespace ThreatModelForge.Engine
             {
                 string identity = child.Name.ToString();
                 XElement? key = child.Elements().FirstOrDefault(element => element.Name == child.Name.Namespace + "Key")
-                    ?? child.Elements().FirstOrDefault(element => element.Name.LocalName == "Guid" && element.Name.NamespaceName == "http://schemas.datacontract.org/2004/07/ThreatModeling.Model.Abstracts");
+                    ?? child.Elements().FirstOrDefault(element => element.Name.LocalName == "Guid" && element.Name.NamespaceName == "http://schemas.datacontract.org/2004/07/ThreatModeling.Model.Abstracts")
+                    ?? (child.Name == XNamespace.Get("http://schemas.datacontract.org/2004/07/ThreatModeling.Model") + "Note"
+                        ? child.Element(child.Name.Namespace + "Id") : null);
                 if (key != null)
                 {
                     identity += ":" + (Guid.TryParse(key.Value, out Guid guid) ? guid.ToString("D") : key.Value);

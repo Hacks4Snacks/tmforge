@@ -1,11 +1,13 @@
-import { mkdtemp, rm, access } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runTests } from '@vscode/test-electron';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const directory = await mkdtemp(resolve(tmpdir(), 'tmforge-extension-host-'));
+const directory = await mkdtemp(resolve(process.env.RUNNER_TEMP || tmpdir(), 'tmforge-extension-host-'));
+const crashes = resolve(directory, 'crashes');
+await mkdir(crashes);
 const version = process.env.VSCODE_TEST_VERSION;
 let executable = process.env.VSCODE_EXECUTABLE_PATH;
 if (!executable && !version && process.platform === 'darwin') {
@@ -22,6 +24,7 @@ try {
     launchArgs: [
       '--user-data-dir=' + resolve(directory, 'profile'),
       '--extensions-dir=' + resolve(directory, 'extensions'),
+      '--crash-reporter-directory=' + crashes,
       '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes',
     ],
   });

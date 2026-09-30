@@ -679,6 +679,23 @@ export interface components {
             previousContentBase64?: null | string;
             model?: null | components["schemas"]["TmForgeModelDto"];
         };
+        /** @description A free-text note recorded against the threat model. */
+        Note: {
+            /**
+             * Format: int32
+             * @description Gets or sets the note identifier.
+             */
+            id?: number | string;
+            /** @description Gets or sets the note text. */
+            message?: null | string;
+            /**
+             * Format: date-time
+             * @description Gets or sets the time the note was recorded.
+             */
+            date?: string;
+            /** @description Gets or sets the author of the note. */
+            addedBy?: null | string;
+        };
         /**
          * @description Describes a stencil pack: a named, togglable group of related stencils (for example, the
          *     Azure pack). The palette uses packs so the user can show or hide whole families at once.
@@ -901,6 +918,7 @@ export interface components {
             schema?: null | string;
             version?: null | string;
             metadata?: null | components["schemas"]["MetaInformation"];
+            notes?: null | components["schemas"]["Note"][];
             elements?: null | components["schemas"]["TmForgeElementDto"][];
             flows?: null | components["schemas"]["TmForgeFlowDto"][];
             diagrams?: null | components["schemas"]["TmForgeDiagramDto"][];

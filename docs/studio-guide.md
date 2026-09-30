@@ -158,6 +158,19 @@ and the control is not there. `Unknown` does **not** clear a finding: the rule s
 the property is not evidenced rather than that the control is absent. See
 [`Unknown` and the three states of a control](analysis-rules.md#unknown-and-the-three-states-of-a-control).
 
+#### Model notes
+
+Choose **Notes** in the toolbar, or clear the canvas selection, to open **Model notes** in the
+inspector. **Add note** creates a model-wide note with multiline text and an optional author.
+Existing author names and recorded dates are retained; editing text does not reset the date.
+Use the delete button to remove a note. Notes support undo/redo and workspace recovery, including
+the VS Code editor's document history.
+
+Notes are saved in both `.tm7` and `.tmforge.json`, appear in the threat-model HTML report, and
+travel with shared model URLs. They do not alter analysis findings or risk-acceptance decisions.
+Diagram exports warn when notes cannot be retained; Threat Dragon export refuses notes it cannot
+represent. For per-object annotations, continue using custom properties.
+
 #### Editing several objects at once
 
 Select any number of elements of the same kind, or any number of data flows, and the inspector edits
@@ -209,7 +222,7 @@ delta or a list of apparent resolutions. Objects match by stable identity, not n
 identities and conversion losses are disclosed.
 
 Review does not compare the complete threat register, manual-threat content, priority, justification,
-model metadata, or visual-only edits. Metadata and author-owned threat-record differences produce
+model metadata, notes, or visual-only edits. Metadata, notes, and author-owned threat-record differences produce
 scope warnings. Accepting or mitigating a currently detected threat is a finding reclassification,
 not a resolved condition. Keep the original files for content outside the canonical model.
 

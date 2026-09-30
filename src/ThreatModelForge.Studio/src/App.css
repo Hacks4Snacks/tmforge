@@ -1732,7 +1732,8 @@ a.threat-ref:hover {
 }
 
 .inspector-field input,
-.inspector-field select {
+.inspector-field select,
+.inspector-field textarea {
   font: inherit;
   font-size: 13px;
   font-weight: 500;
@@ -1744,10 +1745,73 @@ a.threat-ref:hover {
 }
 
 .inspector-field input:focus,
-.inspector-field select:focus {
+.inspector-field select:focus,
+.inspector-field textarea:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+}
+
+.inspector-field textarea {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 112px;
+  line-height: 1.5;
+}
+
+.model-note {
+  border-top: 1px solid var(--border);
+  margin-top: 16px;
+  padding-top: 12px;
+}
+
+.model-note-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.model-note-date {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  margin-bottom: 12px;
+}
+
+.model-notes-close {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .body:has(> .model-notes-open) {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .model-notes {
+    display: none;
+  }
+
+  .model-notes.model-notes-open {
+    display: block;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    box-sizing: border-box;
+    border-left: 0;
+    z-index: 20;
+  }
+
+  .model-notes-close {
+    display: block;
+  }
 }
 
 .inspector-hint {

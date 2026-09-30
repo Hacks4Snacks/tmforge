@@ -105,10 +105,18 @@ export interface TmForgeDiagram {
   flows: TmForgeFlow[];
 }
 
+export interface TmForgeNote {
+  id: number;
+  message?: string;
+  date: string;
+  addedBy?: string;
+}
+
 export interface TmForgeModel {
   schema: 'tmforge-json';
   version: '0.1';
   metadata?: Record<string, string | null | undefined>;
+  notes?: TmForgeNote[];
   elements: TmForgeElement[];
   flows: TmForgeFlow[];
   /**
