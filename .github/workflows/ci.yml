@@ -152,6 +152,18 @@ jobs:
           xvfb-run -a npm --prefix src/ThreatModelForge.Vscode run test:extension
           npm --prefix src/ThreatModelForge.Vscode run package
 
+      - name: Upload extension-host failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: vscode-extension-host-diagnostics
+          path: |
+            ${{ runner.temp }}/tmforge-extension-host-*/profile/logs/**
+            ${{ runner.temp }}/tmforge-extension-host-*/crashes/**
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: warn
+
       - name: Upload VSIX
         uses: actions/upload-artifact@v7
         with:

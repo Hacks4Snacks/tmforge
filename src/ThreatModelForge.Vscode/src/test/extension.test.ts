@@ -7,6 +7,7 @@ import { EngineWorker, type Inspection } from '../engine';
 import type { createCopilotTools } from '../copilot';
 
 export async function run(): Promise<void> {
+	console.log('Extension-host runtime:', JSON.stringify({ platform: process.platform, arch: process.arch, versions: process.versions }));
 	const extension = vscode.extensions.getExtension<{
 		inspect(document: vscode.TextDocument): Promise<Inspection>;
 		diagnostics: vscode.DiagnosticCollection;
@@ -320,6 +321,8 @@ async function verifyCopilotTools(api: { tools: ReturnType<typeof createCopilotT
 		if (invalid.diagrams?.length) invalid.diagrams[0].flows = invalid.flows;
 		await assert.rejects(invoke('tmforge_update_model', { uri: created.uri, revision: updated.revision, model: invalid }), /missing/i);
 		assert.equal(document.getText(), changed, 'Invalid topology changed the model');
+		await vscode.commands.executeCommand('tmforge.openStudio', document.uri);
+		await api.waitUntilRendered(document);
 		await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
 		await vscode.commands.executeCommand('undo');
 		await waitForText(document, original);
@@ -331,17 +334,21 @@ async function verifyCopilotTools(api: { tools: ReturnType<typeof createCopilotT
 		await assert.rejects(invoke('tmforge_inspect_model', { uri: vscode.Uri.file(join(directory, 'not-open.tm7')).toString() }), /open/i);
 		await assert.rejects(invoke('tmforge_catalog', { section: 'constructor' }), /Choose/);
 
+		console.log('Copilot native test: opening model');
 		const nativePath = join(directory, 'copilot-native.tm7');
 		const source = (await readFile(resolve(__dirname, '../../../../examples/webshop.tm7'), 'utf8')).replace('</ThreatModel>', '<Extension xmlns="urn:tmforge:test">kept</Extension></ThreatModel>');
 		await writeFile(nativePath, source);
 		const native = await vscode.workspace.openTextDocument(nativePath);
 		await vscode.commands.executeCommand('vscode.openWith', native.uri, 'tmforge.studio');
 		await api.waitUntilRendered(native);
+		console.log('Copilot native test: model rendered');
 		const baseline = await invoke('tmforge_inspect_model', { uri: native.uri.toString() });
+		console.log('Copilot native test: model inspected');
 		const next = structuredClone(baseline.model);
 		next.elements.find((element: { name: string }) => element.name === 'Orders API').name = 'Copilot native API';
 		next.diagrams[0].elements.find((element: { name: string }) => element.name === 'Orders API').name = 'Copilot native API';
 		await invoke('tmforge_update_model', { uri: native.uri.toString(), revision: baseline.revision, model: next });
+		console.log('Copilot native test: model updated');
 		assert.match(native.getText(), /Copilot native API/);
 		assert.match(native.getText(), /<Extension xmlns="urn:tmforge:test">kept<\/Extension>/);
 		assert.equal(await readFile(nativePath, 'utf8'), source, 'Tool saved native edits without a save request');
