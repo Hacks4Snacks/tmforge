@@ -87,6 +87,13 @@ Native line trust boundaries are retained but are not drawn on the Studio canvas
 them show a warning because canvas analysis may omit their crossings. Deleting a page removes its
 hidden objects as well.
 
+If opening a TM7 reports only unattached or cross-page flow endpoints, **Review recovery import**
+offers **Import recovery copy**. The listed broken flows and their scoped threats are omitted from
+a separate, unsaved JSON draft. The original TM7 stays unchanged; use **Save** to choose a new
+`.tmforge.json` destination. The copy does not retain native-only data such as the embedded template
+or full generated register. Review the warnings and the original before relying on its analysis.
+Malformed XML, duplicate identities and input limits cannot be overridden.
+
 ## JSON Editing
 
 JSON completion and structural validation are available for:

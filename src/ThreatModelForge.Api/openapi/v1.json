@@ -585,6 +585,48 @@
         }
       }
     },
+    "/v1/model/recover/tm7": {
+      "post": {
+        "tags": [
+          "Model"
+        ],
+        "summary": "Creates a separate canonical recovery copy of a TM7 with unresolved flow endpoints.",
+        "description": "Requires explicit recovery consent. Omits unresolved flows and their scoped threats; native-only content remains in the source. Other structural errors are not overridable.",
+        "operationId": "RecoverTm7",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileContentDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TmForgeModelDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/model/manifest": {
       "post": {
         "tags": [
@@ -1611,6 +1653,9 @@
         "type": "object",
         "properties": {
           "success": {
+            "type": "boolean"
+          },
+          "canRecover": {
             "type": "boolean"
           },
           "format": {

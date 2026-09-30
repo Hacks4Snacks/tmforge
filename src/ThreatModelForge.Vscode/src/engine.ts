@@ -5,7 +5,7 @@ export const MAX_DOCUMENT_BYTES = 8 * 1024 * 1024;
 export const MAX_REQUEST_BYTES = 16 * 1024 * 1024;
 export const ENGINE_METHODS: Readonly<Record<string, number>> = Object.freeze({
   Ping: 0, Formats: 0, Stencils: 0, StencilPacks: 0, Rules: 0, RulePacks: 0, PropertySchema: 0,
-  Analyze: 1, Threats: 1, Detect: 1, Preflight: 3, ReadFile: 2, ApplyManifest: 1,
+  Analyze: 1, Threats: 1, Detect: 1, Preflight: 3, ReadFile: 2, RecoverTm7: 1, ApplyManifest: 1,
   ExportTm7: 1, SaveTm7: 2, SaveTm7WithPrevious: 3, ConvertModel: 2, Report: 2, Merge: 3, Compare: 1, SetRules: 1,
   RuleBundle: 0, Analysis: 1, AnalysisReport: 2, Layout: 1,
 });
@@ -15,6 +15,20 @@ export interface InputDiagnostic {
   severity: string;
   path: string;
   message: string;
+}
+
+export interface ModelPreflight {
+  success: boolean;
+  canRecover?: boolean;
+  format?: string;
+  targetFormat?: string;
+  diagnostics: InputDiagnostic[];
+}
+
+export class ModelPreflightError extends Error {
+  constructor(readonly preflight: ModelPreflight) {
+    super(preflight.diagnostics.filter(item => item.severity === 'error').map(item => `${item.path}: ${item.message}`).join('\n') || 'The model is invalid.');
+  }
 }
 
 export interface Finding {
@@ -57,10 +71,8 @@ export class EngineWorker {
   async readModel(text: string, format = 'tmforge-json'): Promise<{ model: Record<string, unknown>; warnings: string[] }> {
     if (Buffer.byteLength(text, 'utf8') > MAX_DOCUMENT_BYTES) throw new Error('Model documents are limited to 8 MiB.');
     const content = Buffer.from(text).toString('base64');
-    const result = JSON.parse(await this.invoke('Preflight', [content, format, format === 'tm7' ? 'tmforge-json' : ''])) as {
-      success: boolean; diagnostics: InputDiagnostic[];
-    };
-    if (!result.success) throw new Error(result.diagnostics.filter(item => item.severity === 'error').map(item => `${item.path}: ${item.message}`).join('\n') || 'The model is invalid.');
+    const result = JSON.parse(await this.invoke('Preflight', [content, format, format === 'tm7' ? 'tmforge-json' : ''])) as ModelPreflight;
+    if (!result.success) throw new ModelPreflightError(result);
     const model = JSON.parse(format === 'tm7' ? await this.invoke('ReadFile', [content, 'tm7']) : text) as Record<string, unknown> & {
       diagrams?: { elements?: unknown[]; flows?: unknown[] }[]; elements?: unknown[]; flows?: unknown[];
     };

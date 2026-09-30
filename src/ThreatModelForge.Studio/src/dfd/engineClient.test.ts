@@ -338,8 +338,31 @@ describe('preflight transports', () => {
 
   it('does not pretend offline or incomplete preflight succeeded', async () => {
     await expect(offlineEngine.preflight(new Uint8Array())).rejects.toThrow(/requires the .NET engine/);
+    await expect(offlineEngine.recoverTm7(new Uint8Array())).rejects.toThrow(/requires the .NET engine/);
     const wasm = new WasmEngineClient({ Preflight: () => '{}' } as unknown as ConstructorParameters<typeof WasmEngineClient>[0]);
     await expect(wasm.preflight(new Uint8Array())).rejects.toThrow(/complete preflight/);
+  });
+
+  it('carries recovery eligibility and requests recovery only through the explicit operation', async () => {
+    const result = { success: false, canRecover: true, format: 'tm7', targetFormat: 'tmforge-json', diagnostics: [
+      { code: 'model.unresolved-endpoint', severity: 'error', path: '$.diagrams[2].flows', message: 'Missing endpoint.' },
+    ] };
+    const bytes = new TextEncoder().encode('native source');
+    const recover = vi.fn(() => JSON.stringify(emptyModel()));
+    const wasm = new WasmEngineClient({ Preflight: () => JSON.stringify(result), RecoverTm7: recover } as unknown as ConstructorParameters<typeof WasmEngineClient>[0]);
+    expect(await wasm.preflight(bytes, 'tm7', 'tmforge-json')).toEqual(result);
+    expect(recover).not.toHaveBeenCalled();
+    vi.stubGlobal('fetch', vi.fn(async (request: Request) => {
+      expect(request.url).toBe('http://localhost/v1/model/recover/tm7');
+      expect(await request.json()).toEqual({ contentBase64: btoa('native source') });
+      return new Response(JSON.stringify(emptyModel()), { headers: { 'Content-Type': 'application/json' } });
+    }));
+    expect(await wasm.recoverTm7(bytes)).toEqual(await createHttpEngine('http://localhost').recoverTm7(bytes));
+    expect(recover).toHaveBeenCalledExactlyOnceWith(btoa('native source'));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: 'Duplicate identities cannot be recovered.' }), {
+      status: 400, headers: { 'Content-Type': 'application/problem+json' },
+    })));
+    await expect(createHttpEngine('http://localhost').recoverTm7(bytes)).rejects.toThrow('Duplicate identities cannot be recovered.');
   });
 });
 

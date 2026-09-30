@@ -3,7 +3,7 @@ import { readFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
-import { EngineWorker, MAX_DOCUMENT_BYTES, MAX_REQUEST_BYTES } from '../engine';
+import { EngineWorker, MAX_DOCUMENT_BYTES, MAX_REQUEST_BYTES, ModelPreflightError } from '../engine';
 
 const runtime = resolve(__dirname, '../../engine/_framework');
 const sourceWorker = resolve(__dirname, '../engine-worker.mjs');
@@ -123,6 +123,29 @@ test('native saves retain source bytes, opaque XML and previous native edits', a
     assert.equal(restored.diagrams[0].name, 'Edited page');
     assert.ok(restored.elements.some((element: { name: string }) => element.name === 'Native VS Code API'));
     assert.match(Buffer.from(second, 'base64').toString(), /<Extension xmlns="urn:tmforge:test">kept<\/Extension>/);
+  } finally { worker.dispose(); }
+});
+
+test('TM7 endpoint errors remain strict until explicitly recovered into a valid copy', async () => {
+  const worker = new EngineWorker(runtime, 30000, sourceWorker);
+  try {
+    const source = await readFile(resolve(__dirname, '../../../../examples/webshop.tm7'), 'utf8');
+    const broken = source.replace(/(<Lines\b[\s\S]*?<TargetGuid\b[^>]*>)[^<]+(<\/TargetGuid>)/,
+      (_match, opening, closing) => `${opening}00000000-0000-0000-0000-000000000000${closing}`);
+    assert.ok(broken !== source, 'The fixture must detach a connector before testing recovery.');
+    await assert.rejects(worker.readModel(broken, 'tm7'), error => {
+      assert.ok(error instanceof ModelPreflightError);
+      assert.equal(error.preflight.success, false);
+      assert.equal(error.preflight.canRecover, true);
+      assert.ok(error.preflight.diagnostics.some(item => item.code === 'model.unresolved-endpoint'));
+      return true;
+    });
+    const recovered = await worker.invoke('RecoverTm7', [Buffer.from(broken).toString('base64')]);
+    const checked = await worker.readModel(recovered);
+    assert.equal((checked.model.flows as unknown[]).length, 3);
+    assert.equal((checked.model.elements as unknown[]).length, 7);
+    await assert.rejects(worker.readModel(broken, 'tm7'), ModelPreflightError);
+    await assert.rejects(worker.invoke('RecoverTm7', [Buffer.from('<ThreatModel>').toString('base64')]), /recovery requires/);
   } finally { worker.dispose(); }
 });
 

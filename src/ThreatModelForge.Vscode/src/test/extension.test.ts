@@ -13,6 +13,7 @@ export async function run(): Promise<void> {
 		tools: ReturnType<typeof createCopilotTools>;
 		edit(document: vscode.TextDocument, version: number, previous: unknown, next: unknown): Promise<{ version: number; dirty: boolean }>;
 		nativeSource(document: vscode.TextDocument): Promise<string>;
+		recover(document: vscode.TextDocument, version: number): Promise<vscode.TextDocument>;
 		waitUntilRendered(document: vscode.TextDocument): Promise<void>;
 	}>('hacks4snacks.tmforge');
 	assert.ok(extension, 'Extension was not loaded');
@@ -36,6 +37,26 @@ export async function run(): Promise<void> {
 		await api.waitUntilRendered(document);
 		const worker = new EngineWorker(resolve(__dirname, '../../engine/_framework'));
 		try {
+			const broken = source.toString().replace(/(<Lines\b[\s\S]*?<TargetGuid\b[^>]*>)[^<]+(<\/TargetGuid>)/,
+				(_match, opening, closing) => `${opening}00000000-0000-0000-0000-000000000000${closing}`);
+			assert.ok(broken !== source.toString(), 'The fixture must detach a connector before testing recovery.');
+			const brokenPath = join(directory, 'broken.tm7');
+			await writeFile(brokenPath, broken);
+			const brokenDocument = await vscode.workspace.openTextDocument(brokenPath);
+			await vscode.commands.executeCommand('tmforge.openStudio', brokenDocument.uri);
+			await assert.rejects(api.recover(brokenDocument, brokenDocument.version - 1), /source changed/);
+			const recoveredDocument = await api.recover(brokenDocument, brokenDocument.version);
+			assert.equal(recoveredDocument.isUntitled, true);
+			assert.equal(recoveredDocument.isDirty, true);
+			assert.match(recoveredDocument.uri.path, /^Untitled-\d+$/);
+			assert.equal(JSON.parse(recoveredDocument.getText()).flows.length, 3);
+			await api.waitUntilRendered(recoveredDocument);
+			assert.equal(brokenDocument.getText(), broken);
+			assert.equal(brokenDocument.isDirty, false);
+			assert.equal(await readFile(brokenPath, 'utf8'), broken);
+			await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+			await vscode.commands.executeCommand('tmforge.openStudio', document.uri);
+			await api.waitUntilRendered(document);
 			const originalText = document.getText();
 			const baseline = JSON.parse(await worker.invoke('ReadFile', [source.toString('base64'), 'tm7']));
 			await api.edit(document, document.version, baseline, baseline);

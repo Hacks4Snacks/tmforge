@@ -197,6 +197,13 @@ namespace ThreatModelForge.Wasm
             return Serialize(model);
         }
 
+        /// <summary>Creates a separate canonical recovery copy without unresolved flows or their scoped threats.</summary>
+        /// <param name="contentBase64">The original TM7 bytes, base64-encoded.</param>
+        /// <returns>The validated canonical recovery model as JSON.</returns>
+        [JSExport]
+        public static string RecoverTm7(string contentBase64)
+            => Serialize(EngineService.RecoverTm7(Convert.FromBase64String(contentBase64)));
+
         /// <summary>Inspects a source file without discarding native boundaries or geometry.</summary>
         /// <param name="contentBase64">The source document bytes, base64-encoded.</param>
         /// <param name="formatId">An explicit source format, or empty to detect.</param>

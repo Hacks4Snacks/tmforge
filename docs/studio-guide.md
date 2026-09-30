@@ -371,12 +371,20 @@ then `tmforge analyze` / `tmforge report` / `tmforge convert` in a pipeline, or 
 ### Preflight review
 
 Before replacing the canvas, **Open File** runs preflight through the active engine. Structural
-errors appear with their source paths under **Technical details** and must be corrected in the input.
+errors appear with their source paths under **Technical details** and block ordinary import.
 Import limitations appear in a review dialog with **Continue import** and **Cancel**. Ordinary native
 TM7 files open without a conversion acknowledgement. A file containing objects the canvas cannot
 display still receives a warning; explicit conversions still warn about template and register loss.
 Closing or cancelling leaves the current model
 and undo history unchanged; a delayed import is discarded if the workspace changes while it runs.
+
+When a TM7's only errors are unattached or cross-page flow endpoints, **Review recovery import**
+offers **Import recovery copy**. Accepting omits the listed broken flows and their scoped threats,
+then opens a validated, unsaved `*.recovered.tmforge.json` copy. The original file remains untouched
+and Save uses a separate destination. Recovery does not invent connections or retain native-only
+content such as the embedded template and full generated register; review all conversion warnings.
+Other structural and parsing errors remain blocking. Analysis covers the reduced copy, not the
+complete source model.
 
 **Save** and **Export** review known conversion losses before writing a converted model. Native TM7
 saves validate the preserving edit before opening a writable stream. Native JSON saves do not

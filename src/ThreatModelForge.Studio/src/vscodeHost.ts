@@ -1,4 +1,5 @@
 import type { TmForgeModel } from './dfd/types';
+import type { PreflightResult } from './dfd/engineClient';
 
 export function listenForHostMessages(receive: (message: Record<string, unknown>) => void): () => void {
   const trustedOrigin = window.origin;
@@ -19,6 +20,7 @@ export interface StudioDocument {
   warnings?: string[];
   model?: TmForgeModel;
   error?: string;
+  preflight?: PreflightResult;
 }
 
 export class StudioBridge {

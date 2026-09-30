@@ -9,6 +9,7 @@ interface PreflightDialogProps {
 }
 
 export function PreflightDialog({ title, result, operation, onDecision }: PreflightDialogProps) {
+  const recovery = operation === 'import' && !result.success && result.canRecover === true;
   const titleId = useId();
   const panel = useRef<HTMLDivElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
@@ -43,6 +44,7 @@ export function PreflightDialog({ title, result, operation, onDecision }: Prefli
       <div ref={panel} className="modal preflight-modal" onClick={(event) => event.stopPropagation()}>
         <header className="merge-head"><h2 id={titleId}>{title}</h2></header>
         <div className="preflight-body">
+          {recovery && <p role="alert">The recovery copy will omit the listed broken flows and threats scoped to them. Native-only data is not carried into the copy. Your original file will remain unchanged.</p>}
           <ol className="preflight-diagnostics">
             {result.diagnostics.map((diagnostic, index) => (
               <li key={`${diagnostic.code}:${diagnostic.path}:${index}`} className={`preflight-${diagnostic.severity}`}>
@@ -76,8 +78,9 @@ export function PreflightDialog({ title, result, operation, onDecision }: Prefli
           </details>
         </div>
         <div className="preflight-actions">
-          <button ref={cancel} className="btn" onClick={() => onDecision(false)}>{result.success ? 'Cancel' : 'Close'}</button>
+          <button ref={cancel} className="btn" onClick={() => onDecision(false)}>{result.success || recovery ? 'Cancel' : 'Close'}</button>
           {result.success && <button className="btn btn-primary" onClick={() => onDecision(true)}>{operation === 'import' ? 'Continue import' : 'Continue'}</button>}
+          {recovery && <button className="btn btn-primary" onClick={() => onDecision(true)}>Import recovery copy</button>}
         </div>
       </div>
     </div>

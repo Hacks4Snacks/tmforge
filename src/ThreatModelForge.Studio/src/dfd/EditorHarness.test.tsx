@@ -1728,19 +1728,21 @@ describe('Editor preflight review', () => {
     const model = await offlineEngine.read(JSON.stringify(chain()));
     model.elements[0].name = 'Imported Alpha';
     const readFile = vi.fn(async () => model);
+    const recoverTm7 = vi.fn(async () => model);
+    const createWritable = vi.fn();
     const preflight = vi.fn(async () => result);
     engineState.current = Object.assign(Object.create(offlineEngine) as IEngineClient, {
-      label: 'preflight test engine', preflight, readFile,
-      detect: async () => ({ id: result.format ?? 'threat-dragon', canRead: true, canWrite: false, extensions: [] }),
+      label: 'preflight test engine', preflight, readFile, recoverTm7,
+      detect: async () => ({ id: result.format ?? 'threat-dragon', canRead: true, canWrite: result.format === 'tm7', extensions: [] }),
     });
     Object.defineProperty(window, 'showOpenFilePicker', {
       configurable: true,
-      value: async () => [{ name: 'source.json', getFile: async () => ({ arrayBuffer: async () => new ArrayBuffer(0) }) }],
+      value: async () => [{ name: result.format === 'tm7' ? 'source.tm7' : 'source.json', createWritable, getFile: async () => ({ arrayBuffer: async () => new ArrayBuffer(0) }) }],
     });
     await mountEditor(chain());
     await waitFor(() => expect(document.querySelector('.engine-pill')).toHaveTextContent('preflight test engine'));
     fireEvent.click(screen.getByRole('button', { name: 'Open File' }));
-    return { readFile, preflight };
+    return { readFile, preflight, recoverTm7, createWritable };
   }
 
   it('opens ordinary native files without requiring a conversion acknowledgement', async () => {
@@ -1812,6 +1814,55 @@ describe('Editor preflight review', () => {
     } finally {
       Reflect.deleteProperty(window, 'showOpenFilePicker');
     }
+  });
+
+  it.each([false, true])('requires explicit recovery consent and never binds the source handle (continue=%s)', async (proceed) => {
+    try {
+      const { readFile, preflight, recoverTm7, createWritable } = await prepare({ success: false, canRecover: true, format: 'tm7', targetFormat: 'tmforge-json', diagnostics: [
+        { code: 'model.unresolved-endpoint', severity: 'error', path: '$.diagrams[2].flows', message: "Flow 'Create MOBO Resource' has an unattached endpoint." },
+        { code: 'conversion.knowledge-base', severity: 'warning', path: '$.knowledgeBase', message: 'Template omitted.' },
+      ] });
+      const dialog = await screen.findByRole('dialog', { name: 'Review recovery import' });
+      expect(within(dialog).getByText(/will omit the listed broken flows/)).toBeVisible();
+      expect(within(dialog).queryByText(/Original TM7 data will be preserved/)).not.toBeInTheDocument();
+      expect(recoverTm7).not.toHaveBeenCalled();
+      fireEvent.click(within(dialog).getByRole('button', { name: proceed ? 'Import recovery copy' : 'Cancel' }));
+      if (proceed) {
+        await screen.findByText('Imported Alpha');
+        expect(recoverTm7).toHaveBeenCalledOnce();
+        await waitFor(() => {
+          const workspace = JSON.parse(window.localStorage.getItem(STORAGE_KEY)!);
+          expect(workspace.fileName).toBe('source.recovered.tmforge.json');
+          expect(workspace.saveFormat).toBe('tmforge-json');
+          expect(workspace.savedJson).toBe('');
+          expect(workspace.nativeSource).toBeUndefined();
+        }, { timeout: 3000 });
+        preflight.mockResolvedValue({ success: true, format: 'tmforge-json', diagnostics: [] });
+        const picker = vi.fn(async () => { throw new DOMException('Cancelled.', 'AbortError'); });
+        Object.defineProperty(window, 'showSaveFilePicker', { configurable: true, value: picker });
+        fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+        await waitFor(() => expect(picker).toHaveBeenCalledOnce());
+        expect(createWritable).not.toHaveBeenCalled();
+      } else {
+        expect(recoverTm7).not.toHaveBeenCalled();
+        expect(canvasNodeIds()).toEqual(['a', 'b', 'c']);
+        expect(undoButton()).toBeDisabled();
+      }
+      expect(readFile).not.toHaveBeenCalled();
+    } finally {
+      Reflect.deleteProperty(window, 'showOpenFilePicker');
+      Reflect.deleteProperty(window, 'showSaveFilePicker');
+    }
+  });
+
+  it('does not offer recovery for an export even when the source is recoverable', () => {
+    render(<PreflightDialog title="Export blocked" operation="export" onDecision={vi.fn()} result={{
+      success: false, canRecover: true, format: 'tm7', diagnostics: [
+        { code: 'model.unresolved-endpoint', severity: 'error', path: '$.flows', message: 'Missing endpoint.' },
+      ],
+    }} />);
+    expect(screen.queryByRole('button', { name: 'Import recovery copy' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeVisible();
   });
 
   it.each([false, true])('requires an explicit decision before a lossy import (continue=%s)', async (proceed) => {

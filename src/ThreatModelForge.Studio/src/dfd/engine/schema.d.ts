@@ -341,6 +341,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/model/recover/tm7": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Creates a separate canonical recovery copy of a TM7 with unresolved flow endpoints.
+         * @description Requires explicit recovery consent. Omits unresolved flows and their scoped threats; native-only content remains in the source. Other structural errors are not overridable.
+         */
+        post: operations["RecoverTm7"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/model/manifest": {
         parameters: {
             query?: never;
@@ -676,6 +696,7 @@ export interface components {
         };
         PreflightResultDto: {
             success?: boolean;
+            canRecover?: boolean;
             format?: null | string;
             targetFormat?: null | string;
             diagnostics?: components["schemas"]["DocumentDiagnostic"][];
@@ -1369,6 +1390,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PreflightResultDto"];
+                };
+            };
+        };
+    };
+    RecoverTm7: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FileContentDto"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TmForgeModelDto"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
             };
         };
