@@ -223,6 +223,13 @@ Ledger `name` fields contain the bare phrase, never the ID: `{"id":"F1","name":"
 and diagram display `F1: Submit request`; renderers add the prefix exactly once. Keep names terse and put fuller
 explanations in linked evidence claims or threat descriptions, which the document renderer carries into the report.
 
+For per-page flow numbering, opt in with `displayId` on flows in a declared `pages` view. Every flow on that page
+must have a unique, contiguous display ID from `F1` through `Fn`; other pages may repeat those display IDs.
+For example, `{"id":"F68","displayId":"F1","name":"Action results"}` keeps the stable reference `F68` but displays
+`F1: Action results`. These labels are references, not execution-order guarantees. Keep manifest aliases, coverage,
+evidence and threat targets keyed by the global `id`; never renumber them for presentation. Generated documents
+include the page/display-to-stable-ID mapping. Without `displayId`, existing labels and rendering stay unchanged.
+
 For new threat IDs:
 
 1. Derive `AREA` from the scope slug: uppercase it, remove non-alphanumeric characters, take the first 12 characters,

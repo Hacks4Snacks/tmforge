@@ -27,6 +27,7 @@ from validate_analysis import (
     JsonObject,
     as_object,
     as_object_list,
+    display_id,
     load_document,
     validate_document,
 )
@@ -208,12 +209,56 @@ def object_ids(data: JsonObject, collection_name: str = "items") -> set[str]:
     }
 
 
+def native_flow_aliases(
+    model: Path, flows: JsonObject, invocation: list[str], timeout: int
+) -> tuple[JsonObject, list[str]]:
+    """Read stable aliases by native GUID, never infer them from local labels."""
+    aliases: JsonObject = {}
+    errors: list[str] = []
+    items = as_object_list(get_case_insensitive(flows, "items"))
+    if items is None:
+        return {}, ["native flow inventory is missing or malformed"]
+    for flow in items:
+        identifier = normalize_guid(get_case_insensitive(flow, "id"))
+        if identifier is None:
+            errors.append("flow has no native identifier for alias readback")
+            continue
+        stdout, failure = run_process(
+            invocation + ["show", str(model), "--id", identifier, "--json"],
+            {0},
+            timeout,
+        )
+        if failure is not None:
+            errors.append(f"{identifier}: {failure}")
+            continue
+        try:
+            detail = data_object(stdout or "")
+        except ValueError as exc:
+            errors.append(f"{identifier}: invalid alias readback: {exc}")
+            continue
+        properties = as_object(get_case_insensitive(detail, "properties")) or {}
+        alias = get_case_insensitive(properties, "Alias")
+        if (
+            normalize_guid(get_case_insensitive(detail, "id")) != identifier
+            or get_case_insensitive(detail, "name")
+            != get_case_insensitive(flow, "name")
+            or not isinstance(alias, str)
+            or not alias.strip()
+        ):
+            errors.append(f"{identifier}: missing Alias or mismatched native readback")
+            continue
+        aliases[identifier] = alias
+    return aliases, errors
+
+
 def tmforge_model_checks(
     model: Path,
     package_directory: Path,
     invocation: list[str],
     timeout: int,
     inventories: dict[str, dict[str, JsonObject]] | None = None,
+    *,
+    flow_display_ids: bool = False,
 ) -> list[Check]:
     """Run the required read-only tmforge checks for one model artifact."""
     try:
@@ -249,6 +294,19 @@ def tmforge_model_checks(
                 continue
         checks.append(make_check(check_name, "pass", "command completed"))
 
+    if flow_display_ids:
+        aliases, errors = native_flow_aliases(
+            model, outputs.get("flows", {}), invocation, timeout
+        )
+        outputs["flow-aliases"] = aliases
+        checks.append(
+            make_check(
+                f"tmforge.{relative_model}.flow-aliases",
+                "fail" if errors else "pass",
+                "; ".join(errors) if errors else "stable flow aliases read by GUID",
+                errors=errors,
+            )
+        )
     if inventories is not None:
         inventories[relative_model] = outputs
 
@@ -318,6 +376,7 @@ def model_inventory_check(
     seen_pages: set[str] = set()
     counts = {kind: 0 for kind in kinds}
     errors: list[str] = []
+    flow_display_ids = any("displayId" in flow for flow in expected["flows"].values())
     for model, outputs in sorted(inventories.items()):
         collections: dict[str, list[JsonObject]] = {}
         for kind in (*kinds, "diagrams"):
@@ -352,12 +411,21 @@ def model_inventory_check(
                 name = get_case_insensitive(item, "name")
                 alias, separator, label = str(name or "").partition(":")
                 alias, label = alias.strip(), label.strip()
+                label_id = alias
+                if kind == "flows" and flow_display_ids:
+                    identifier = normalize_guid(get_case_insensitive(item, "id"))
+                    alias = str(
+                        outputs.get("flow-aliases", {}).get(identifier or "", "")
+                    )
                 if not separator or alias not in expected[kind]:
                     errors.append(f"{model}: unexpected {kind} alias/name {name!r}")
                 else:
                     if alias in seen[kind]:
                         errors.append(f"{model}: duplicate {kind} alias {alias}")
-                    if label != expected[kind][alias].get("name"):
+                    if (
+                        label != expected[kind][alias].get("name")
+                        or label_id != display_id(expected[kind][alias])
+                    ):
                         errors.append(f"{model}: {alias} name differs from the ledger")
                     seen[kind].add(alias)
                     if pages:
@@ -817,10 +885,17 @@ def verify_package(
                         text_value(stdout, "version command completed"),
                     )
                 )
+                flow_display_ids = any(
+                    "displayId" in flow
+                    for flow in as_object_list(
+                        document.get("flows") if document else None
+                    ) or []
+                )
                 for model in model_paths:
                     checks.extend(
                         tmforge_model_checks(
-                            model, package_directory, invocation, timeout, inventories
+                            model, package_directory, invocation, timeout, inventories,
+                            flow_display_ids=flow_display_ids,
                         )
                     )
         if document is not None and not validate_document(document):

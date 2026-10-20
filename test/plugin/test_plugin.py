@@ -1112,6 +1112,178 @@ class PackageContractTests(unittest.TestCase):
             self.document, {"model.tm7": self.outputs}
         )
 
+    def use_local_flow_numbers(self) -> None:
+        self.document["pages"] = [
+            {"id": "PG1", "name": "Runtime"},
+            {"id": "PG2", "name": "Build"},
+        ]
+        for item in self.document["boundaries"] + self.document["elements"]:
+            item["pageId"] = "PG1"
+        for kind in ("boundaries", "components", "flows"):
+            for item in self.outputs[kind]["items"]:
+                item["DiagramHeader"] = "Runtime"
+        self.outputs["diagrams"]["items"][0]["header"] = "Runtime"
+        for alias, name in (("X2", "Build sender"), ("X3", "Build receiver")):
+            self.document["elements"].append(
+                {
+                    "id": alias, "name": name, "kind": "external",
+                    "boundaryIds": [], "pageId": "PG2",
+                    "material": False, "evidenceIds": ["E001"],
+                }
+            )
+            self.outputs["components"]["items"].append(
+                {"ID": alias.lower(), "Name": f"{alias}: {name}",
+                 "DiagramHeader": "Build"}
+            )
+        self.outputs["components"]["count"] += 2
+        self.document["flows"][0]["displayId"] = "F1"
+        self.document["flows"].append(
+            {
+                **self.document["flows"][0],
+                "id": "F9", "displayId": "F1", "name": "Build records",
+                "sourceId": "X2", "targetId": "X3",
+                "crossesTrustBoundary": False, "material": False,
+            }
+        )
+        self.outputs["flows"]["items"].append(
+            {
+                "ID": "f9", "Name": "F1: Build records", "DiagramHeader": "Build",
+                "SourceComponentID": "x2", "TargetComponentID": "x3",
+            }
+        )
+        self.outputs["flows"]["count"] += 1
+        self.outputs["flow-aliases"] = {"f1": "F1", "f9": "F9"}
+        self.outputs["diagrams"]["items"].append(
+            {
+                "id": "build-page", "header": "Build", "componentCount": 2,
+                "connectorCount": 1, "trustBoundaryCount": 0,
+            }
+        )
+        self.outputs["diagrams"]["count"] += 1
+
+    def test_page_local_labels_preserve_stable_references_and_render_mapping(self) -> None:
+        baseline = copy.deepcopy(self.document)
+        self.use_local_flow_numbers()
+        original = copy.deepcopy(self.document)
+        self.assertEqual(self.verifier.validate_document(self.document), [])
+        validator = sys.modules[self.verifier.validate_document.__module__]
+        errors: list[str] = []
+        validator.check_id_stability(self.document, baseline, errors.append)
+        self.assertEqual(errors, [])
+        rendered = self.verifier.render_documents(self.document)
+        data_flow = rendered["data-flow.md"]
+        self.assertIn('N_X2 -->|"F1: Build records"| N_X3', data_flow)
+        self.assertIn("N_X2->>N_X3: F1 - Build records", data_flow)
+        self.assertNotIn("F9: Build records", data_flow)
+        self.assertRegex(
+            data_flow, r"\|\s*PG2\s*\|\s*F1\s*\|\s*F9\s*\|\s*Build records\s*\|"
+        )
+        self.assertIn("stable IDs", rendered["threat-model.md"])
+        renderer = sys.modules[self.verifier.render_documents.__module__]
+        standalone = renderer.render_threat_model(
+            self.document, "analysis.json", standalone=True
+        )
+        self.assertNotIn("data-flow.md", standalone)
+        self.assertRegex(
+            standalone, r"\|\s*PG2\s*\|\s*F1\s*\|\s*F9\s*\|\s*Build records\s*\|"
+        )
+        self.assertEqual(self.document, original)
+        self.assertEqual(self.verifier.render_documents(self.document), rendered)
+        self.assertEqual(self.document["coverage"], baseline["coverage"])
+        self.assertEqual(self.document["threats"], baseline["threats"])
+
+    def test_local_numbering_requires_pages_and_complete_contiguous_labels(self) -> None:
+        self.document["flows"][0]["displayId"] = "F1"
+        self.assertIn(
+            "flows.F1: displayId requires a pages declaration",
+            self.verifier.validate_document(self.document),
+        )
+        self.use_local_flow_numbers()
+        second = {**self.document["flows"][1], "id": "F10", "name": "Build result",
+                  "displayId": "F2"}
+        self.document["flows"].append(second)
+        self.assertEqual(self.verifier.validate_document(self.document), [])
+        for value in ("F1", "F3", "F0", "F01", "1", None):
+            with self.subTest(value=value):
+                second["displayId"] = value
+                self.assertTrue(self.verifier.validate_document(self.document))
+        del second["displayId"]
+        self.assertTrue(
+            any("number every flow" in error
+                for error in self.verifier.validate_document(self.document))
+        )
+        self.document["flows"].pop()
+        del self.document["flows"][0]["displayId"]
+        self.assertEqual(self.verifier.validate_document(self.document), [])
+        self.document["flows"][1]["name"] = "F1: Build records"
+        self.assertTrue(
+            any("bare phrase" in error
+                for error in self.verifier.validate_document(self.document))
+        )
+
+    def test_native_aliases_disambiguate_repeated_flow_labels(self) -> None:
+        self.use_local_flow_numbers()
+        self.assertEqual(self.check()["status"], "pass", self.check())
+        baseline = copy.deepcopy(self.outputs)
+        for aliases in ({}, {"f1": "F1", "f9": "F1"},
+                        {"f1": "F9", "f9": "F1"}):
+            with self.subTest(aliases=aliases):
+                self.outputs["flow-aliases"] = aliases
+                self.assertEqual(self.check()["status"], "fail")
+        self.outputs = copy.deepcopy(baseline)
+        self.outputs["flows"]["items"][1]["Name"] = "F9: Build records"
+        self.assertIn("F9 name differs", self.check()["detail"])
+        self.outputs = copy.deepcopy(baseline)
+        self.outputs["flows"]["items"][1]["SourceComponentID"] = "x3"
+        self.assertIn("F9 sourceId differs", self.check()["detail"])
+        self.outputs = copy.deepcopy(baseline)
+        self.outputs["flows"]["items"][1]["DiagramHeader"] = "Runtime"
+        self.assertIn("F9 page differs", self.check()["detail"])
+
+    def test_native_flow_alias_readback_rejects_missing_or_mismatched_objects(self) -> None:
+        flow = self.outputs["flows"]["items"][0]
+        detail = {
+            "id": flow["ID"], "name": flow["Name"],
+            "properties": {"Alias": "F1"},
+        }
+        with patch.object(
+            self.verifier, "run_process",
+            return_value=(json.dumps({"data": detail}), None),
+        ) as run:
+            aliases, errors = self.verifier.native_flow_aliases(
+                Path("model.tm7"), self.outputs["flows"], ["mock-tmforge"], 60
+            )
+        self.assertEqual((aliases, errors), ({"f1": "F1"}, []))
+        run.assert_called_once_with(
+            ["mock-tmforge", "show", "model.tm7", "--id", "f1", "--json"], {0}, 60
+        )
+        invalid = [
+            (json.dumps({"data": {**detail, "id": "wrong"}}), None),
+            (json.dumps({"data": {**detail, "name": "wrong"}}), None),
+            (json.dumps({"data": {**detail, "properties": {}}}), None),
+            ("invalid json", None),
+            (None, "readback failed"),
+        ]
+        for response in invalid:
+            with self.subTest(response=response), patch.object(
+                self.verifier, "run_process", return_value=response
+            ):
+                aliases, errors = self.verifier.native_flow_aliases(
+                    Path("model.tm7"), self.outputs["flows"], ["mock-tmforge"], 60
+                )
+                self.assertEqual(aliases, {})
+                self.assertTrue(errors)
+        for inventory in ({}, {"items": "invalid"}, {"items": [{}]}):
+            with self.subTest(inventory=inventory), patch.object(
+                self.verifier, "run_process"
+            ) as run:
+                aliases, errors = self.verifier.native_flow_aliases(
+                    Path("model.tm7"), inventory, ["mock-tmforge"], 60
+                )
+                self.assertEqual(aliases, {})
+                self.assertTrue(errors)
+                run.assert_not_called()
+
     def test_verified_lifecycle_requires_baseline_not_embedded_approval(self) -> None:
         self.document["scope"]["lifecycle"] = "verified"
         self.document["scope"].pop("baseline", None)
@@ -1328,24 +1500,36 @@ class PackageContractTests(unittest.TestCase):
         os.environ.get("TMFORGE_PLUGIN_TEST_CLI"), "opt-in real CLI round trip"
     )
     def test_multi_page_layout_round_trip_through_real_tmforge(self) -> None:
+        self.check_multi_page_round_trip(local_numbering=False)
+
+    @unittest.skipUnless(
+        os.environ.get("TMFORGE_PLUGIN_TEST_CLI"), "opt-in real CLI round trip"
+    )
+    def test_local_flow_labels_round_trip_through_real_tmforge(self) -> None:
+        self.check_multi_page_round_trip(local_numbering=True)
+
+    def check_multi_page_round_trip(self, local_numbering: bool) -> None:
         invocation = shlex.split(os.environ["TMFORGE_PLUGIN_TEST_CLI"])
-        self.document["pages"] = [
-            {"id": "PG1", "name": "Runtime"},
-            {"id": "PG2", "name": "Build"},
-        ]
-        for item in self.document["boundaries"] + self.document["elements"]:
-            item["pageId"] = "PG1"
-        self.document["elements"].append(
-            {
-                "id": "X99",
-                "name": "Build worker",
-                "kind": "external",
-                "boundaryIds": [],
-                "material": False,
-                "evidenceIds": ["E001"],
-                "pageId": "PG2",
-            }
-        )
+        if local_numbering:
+            self.use_local_flow_numbers()
+        else:
+            self.document["pages"] = [
+                {"id": "PG1", "name": "Runtime"},
+                {"id": "PG2", "name": "Build"},
+            ]
+            for item in self.document["boundaries"] + self.document["elements"]:
+                item["pageId"] = "PG1"
+            self.document["elements"].append(
+                {
+                    "id": "X99",
+                    "name": "Build worker",
+                    "kind": "external",
+                    "boundaryIds": [],
+                    "material": False,
+                    "evidenceIds": ["E001"],
+                    "pageId": "PG2",
+                }
+            )
         forward = self.document["flows"][0]
         self.document["flows"].append(
             {
@@ -1355,8 +1539,10 @@ class PackageContractTests(unittest.TestCase):
                 "sourceId": forward["targetId"],
                 "targetId": forward["sourceId"],
                 "material": False,
+                **({"displayId": "F2"} if local_numbering else {}),
             }
         )
+        self.document["flows"].sort(key=lambda item: int(item["id"][1:]))
         self.assertEqual(self.verifier.validate_document(self.document), [])
         controls = {
             "data-store": "Encrypted",
@@ -1391,7 +1577,7 @@ class PackageContractTests(unittest.TestCase):
             "flows": [
                 {
                     "alias": item["id"],
-                    "name": f"{item['id']}: {item['name']}",
+                    "name": f"{item.get('displayId', item['id'])}: {item['name']}",
                     "from": item["sourceId"],
                     "to": item["targetId"],
                     "props": {"Protocol": "Unknown"},
@@ -1440,7 +1626,8 @@ class PackageContractTests(unittest.TestCase):
             run([*invocation, "apply", str(candidate), "--out", str(model)])
             inventories: dict[str, Any] = {}
             checks = self.verifier.tmforge_model_checks(
-                model, package, invocation, 60, inventories
+                model, package, invocation, 60, inventories,
+                flow_display_ids=local_numbering,
             )
             self.assertTrue(all(check["status"] == "pass" for check in checks), checks)
             parity = self.verifier.model_inventory_check(self.document, inventories)
@@ -2204,6 +2391,14 @@ class FlowLabelSpacingTests(unittest.TestCase):
             self.layout.column_gaps(self.members, self.columns, [reverse]),
             self.layout.column_gaps(self.members, self.columns, [self.flow]),
         )
+
+    def test_label_width_uses_the_display_id_without_changing_identity(self) -> None:
+        flow = {**self.flow, "id": "F12345", "displayId": "F1"}
+        original = copy.deepcopy(flow)
+        self.assertEqual(
+            self.layout._label_width(flow), self.layout._label_width(self.flow)
+        )
+        self.assertEqual(flow, original)
 
     def test_adjacent_and_overlapping_flows_remain_order_independent(self) -> None:
         adjacent = {**self.flow, "targetId": "P2", "name": "x" * 50}

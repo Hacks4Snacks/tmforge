@@ -97,6 +97,7 @@ namespace ThreatModelForge.Analysis
             if (model.KnowledgeBase != null && !KnowledgeBaseCatalog.IsDefault(model.KnowledgeBase))
             {
                 MergeThreatCatalog(model.KnowledgeBase, KnowledgeBaseCatalog.CreateDefault(ruleSet), true);
+                ThreatMetaDataContract.PrepareInstances(model);
                 return;
             }
 
@@ -110,6 +111,7 @@ namespace ThreatModelForge.Analysis
             SchemaBackedProperties.Apply(model, knowledgeBase);
             StencilSubtypeProjection.Apply(model, knowledgeBase);
             model.KnowledgeBase = knowledgeBase;
+            ThreatMetaDataContract.PrepareInstances(model);
         }
 
         /// <summary>Supplies missing template definitions without replacing existing customizations.</summary>
@@ -130,6 +132,7 @@ namespace ThreatModelForge.Analysis
                 MergeThreatCatalog(model.KnowledgeBase, additions, false);
             }
 
+            ThreatMetaDataContract.PrepareInstances(model);
             StencilSubtypeProjection.Apply(model, model.KnowledgeBase);
             foreach (Entity element in model.DrawingSurfaceList.SelectMany(page => page.Borders.Values.Concat(page.Lines.Values)).OfType<Entity>())
             {

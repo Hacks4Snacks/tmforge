@@ -227,6 +227,30 @@ namespace ThreatModelForge.Formats.Tests
             Assert.AreEqual("false", DiagramElementHelper.GetCustomProperties(store)["ThreatDragon.data.isEncrypted"]);
         }
 
+        /// <summary>Native compatibility fields do not make an otherwise supported authored finding unexportable.</summary>
+        [TestMethod]
+        public void ExportsManualThreatsWithNativeTypeAndMirroredProperties()
+        {
+            ThreatModel model = Read(Fixture().ToJsonString());
+            ThreatDragonFormat format = new ThreatDragonFormat();
+            using MemoryStream before = new MemoryStream();
+            format.Write(model, before);
+            foreach (Threat threat in model.AllThreatsDictionary.Values)
+            {
+                threat.TypeId = ManualThreatId.ToNativeTypeId(threat.InteractionKey!);
+                threat.Properties!["Title"] = threat.Title!;
+                threat.Properties["UserThreatCategory"] = threat.UserThreatCategory!;
+                threat.Properties["UserThreatDescription"] = threat.UserThreatDescription!;
+                threat.Properties["StateInformation"] = threat.StateInformation!;
+                threat.Properties["Priority"] = threat.Priority!;
+            }
+
+            using MemoryStream after = new MemoryStream();
+            format.Write(model, after);
+
+            CollectionAssert.AreEqual(before.ToArray(), after.ToArray());
+        }
+
         /// <summary>Unsupported semantics refuse the whole export before touching the destination.</summary>
         /// <param name="variation">The unsupported content to add.</param>
         /// <param name="message">A diagnostic fragment identifying the loss.</param>
@@ -236,6 +260,8 @@ namespace ThreatModelForge.Formats.Tests
         [DataRow("metadata", "Assumptions")]
         [DataRow("notes", "notes")]
         [DataRow("generated", "generated threat")]
+        [DataRow("invalid-native-type", "generated threat")]
+        [DataRow("conflicting-native-property", "Title")]
         [DataRow("state", "NeedsInvestigation")]
         [DataRow("wide", "model-wide")]
         [DataRow("multiple-targets", "multiple")]
@@ -264,6 +290,8 @@ namespace ThreatModelForge.Formats.Tests
                 case "metadata": model.MetaInformation!.Assumptions = "Must not disappear."; break;
                 case "notes": model.Notes.Add(new Note { Message = "Must not disappear." }); break;
                 case "generated": threat.TypeId = "TM1023"; break;
+                case "invalid-native-type": threat.TypeId = "BSnot-a-native-guid"; break;
+                case "conflicting-native-property": threat.Properties!["Title"] = "Different native title"; break;
                 case "state": threat.State = ThreatState.NeedsInvestigation; break;
                 case "wide": threat.Wide = true; break;
                 case "multiple-targets": threat.TargetGuid = page.Borders.Keys.First(id => id != store.Guid); break;

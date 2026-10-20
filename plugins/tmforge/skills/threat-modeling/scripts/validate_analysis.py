@@ -796,6 +796,11 @@ def schema_field_errors(document: JsonObject) -> list[str]:
     return visit(document, schema, "")
 
 
+def display_id(item: JsonObject) -> str:
+    """Return a diagram label ID without changing the stable reference ID."""
+    return str(item.get("displayId", item["id"]))
+
+
 def page_errors(document: JsonObject) -> list[str]:
     """Validate page membership without changing topology or choosing a default page."""
     errors: list[str] = []
@@ -852,7 +857,12 @@ def page_errors(document: JsonObject) -> list[str]:
                 errors.append(
                     f"elements.{element.get('id')}: boundary {boundary_id} is on another page"
                 )
+    numbered_pages: dict[str, list[JsonObject]] = {}
     for flow in flows:
+        if "displayId" in flow and not pages:
+            errors.append(
+                f"flows.{flow.get('id')}: displayId requires a pages declaration"
+            )
         source = element_index.get(str(flow.get("sourceId")))
         target = element_index.get(str(flow.get("targetId")))
         if source is None or target is None:
@@ -864,6 +874,19 @@ def page_errors(document: JsonObject) -> list[str]:
             errors.append(
                 f"flows.{flow.get('id')}: endpoints are on different pages; "
                 "tmforge connectors must stay on one page"
+            )
+        numbered_pages.setdefault(str(source.get("pageId")), []).append(flow)
+    for page_id, page_flows in numbered_pages.items():
+        if not any("displayId" in flow for flow in page_flows):
+            continue
+        identifiers = [flow.get("displayId") for flow in page_flows]
+        expected = {f"F{index}" for index in range(1, len(page_flows) + 1)}
+        if any(not isinstance(identifier, str) for identifier in identifiers) or {
+            identifier for identifier in identifiers if isinstance(identifier, str)
+        } != expected:
+            errors.append(
+                f"page {page_id}: displayId values must number every flow "
+                f"exactly once from F1 to F{len(page_flows)}"
             )
     return errors
 
@@ -1088,10 +1111,13 @@ def validate_document(document: object) -> list[str]:
             ids.append(item_id)
             label = item.get("name")
             if name in {"boundaries", "elements", "flows"} and isinstance(label, str):
-                if re.match(rf"^{re.escape(item_id)}(?:\s|:|$)", label.strip()):
+                if any(
+                    re.match(rf"^{re.escape(identifier)}(?:\s|:|$)", label.strip())
+                    for identifier in {item_id, display_id(item)}
+                ):
                     error(
-                        f"{name}.{item_id}.name: use the bare phrase without '{item_id}'; "
-                        f"renderers add '{item_id}: ' to the diagram name"
+                        f"{name}.{item_id}.name: use the bare phrase without an ID; "
+                        "renderers add the display ID to the diagram name"
                     )
         if ids != sorted(ids, key=natural_key):
             error(f"{name} must be sorted by natural id order")

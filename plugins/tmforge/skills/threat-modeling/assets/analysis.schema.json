@@ -437,8 +437,13 @@
           "type": "string",
           "pattern": "^F[0-9]+$"
         },
+        "displayId": {
+          "description": "Optional page-local diagram label, distinct from the stable id. Requires declared pages and complete F1..Fn numbering for every flow on the same page. References, coverage, findings and manifest aliases continue to use id.",
+          "type": "string",
+          "pattern": "^F[1-9][0-9]*$"
+        },
         "name": {
-          "description": "Bare flow phrase, without 'F1' or 'F1: '. The manifest and diagram label add the stable ID exactly once.",
+          "description": "Bare flow phrase, without an ID prefix. The manifest and diagram label add displayId when present, otherwise the stable id, exactly once.",
           "type": "string",
           "minLength": 1
         },
