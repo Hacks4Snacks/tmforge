@@ -486,7 +486,7 @@ class SidecarWriteTests(unittest.TestCase):
                             self.assertEqual(suppression["target"], target)
                             self.assertEqual(suppression["model"], page)
 
-    def test_suppression_naming_error_explains_the_expected_alias(self) -> None:
+    def test_suppression_naming_error_explains_the_expected_diagram_id(self) -> None:
         findings = [
             {
                 "rule": "TM1014",
@@ -496,7 +496,10 @@ class SidecarWriteTests(unittest.TestCase):
         ]
         document, missing = self.writer.build_document(findings, {}, "model.tm7")
         self.assertEqual(document["files"][0]["suppressions"], [])
-        self.assertIn("ALIAS: Name", missing[0])
+        self.assertEqual(len(missing), 1)
+        self.assertIn("diagram ID", missing[0])
+        self.assertIn("ID: Name", missing[0])
+        self.assertIn("ID Name", missing[0])
         self.assertNotIn("unparsed", missing[0])
 
     def test_unparsed_diagnostics_never_publish_a_sidecar(self) -> None:

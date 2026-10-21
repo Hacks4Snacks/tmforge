@@ -194,14 +194,10 @@ projected file rather than over the network. An exemption keeps a real judgement
 
 ## 4. Allocate Stable IDs and Ordering
 
-Preserve every existing ID. Never renumber, reuse, or compact IDs after deletion.
-
-The allocation rules below bootstrap a new model. They are not a rebuild strategy. Re-deriving IDs from a changed
-inventory renumbers every entry after an insertion, because allocation is positional, and that silently invalidates
-anything keyed by ID: diagram property tables, suppression justifications, review comments, and work-item links. The
-failure is quiet and dangerous, because a justification written for one element stays syntactically valid while
-attaching to a different one. Key every generator input, sidecar, and lookup table on a stable alias or name, and
-prove stability by validating a rebuilt ledger against its predecessor with `validate_analysis.py --baseline`.
+Preserve every existing ID; never renumber, reuse, or compact after deletion. Allocation below is for new models, not
+rebuilds: inventory changes can make positional IDs silently attach properties, suppressions, comments, or work-item
+links to the wrong elements. Key generators, sidecars, and lookups on stable aliases or names; prove rebuild
+stability against the previous ledger with `validate_analysis.py --baseline`.
 
 For a new model, freeze the discovered inventory, sort it, then allocate:
 
@@ -215,20 +211,17 @@ For a new model, freeze the discovered inventory, sort it, then allocate:
 - Threat actors: normalized `(capability, name)` order -> `TA1`, `TA2`, ...
 - Assumptions and unknowns: normalized text order -> `A001` and `U001`.
 
-On update, allocate the next numeric suffix for that prefix after the highest existing value. Append new entries and
-then sort arrays by natural ID order. Sort coverage by natural target ID and category order `S`, `T`, `R`, `I`, `D`,
-`E`.
+On update, allocate the next suffix above the highest existing value for each prefix; append entries, then sort by
+natural ID order. Sort coverage by natural target ID and STRIDE order `S`, `T`, `R`, `I`, `D`, `E`.
 
-Ledger `name` fields contain the bare phrase, never the ID: `{"id":"F1","name":"Submit request"}`. The manifest
-and diagram display `F1: Submit request`; renderers add the prefix exactly once. Keep names terse and put fuller
-explanations in linked evidence claims or threat descriptions, which the document renderer carries into the report.
+Use bare, terse ledger names: `{"id":"F1","name":"Submit request"}` displays as `F1: Submit request` exactly once.
+Put fuller explanations in linked evidence claims or threat descriptions; the renderer includes them in the report.
 
-For per-page flow numbering, opt in with `displayId` on flows in a declared `pages` view. Every flow on that page
-must have a unique, contiguous display ID from `F1` through `Fn`; other pages may repeat those display IDs.
-For example, `{"id":"F68","displayId":"F1","name":"Action results"}` keeps the stable reference `F68` but displays
-`F1: Action results`. These labels are references, not execution-order guarantees. Keep manifest aliases, coverage,
-evidence and threat targets keyed by the global `id`; never renumber them for presentation. Generated documents
-include the page/display-to-stable-ID mapping. Without `displayId`, existing labels and rendering stay unchanged.
+Opt into per-page flow numbering with `displayId` in a declared `pages` view. Number every flow on that page
+uniquely and contiguously from `F1` to `Fn`; other pages may repeat labels. `{"id":"F68","displayId":"F1","name":"Action results"}`
+displays `F1: Action results` while manifest aliases, coverage, evidence, and threat targets retain global `F68`.
+Display IDs are references, not execution order; never renumber stable IDs for presentation. Documents map
+page/display IDs to stable IDs. Without `displayId`, labels and rendering are unchanged.
 
 For new threat IDs:
 
