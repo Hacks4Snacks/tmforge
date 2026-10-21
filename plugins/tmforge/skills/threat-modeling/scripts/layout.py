@@ -15,7 +15,7 @@ from typing import Any
 
 import check_layout
 from generate_suppressions import require_distinct_output, write_sidecar
-from validate_analysis import as_object_list, load_document, page_views
+from validate_analysis import as_object_list, display_id, load_document, page_views
 
 ELEMENT_W = 190
 ELEMENT_H = 70
@@ -131,10 +131,9 @@ def derive_columns(
 def _label_width(flow: dict[str, Any]) -> float:
     """Width of the text a flow is drawn with, in drawing units.
 
-    The diagram label is the stable id joined to the flow name, which is what the manifest
-    writes as the connector's ``name`` and what the tool prints on the connector.
+    The diagram label uses the page-local displayId when present, otherwise id.
     """
-    identifier = str(flow.get("id") or "")
+    identifier = display_id(flow)
     name = str(flow.get("name") or "")
     label = f"{identifier}: {name}" if identifier and name else (identifier or name)
     return len(label) * LABEL_CHAR_W
@@ -499,7 +498,7 @@ def manifest_with_layout(
         for item in items:
             alias = item["alias"]
             source = canonical[alias]
-            expected_name = f"{alias}: {source['name']}"
+            expected_name = f"{display_id(source)}: {source['name']}"
             if item.get("name") != expected_name:
                 raise ValueError(
                     f"manifest {alias} name must be {expected_name!r}; ledger names hold the bare phrase"

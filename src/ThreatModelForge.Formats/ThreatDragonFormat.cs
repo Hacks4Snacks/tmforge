@@ -547,7 +547,8 @@ namespace ThreatModelForge.Formats
 
         private static JsonObject WriteThreat(string key, Threat threat, string methodology, long number)
         {
-            if (!ManualThreatId.IsManual(key) || !string.IsNullOrEmpty(threat.TypeId))
+            if (!ManualThreatId.IsManual(key)
+                || (!string.IsNullOrEmpty(threat.TypeId) && !ManualThreatId.IsNativeTypeId(threat.TypeId)))
             {
                 throw new NotSupportedException($"Threat Dragon export cannot preserve generated threat '{key}'; only authored threats are supported.");
             }
@@ -561,6 +562,22 @@ namespace ThreatModelForge.Formats
 
             foreach (string property in threat.Properties?.Keys ?? Enumerable.Empty<string>())
             {
+                string? projected = property switch
+                {
+                    "Title" => threat.Title,
+                    "UserThreatCategory" => threat.UserThreatCategory,
+                    "UserThreatShortDescription" => threat.UserThreatShortDescription,
+                    "UserThreatDescription" => threat.UserThreatDescription,
+                    "StateInformation" => threat.StateInformation,
+                    "InteractionString" => threat.InteractionString,
+                    "Priority" => threat.Priority,
+                    _ => null,
+                };
+                if (projected != null && string.Equals(projected, threat.Properties![property], StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
                 if (property != "Mitigation" && property != "Source.format" && property != "Source.version" && property != "Source.id"
                     && property != "Source.cellId" && property != "Source.diagramId" && property != "Source.modelType"
                     && property != "Source.status" && property != "Source.severity" && property != "Source.score" && property != "Source.number")

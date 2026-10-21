@@ -24,6 +24,7 @@ from validate_analysis import (
     as_object,
     as_object_list,
     as_string_list,
+    display_id,
     load_document,
     natural_key,
     page_views,
@@ -176,7 +177,7 @@ def render_flowchart(document: JsonObject) -> list[str]:
             lines.append("    %% No elements assigned to this boundary")
         lines.append("  end")
     for flow in flows:
-        flow_id = str(flow["id"])
+        flow_id = display_id(flow)
         source_id = str(flow["sourceId"])
         target_id = str(flow["targetId"])
         label = mermaid_label(f"{flow_id}: {text(flow.get('name'))}")
@@ -203,7 +204,7 @@ def render_sequence(document: JsonObject) -> list[str]:
         label = sequence_label(f"{element_id}: {text(element.get('name'))}")
         lines.append(f"  participant N_{element_id} as {label}")
     for flow in flows:
-        flow_id = str(flow["id"])
+        flow_id = display_id(flow)
         source_id = str(flow["sourceId"])
         target_id = str(flow["targetId"])
         label = sequence_label(f"{flow_id}: {text(flow.get('name'))}")
@@ -222,6 +223,8 @@ def render_data_flow(document: JsonObject, ledger_name: str) -> str:
     assets = as_object_list(document.get("assets")) or []
     threat_actors = as_object_list(document.get("threatActors")) or []
     evidence = as_object_list(document.get("evidence")) or []
+    local_numbering = any("displayId" in flow for flow in flows)
+    element_pages = {str(item["id"]): item.get("pageId") for item in elements}
 
     lines = [
         GENERATED_NOTICE,
@@ -250,7 +253,10 @@ def render_data_flow(document: JsonObject, ledger_name: str) -> str:
         lines.extend(("## Diagram Pages", ""))
         append_table(
             lines,
-            ("ID", "Name", "Boundaries", "Elements", "Flows"),
+            (
+                "ID", "Name", "Boundaries", "Elements",
+                "Stable Flow IDs" if local_numbering else "Flows",
+            ),
             (
                 (
                     page["id"],
@@ -309,10 +315,29 @@ def render_data_flow(document: JsonObject, ledger_name: str) -> str:
     )
 
     lines.extend(("## Data Flows", ""))
+    if local_numbering:
+        lines.extend(
+            (
+                "Display IDs restart at F1 within each numbered page. Use the "
+                "page and display ID together (for example PG1/F1); stable IDs "
+                "remain the references used by findings, coverage and evidence. "
+                "These are flow references, not execution-order guarantees.",
+                "",
+            )
+        )
+        flows = [
+            flow
+            for _, view in page_views(document)
+            for flow in sorted(
+                as_object_list(view.get("flows")) or [],
+                key=lambda item: natural_key(display_id(item)),
+            )
+        ]
     append_table(
         lines,
         (
-            "ID",
+            *(("Page", "Display ID") if local_numbering else ()),
+            "Stable ID" if local_numbering else "ID",
             "Name",
             "Source",
             "Target",
@@ -323,6 +348,10 @@ def render_data_flow(document: JsonObject, ledger_name: str) -> str:
         ),
         (
             (
+                *(
+                    (element_pages[str(item["sourceId"])], display_id(item))
+                    if local_numbering else ()
+                ),
                 item.get("id"),
                 item.get("name"),
                 item.get("sourceId"),
@@ -626,6 +655,28 @@ def render_threat_model(
         )
 
     lines.extend(("## Threat Register", ""))
+    if any("displayId" in flow for flow in flows):
+        lines.extend(
+            (
+                "Flow targets retain their stable IDs. The page-local diagram "
+                "label mapping appears "
+                + (
+                    "in the Data Flows table of [data-flow.md](./data-flow.md)."
+                    if not standalone else "below."
+                ),
+                "",
+            )
+        )
+        if standalone:
+            append_table(
+                lines,
+                ("Page", "Display ID", "Stable ID", "Name"),
+                (
+                    (page["id"], display_id(flow), flow["id"], flow["name"])
+                    for page, view in page_views(document)
+                    for flow in as_object_list(view.get("flows")) or []
+                ),
+            )
     append_table(
         lines,
         ("ID", "Title", "Origin", "Status", "Level", "Score", "Targets"),

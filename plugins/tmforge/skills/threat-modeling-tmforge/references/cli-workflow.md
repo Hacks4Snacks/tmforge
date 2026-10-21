@@ -87,7 +87,14 @@ mismatch blocks a verified verdict.
 
 Keep ledger names and diagram names distinct: ledger `{"id":"F7","name":"Read records"}` becomes manifest
 `{"alias":"F7","name":"F7: Read records"}`. Use the same rule for elements and boundaries. Never put the prefix
-inside the ledger's `name`; `models.parity` compares the diagram name with `id + ": " + name` exactly.
+inside the ledger's `name`; `models.parity` compares the diagram name with the expected display ID and bare name.
+
+For page-local flow numbering, ledger `{"id":"F68","displayId":"F1","name":"Action results"}` becomes manifest
+`{"alias":"F68","name":"F1: Action results"}`. The native `Alias` remains `F68`; only the visible prefix changes.
+Declare pages and number every flow on an opted-in page from F1 without gaps or duplicates. Repeating F1 on another
+page is intentional. The verifier resolves flow identity through `show --id <GUID> --json` and its `Alias` property,
+then checks the label, page and endpoints. Never infer the stable alias from a local label or native inventory order.
+Without `displayId`, the existing `id + ": " + name` convention is unchanged.
 
 When a manifest is source, edit the alias-keyed manifest and generate a candidate:
 
@@ -144,7 +151,7 @@ the manifest:
 
 Consequences for authoring:
 
-- **The flow name is a label, not a sentence.** Write the stable ID plus a terse phrase, and keep the sentence in the
+- **The flow name is a label, not a sentence.** Write the display ID (the stable ID by default) plus a terse phrase, and keep the sentence in the
   diagram name only. The canonical ledger holds the bare phrase, and fuller explanations belong in linked evidence
   claims or threat descriptions. Long labels need more space, but a collision does not imply that names are wrong.
 - **Derive geometry; do not invent it.** The layout generator provided by the loaded `threat-modeling` skill sizes each

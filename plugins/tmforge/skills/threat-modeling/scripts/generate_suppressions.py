@@ -79,8 +79,8 @@ def build_document(
         name = target_name(finding["target"])
         if name is None:
             missing.append(
-                f"{finding['rule']}: target name must start with a ledger alias "
-                f"('ALIAS: Name' or 'ALIAS Name'): {finding['target']!r}"
+                f"{finding['rule']}: target name must start with a diagram ID "
+                f"('ID: Name' or 'ID Name'): {finding['target']!r}"
             )
             continue
         text = justifications.get(finding["rule"], {}).get(name)
@@ -322,7 +322,7 @@ def run_self_test() -> int:
     unnamed = [{"rule": "TM1014", "model": "Diagram 1", "target": "no alias prefix"}]
     document, missing = build_document(unnamed, {}, "model.tm7")
     assert (
-        len(missing) == 1 and "target name must start with a ledger alias" in missing[0]
+        len(missing) == 1 and "target name must start with a diagram ID" in missing[0]
     ), missing
 
     justifications = {
