@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1](https://github.com/Hacks4Snacks/tmforge/compare/v0.14.0...v0.14.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* update package dependencies + validation and skill updates ([#148](https://github.com/Hacks4Snacks/tmforge/issues/148)) ([def2726](https://github.com/Hacks4Snacks/tmforge/commit/def27261f57c9c06535fcbb48b2c87ae8f77098a))
+
 ## [0.14.0](https://github.com/Hacks4Snacks/tmforge/compare/v0.13.1...v0.14.0) (2026-10-21)
 
 
