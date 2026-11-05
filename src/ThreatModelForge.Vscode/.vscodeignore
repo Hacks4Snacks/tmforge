@@ -1,5 +1,6 @@
 .vscode/**
 .vscode-test/**
+.tsupgrader/**
 src/**
 scripts/**
 out/test/**

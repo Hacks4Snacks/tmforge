@@ -1360,13 +1360,56 @@ class PackageContractTests(unittest.TestCase):
             any("pages: existing entries were renumbered" in error for error in errors),
             errors,
         )
-        self.assertTrue(
-            any(
-                "pages: ids present in the baseline were removed" in error
-                for error in errors
-            ),
-            errors,
-        )
+
+    def test_baseline_allows_removing_entries(self) -> None:
+        validator = sys.modules[self.verifier.validate_document.__module__]
+        for section in (
+            "pages",
+            "boundaries",
+            "elements",
+            "flows",
+            "assets",
+            "threatActors",
+            "threats",
+        ):
+            with self.subTest(section=section):
+                label_key = "title" if section == "threats" else "name"
+                baseline = {
+                    section: [
+                        {"id": "ID1", label_key: "Retained entry"},
+                        {"id": "ID2", label_key: "Obsolete entry"},
+                    ]
+                }
+                current = {section: [copy.deepcopy(baseline[section][0])]}
+                errors: list[str] = []
+                validator.check_id_stability(current, baseline, errors.append)
+                self.assertEqual(errors, [])
+
+    def test_surviving_findings_cannot_be_renumbered(self) -> None:
+        validator = sys.modules[self.verifier.validate_document.__module__]
+        document = copy.deepcopy(self.document)
+        document["threats"][0]["id"] = "CURRENT-S-999"
+        errors: list[str] = []
+        validator.check_id_stability(document, self.document, errors.append)
+        self.assertTrue(any("renumbered" in error for error in errors), errors)
+
+    def test_rendered_disposition_keeps_only_current_entry(self) -> None:
+        document = copy.deepcopy(self.document)
+        threat = document["threats"][0]
+        threat["triage"] = [
+            {
+                "date": "2026-09-22",
+                "reviewer": "reviewer@example.com",
+                "decision": "confirmed",
+                "status": threat["status"],
+                "rationale": rationale,
+            }
+            for rationale in ("Historical review decision.", "Current review decision.")
+        ]
+        report = self.verifier.render_documents(document)["threat-model.md"]
+        self.assertIn("Current review decision.", report)
+        self.assertNotIn("Historical review decision.", report)
+        self.assertNotIn("## Review Dispositions", report)
 
     def test_pages_reject_ambiguous_names_and_cross_page_references(self) -> None:
         self.document["pages"] = [

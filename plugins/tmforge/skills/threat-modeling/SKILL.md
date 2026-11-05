@@ -194,7 +194,7 @@ projected file rather than over the network. An exemption keeps a real judgement
 
 ## 4. Allocate Stable IDs and Ordering
 
-Preserve every existing ID; never renumber, reuse, or compact after deletion. Allocation below is for new models, not
+Preserve every surviving ID; never renumber, reuse, or compact after deletion. Allocation below is for new models, not
 rebuilds: inventory changes can make positional IDs silently attach properties, suppressions, comments, or work-item
 links to the wrong elements. Key generators, sidecars, and lookups on stable aliases or names; prove rebuild
 stability against the previous ledger with `validate_analysis.py --baseline`.
@@ -211,7 +211,7 @@ For a new model, freeze the discovered inventory, sort it, then allocate:
 - Threat actors: normalized `(capability, name)` order -> `TA1`, `TA2`, ...
 - Assumptions and unknowns: normalized text order -> `A001` and `U001`.
 
-On update, allocate the next suffix above the highest existing value for each prefix; append entries, then sort by
+On update, allocate the next suffix above the highest value in the model and Git history for each prefix; append entries, then sort by
 natural ID order. Sort coverage by natural target ID and STRIDE order `S`, `T`, `R`, `I`, `D`, `E`.
 
 Use bare, terse ledger names: `{"id":"F1","name":"Submit request"}` displays as `F1: Submit request` exactly once.
@@ -306,15 +306,9 @@ impact anchors; when similar threats receive different values, record the materi
 
 ## 7. Record Review Dispositions
 
-Review is where findings are most easily lost. A reviewer says a finding is already fixed, or duplicates another, or
-belongs to a neighbouring team, and the assertion quietly closes it. Pull-request threads are the worst possible home
-for those decisions: they are unversioned, unqueryable, and they disappear the moment the pull request merges, so the
-next reviewer re-litigates the same finding from scratch.
-
-Record each decision as a `triage` entry on the threat it concerns. The entry carries `date`, `reviewer`, `decision`,
-`status` at the time of review, and `rationale`, plus `reference`, `relatedThreatIds`, `workItemIds`, and `evidenceIds` where they apply. Entries
-accumulate and are sorted by date then reviewer, so the trail shows how a finding's disposition changed rather than
-only where it landed.
+Keep only the current review decision in the threat's `triage` array. Record `date`, `reviewer`, `decision`,
+`status`, and `rationale`, plus `reference`, `relatedThreatIds`, `workItemIds`, and `evidenceIds` where they apply.
+Replace superseded decisions; Git retains the earlier versions.
 For `mitigated`, `accepted`, or `transferred` threats, the latest triage status must match the threat status, with an accountable threat owner and supporting evidence.
 
 Use only these decisions:
@@ -332,14 +326,20 @@ three rules are enforced rather than advised:
 - `resolved` requires `evidenceIds` and an entry `status` of `mitigated` or `transferred`. A statement that something
   is fixed is not proof that it is; the commit, pull request, or runtime observation belongs in the evidence ledger
   first, at its true evidence rank. A reviewer's recollection is an `assumption`, not `runtime` evidence.
-- `duplicate` requires `relatedThreatIds`. Overlapping findings are cross-linked, not merged: STRIDE coverage is
-  per-element and per-category, and collapsing two categories into one leaves a coverage cell unanswered. Cross-link
-  them, and note in the mitigation when a single fix closes both so remediation planning does not double-count.
+- `duplicate` requires `relatedThreatIds` while the claim is unresolved. Remove a confirmed duplicate and reconcile
+  target coverage and references with the surviving finding; keep the surviving ID and complete STRIDE coverage.
 - `disputed` requires a `reference`. A dispute that cannot be read later is indistinguishable from a finding nobody
   looked at.
 
-A finding leaves a model by `transferred` to a named owner, never by deletion. "Not our component" is the most common
-way cross-boundary risk evaporates: transfer states who now carries it, while deletion states nothing.
+### Keep Artifacts Current
+
+Artifacts describe current scope and risk, not an accumulated history. Remove resolved findings that no longer represent a current risk and scenarios that
+are no longer applicable, based on verified implementation or scope evidence rather than a status label alone. Record removal rationale and verification
+references in the PR or commit; Git retains the removed content. Do not add archive arrays, tombstones, or closure-history sections to artifacts.
+
+Keep applicable controls and evidence, accepted residual risks, and transferred risks that remain dependencies of this scope. A transfer requires a named owner or enforceable contract.
+After removal, reconcile coverage, related threat references, suppressions, manifest properties, and risk counts. A category with no remaining finding needs an evidence-backed `not-applicable` rationale, not a deleted coverage cell.
+Remove obsolete assumptions, scope inputs, and evidence only when they no longer support the model. A scope input's `resolved` status is not risk closure.
 
 ### Responding to review without rebuilding
 
@@ -351,15 +351,15 @@ Triage classes cost very different amounts, so classify a comment before acting 
 
 | Class                | Typical comment                         | Ledger change                                        |
 |----------------------|-----------------------------------------|------------------------------------------------------|
-| Disposition          | "fixed in that pull request", "tracked" | `triage` entry, `status`, new evidence               |
-| Evidence correction  | "that external service refuses it"      | `triage` entry, new evidence, control, rescore       |
-| Scope dispute        | "that belongs to the other component"   | `triage` entry, re-scope or `transferred`            |
-| Duplicate claim      | "repeat of another finding"             | `triage` entry with `relatedThreatIds`, cross-link   |
+| Disposition          | "fixed in that pull request", "tracked" | current disposition or evidenced removal, reconcile coverage |
+| Evidence correction  | "that external service refuses it"      | current disposition, evidence, control, rescore       |
+| Scope dispute        | "that belongs to the other component"   | re-scope, remove, or retain a current transferred risk |
+| Duplicate claim      | "repeat of another finding"             | unresolved claim or confirmed removal with repaired references |
 | Topology correction  | "those are not separate processes"      | elements, flows, coverage, geometry, justifications  |
 
-Only the last class touches structure, and it is the one that cascades into the diagram manifest and its sidecars.
-Validate it with `validate_analysis.py --baseline` against the previous ledger, which refuses a rename, a renumber, or
-a dropped ID.
+Regenerate diagrams when topology changes and reconcile their properties or suppressions when references change.
+Validate with `validate_analysis.py --baseline`: it rejects reassigned or renumbered surviving entries while allowing
+removal. Ordinary validation enforces current references and complete coverage; review removal evidence in the diff.
 
 Collect comments before the pull request merges and record each durable thread reference in the triage entry.
 Reply on the originating thread with the threat ID, triage decision, and any correcting commit.
@@ -396,7 +396,7 @@ The threat-model report always includes these core sections:
 4. STRIDE coverage summary.
 5. Threat register with current controls, residual risk, status, mitigation, and verification.
 6. Prioritized recommendations.
-7. Validation results and change log when applicable.
+7. Current validation results.
 
 Include attack scenarios only for plausible high or critical paths. Include a separate controls inventory only when it
 adds information not already present in the threat register. Do not add filler sections to satisfy a fixed count.

@@ -137,7 +137,7 @@ global tool (`dotnet pack -p:PackTools=true`).
 
 ## Build & test
 
-Requires the .NET SDK pinned in [`global.json`](global.json) and Node.js 22.12+ with npm for Studio.
+Requires the .NET SDK pinned in [`global.json`](global.json) and a [supported Node.js LTS release](docs/installation.md#from-source) with npm for Studio.
 Use `-p:BuildStudio=false` for a .NET-only build/test loop; that does not build the browser UI.
 
 ```bash

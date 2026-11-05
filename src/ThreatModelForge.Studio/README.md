@@ -10,7 +10,7 @@ The .NET build produces the SPA and serves it from `ThreatModelForge.Api` (`wwwr
 
 ## Run
 
-Use Node.js 22.12+ and the pinned .NET SDK. Commands below run from this directory.
+Use a [supported Node.js LTS release](../../docs/installation.md#from-source) and the pinned .NET SDK. Commands below run from this directory.
 
 ```bash
 # 1. Dev server (hot reload): talks to the API on :5205 (start the API separately).

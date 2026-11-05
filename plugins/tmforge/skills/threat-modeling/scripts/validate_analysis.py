@@ -498,7 +498,8 @@ def check_id_stability(
     ID allocation is positional, so re-deriving IDs from a changed inventory shifts
     every entry after an insertion. Anything keyed by ID then attaches to the wrong
     element while remaining syntactically valid, which is why this is checked rather
-    than trusted.
+    than trusted. Obsolete entries may be removed: Git preserves their history and
+    ordinary document validation checks the remaining references and coverage.
     """
     for section in (
         "pages",
@@ -531,9 +532,6 @@ def check_id_stability(
         )
         if rehomed:
             error(f"{section}: existing entries were renumbered: {rehomed}")
-        dropped = sorted(previous.keys() - current.keys())
-        if dropped:
-            error(f"{section}: ids present in the baseline were removed: {dropped}")
 
     for section in ("threats",):
         current = {
@@ -544,9 +542,18 @@ def check_id_stability(
             str(item.get("id")): str(item.get("title"))
             for item in as_object_list(baseline.get(section)) or []
         }
-        dropped = sorted(previous.keys() - current.keys())
-        if dropped:
-            error(f"{section}: ids present in the baseline were removed: {dropped}")
+        previous_titles = {
+            title: item_id
+            for item_id, title in previous.items()
+            if item_id not in current
+        }
+        renumbered = sorted(
+            f"{title!r}: {previous_titles[title]} -> {item_id}"
+            for item_id, title in current.items()
+            if title in previous_titles and item_id not in previous
+        )
+        if renumbered:
+            error(f"{section}: existing entries were renumbered: {renumbered}")
 
 
 def check_crossing_consistency(

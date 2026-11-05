@@ -11,9 +11,9 @@ Threat Model Forge ships through several channels. Pick the one that fits your e
 | [Prebuilt binaries](#prebuilt-binaries) | No (self-contained) | Laptops, CI runners, agents |
 | [Container: CLI](#container-cli) | Docker only | CI, reproducible shells |
 | [Container: API + Studio](#container-api--studio) | Docker only | Hosting the browser app |
-| [VS Code extension](../src/ThreatModelForge.Vscode/README.md) | Desktop VS Code 1.103+ | Editing native and JSON models alongside code |
+| [VS Code extension](../src/ThreatModelForge.Vscode/README.md) | Desktop VS Code 1.138+ | Editing native and JSON models alongside code |
 | [.NET global tool](#net-global-tool) | .NET SDK/runtime | .NET developers |
-| [From source](#from-source) | .NET SDK 10.0.301; Node.js 22.12+ for Studio | Contributors |
+| [From source](#from-source) | .NET SDK 10.0.403; [supported Node.js LTS](#from-source) for Studio | Contributors |
 
 ## Prebuilt binaries
 
@@ -147,8 +147,8 @@ This path needs .NET present on the host (that's the trade-off vs. the self-cont
 
 ## From source
 
-Requires the .NET SDK pinned in [`global.json`](../global.json) (10.0.301), plus Node.js 22.12+ and
-npm for the default build, which includes Studio.
+Requires the .NET SDK pinned in [`global.json`](../global.json) (10.0.403), plus npm and a supported
+Node.js LTS release: 22.22.2+ on 22.x, 24.15.0+ on 24.x, or 26.x. The default build includes Studio.
 
 ```bash
 git clone https://github.com/Hacks4Snacks/tmforge.git
