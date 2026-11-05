@@ -35,7 +35,7 @@ renders it, editing mutates it, and the CLI and API expose it.
 ## Tests
 
 Tests live in [`../test`](../test), one `*.Tests` project per shipping library and
-application. Build and run the .NET suite from the repo root (Node.js 22.12+ is also required for
+application. Build and run the .NET suite from the repo root (a [supported Node.js LTS release](../docs/installation.md#from-source) is also required for
 the default Studio build):
 
 ```bash
@@ -49,7 +49,7 @@ in CI. `-p:BuildStudio=false` skips the SPA build for a .NET-only loop.
 ## VS Code Extension Development
 
 The extension's [README](ThreatModelForge.Vscode/README.md) covers installation and usage.
-Contributors need Node.js 22.12+, the repository's .NET SDK, and `wasm-tools` / `wasm-experimental`.
+Contributors need a [supported Node.js LTS release](../docs/installation.md#from-source), the repository's .NET SDK, and `wasm-tools` / `wasm-experimental`.
 From the repository root:
 
 ```bash

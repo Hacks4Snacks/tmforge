@@ -527,7 +527,7 @@ and are flagged for you to fix after loading.
 
 ## Local development
 
-To work on Studio with hot reload, use Node.js 22.12+ and the pinned .NET SDK, then run the Vite
+To work on Studio with hot reload, use a [supported Node.js LTS release](installation.md#from-source) and the pinned .NET SDK, then run the Vite
 dev server against a locally running API:
 
 ```bash

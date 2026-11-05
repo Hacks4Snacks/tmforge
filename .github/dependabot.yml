@@ -7,6 +7,9 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: "Microsoft.OpenApi"
+        versions: [">=3.0.0"]
     groups:
       nuget:
         patterns: ["*"]
@@ -16,6 +19,24 @@ updates:
     directory: "/src/ThreatModelForge.Studio"
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "typescript"
+        versions: [">=6.0.0"]
+    groups:
+      npm:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: "/src/ThreatModelForge.Vscode"
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "typescript"
+        versions: [">=6.0.0"]
+      - dependency-name: "@types/node"
+        versions: [">=23.0.0"]
+      - dependency-name: "@types/vscode"
+        versions: [">=1.139.0"]
     groups:
       npm:
         patterns: ["*"]

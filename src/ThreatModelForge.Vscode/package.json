@@ -267,10 +267,10 @@
     "package": "vsce package --no-dependencies --changelog-path out/CHANGELOG.md"
   },
   "devDependencies": {
-    "@types/node": "22.x",
-    "@types/vscode": "^1.103.0",
+    "@types/node": "^22.20.5",
+    "@types/vscode": "~1.138.0",
     "@vscode/test-electron": "^3.0.0",
-    "@vscode/vsce": "^4.0.0",
+    "@vscode/vsce": "^4.1.0",
     "typescript": "^5.9.3"
   }
 }

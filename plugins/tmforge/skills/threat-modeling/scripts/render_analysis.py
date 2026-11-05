@@ -614,46 +614,6 @@ def render_threat_model(
         ],
     )
 
-    triaged = [item for item in threats if as_object_list(item.get("triage"))]
-    if triaged:
-        latest_rows = [
-            (item, (as_object_list(item.get("triage")) or [])[-1]) for item in triaged
-        ]
-        contested = sum(
-            1 for _, entry in latest_rows if entry.get("decision") == "disputed"
-        )
-        lines.extend(("## Review Dispositions", ""))
-        lines.append(
-            f"{len(triaged)} of {len(threats)} findings carry a review disposition, "
-            f"of which {contested} remain disputed. The latest decision is shown here; "
-            "the full trail is recorded under each finding."
-        )
-        lines.append("")
-        append_table(
-            lines,
-            (
-                "Threat",
-                "Level",
-                "Status",
-                "Decision",
-                "Reviewer",
-                "Date",
-                "Work Items",
-            ),
-            (
-                (
-                    item.get("id"),
-                    item.get("level"),
-                    item.get("status"),
-                    entry.get("decision"),
-                    entry.get("reviewer"),
-                    entry.get("date"),
-                    join_values(entry.get("workItemIds")),
-                )
-                for item, entry in latest_rows
-            ),
-        )
-
     lines.extend(("## Threat Register", ""))
     if any("displayId" in flow for flow in flows):
         lines.extend(
@@ -760,7 +720,7 @@ def render_threat_model(
                         join_values(item.get("evidenceIds")),
                         item.get("reference"),
                     )
-                    for item in triage_entries
+                    for item in triage_entries[-1:]
                 ),
             )
         lines.extend(("#### Current Controls", ""))

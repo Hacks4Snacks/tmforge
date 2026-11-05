@@ -13,7 +13,7 @@ Pick one:
 
 - A prebuilt `tmforge` binary (no .NET runtime needed). See [Installation](installation.md).
 - The published CLI container image, which needs Docker.
-- The source tree, which needs the .NET SDK pinned in `global.json` (10.0.301).
+- The source tree, which needs the pinned .NET SDK and Node.js versions listed in [From source](installation.md#from-source).
 
 The examples below assume `tmforge` is on your `PATH`. From a container, replace `tmforge` with
 `docker run --rm -v "$PWD:/work" ghcr.io/hacks4snacks/tmforge-cli`. The image already supplies the
