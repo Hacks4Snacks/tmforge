@@ -83,6 +83,10 @@ Record the model title, page names, boundary/element/flow counts, stable IDs, ge
 count, and rendered boundary membership. Compare them to companion artifacts and current evidence. A scope or metadata
 mismatch blocks a verified verdict.
 
+On update, compare the candidate inventory with this original baseline as well as the ledger. Account for removals and
+consolidations using the core skill's criteria and existing evidence and scope rationale; a lower count alone is neither
+success nor failure.
+
 ## Declarative Manifest Workflow
 
 Keep ledger names and diagram names distinct: ledger `{"id":"F7","name":"Read records"}` becomes manifest
@@ -95,6 +99,12 @@ Declare pages and number every flow on an opted-in page from F1 without gaps or 
 page is intentional. The verifier resolves flow identity through `show --id <GUID> --json` and its `Alias` property,
 then checks the label, page and endpoints. Never infer the stable alias from a local label or native inventory order.
 Without `displayId`, the existing `id + ": " + name` convention is unchanged.
+
+The same convention applies to elements and boundaries: `{"id":"X28","displayId":"X2","name":"ARM"}` maps to
+`{"alias":"X28","name":"X2: ARM"}`. Number `A`, `X`, `P`, `DS`, and `TB` independently per page. Native object GUIDs,
+aliases, memberships and connector endpoints do not change. The verifier reads each opted-in object kind's aliases
+with `show`, so repeating a local label on another page does not merge identities. Retain existing geometry for a
+label-only update and check the resulting native labels and containment.
 
 When a manifest is source, edit the alias-keyed manifest and generate a candidate:
 
@@ -118,7 +128,8 @@ after conversion.
 ## Imperative Authoring Workflow
 
 Use imperative verbs only when direct mode is established or a declarative command is unavailable. Discover exact
-stencil IDs and properties first.
+stencil IDs and properties first. For an update, copy the existing model to the candidate path and modify the copy by
+existing GUID; do not run `new` or recreate retained objects. The creation example below applies only to new models.
 
 ```bash
 tmf new <candidate.tm7> --name "<scope> threat model" --json

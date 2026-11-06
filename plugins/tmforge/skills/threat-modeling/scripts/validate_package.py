@@ -35,6 +35,11 @@ from validate_changed_packages import package_files
 
 Check = dict[str, object]
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+NATIVE_ALIAS_KEYS = {
+    "boundaries": "boundary-aliases",
+    "components": "component-aliases",
+    "flows": "flow-aliases",
+}
 
 
 def make_check(name: str, status: str, detail: str, **data: object) -> Check:
@@ -209,19 +214,19 @@ def object_ids(data: JsonObject, collection_name: str = "items") -> set[str]:
     }
 
 
-def native_flow_aliases(
-    model: Path, flows: JsonObject, invocation: list[str], timeout: int
+def native_aliases(
+    model: Path, inventory: JsonObject, invocation: list[str], timeout: int
 ) -> tuple[JsonObject, list[str]]:
     """Read stable aliases by native GUID, never infer them from local labels."""
     aliases: JsonObject = {}
     errors: list[str] = []
-    items = as_object_list(get_case_insensitive(flows, "items"))
+    items = as_object_list(get_case_insensitive(inventory, "items"))
     if items is None:
-        return {}, ["native flow inventory is missing or malformed"]
-    for flow in items:
-        identifier = normalize_guid(get_case_insensitive(flow, "id"))
+        return {}, ["native object inventory is missing or malformed"]
+    for item in items:
+        identifier = normalize_guid(get_case_insensitive(item, "id"))
         if identifier is None:
-            errors.append("flow has no native identifier for alias readback")
+            errors.append("object has no native identifier for alias readback")
             continue
         stdout, failure = run_process(
             invocation + ["show", str(model), "--id", identifier, "--json"],
@@ -241,7 +246,7 @@ def native_flow_aliases(
         if (
             normalize_guid(get_case_insensitive(detail, "id")) != identifier
             or get_case_insensitive(detail, "name")
-            != get_case_insensitive(flow, "name")
+            != get_case_insensitive(item, "name")
             or not isinstance(alias, str)
             or not alias.strip()
         ):
@@ -258,7 +263,7 @@ def tmforge_model_checks(
     timeout: int,
     inventories: dict[str, dict[str, JsonObject]] | None = None,
     *,
-    flow_display_ids: bool = False,
+    display_id_kinds: set[str] | None = None,
 ) -> list[Check]:
     """Run the required read-only tmforge checks for one model artifact."""
     try:
@@ -294,16 +299,17 @@ def tmforge_model_checks(
                 continue
         checks.append(make_check(check_name, "pass", "command completed"))
 
-    if flow_display_ids:
-        aliases, errors = native_flow_aliases(
-            model, outputs.get("flows", {}), invocation, timeout
+    for kind in sorted(display_id_kinds or ()):
+        aliases, errors = native_aliases(
+            model, outputs.get(kind, {}), invocation, timeout
         )
-        outputs["flow-aliases"] = aliases
+        alias_key = NATIVE_ALIAS_KEYS[kind]
+        outputs[alias_key] = aliases
         checks.append(
             make_check(
-                f"tmforge.{relative_model}.flow-aliases",
+                f"tmforge.{relative_model}.{alias_key}",
                 "fail" if errors else "pass",
-                "; ".join(errors) if errors else "stable flow aliases read by GUID",
+                "; ".join(errors) if errors else f"stable {kind} aliases read by GUID",
                 errors=errors,
             )
         )
@@ -376,7 +382,10 @@ def model_inventory_check(
     seen_pages: set[str] = set()
     counts = {kind: 0 for kind in kinds}
     errors: list[str] = []
-    flow_display_ids = any("displayId" in flow for flow in expected["flows"].values())
+    display_id_kinds = {
+        kind for kind, items in expected.items()
+        if any("displayId" in item for item in items.values())
+    }
     for model, outputs in sorted(inventories.items()):
         collections: dict[str, list[JsonObject]] = {}
         for kind in (*kinds, "diagrams"):
@@ -412,10 +421,10 @@ def model_inventory_check(
                 alias, separator, label = str(name or "").partition(":")
                 alias, label = alias.strip(), label.strip()
                 label_id = alias
-                if kind == "flows" and flow_display_ids:
+                if kind in display_id_kinds:
                     identifier = normalize_guid(get_case_insensitive(item, "id"))
                     alias = str(
-                        outputs.get("flow-aliases", {}).get(identifier or "", "")
+                        outputs.get(NATIVE_ALIAS_KEYS[kind], {}).get(identifier or "", "")
                     )
                 if not separator or alias not in expected[kind]:
                     errors.append(f"{model}: unexpected {kind} alias/name {name!r}")
@@ -885,17 +894,24 @@ def verify_package(
                         text_value(stdout, "version command completed"),
                     )
                 )
-                flow_display_ids = any(
-                    "displayId" in flow
-                    for flow in as_object_list(
-                        document.get("flows") if document else None
-                    ) or []
-                )
+                display_id_kinds = {
+                    kind for kind, ledger_kind in (
+                        ("boundaries", "boundaries"),
+                        ("components", "elements"),
+                        ("flows", "flows"),
+                    )
+                    if any(
+                        "displayId" in item
+                        for item in as_object_list(
+                            document.get(ledger_kind) if document else None
+                        ) or []
+                    )
+                }
                 for model in model_paths:
                     checks.extend(
                         tmforge_model_checks(
                             model, package_directory, invocation, timeout, inventories,
-                            flow_display_ids=flow_display_ids,
+                            display_id_kinds=display_id_kinds,
                         )
                     )
         if document is not None and not validate_document(document):

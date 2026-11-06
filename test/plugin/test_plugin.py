@@ -1164,6 +1164,158 @@ class PackageContractTests(unittest.TestCase):
         )
         self.outputs["diagrams"]["count"] += 1
 
+    def use_local_object_numbers(self) -> None:
+        self.use_local_flow_numbers()
+        self.document["boundaries"].append(
+            {
+                **self.document["boundaries"][0],
+                "id": "TB9", "name": "Build boundary", "pageId": "PG2",
+            }
+        )
+        for element in self.document["elements"]:
+            if element["pageId"] == "PG2":
+                element["boundaryIds"] = ["TB9"]
+        for identifier, kind, name in (
+            ("A9", "actor", "Build caller"),
+            ("P9", "process", "Build process"),
+            ("DS9", "data-store", "Build store"),
+        ):
+            self.document["elements"].append(
+                {
+                    "id": identifier, "name": name, "kind": kind,
+                    "pageId": "PG2", "boundaryIds": ["TB9"],
+                    "material": False, "evidenceIds": ["E001"],
+                }
+            )
+        validator = sys.modules[self.verifier.validate_document.__module__]
+        for kind, ledger_kind, alias_key in (
+            ("boundaries", "boundaries", "boundary-aliases"),
+            ("components", "elements", "component-aliases"),
+        ):
+            items = self.document[ledger_kind]
+            items.sort(key=lambda item: validator.natural_key(item["id"]))
+            counts: dict[tuple[str, str], int] = {}
+            for item in items:
+                prefix = re.sub(r"[0-9]+$", "", item["id"])
+                key = (item["pageId"], prefix)
+                counts[key] = counts.get(key, 0) + 1
+                item["displayId"] = f"{prefix}{counts[key]}"
+            self.outputs[kind] = {
+                "count": len(items),
+                "items": [
+                    {
+                        "ID": item["id"].lower(),
+                        "Name": f"{item['displayId']}: {item['name']}",
+                        "DiagramHeader": "Runtime" if item["pageId"] == "PG1" else "Build",
+                    }
+                    for item in items
+                ],
+            }
+            self.outputs[alias_key] = {item["id"].lower(): item["id"] for item in items}
+        for page in self.outputs["diagrams"]["items"]:
+            for kind, count_key in (
+                ("components", "componentCount"), ("boundaries", "trustBoundaryCount")
+            ):
+                page[count_key] = sum(
+                    item["DiagramHeader"] == page["header"]
+                    for item in self.outputs[kind]["items"]
+                )
+
+    def test_object_labels_preserve_stable_references_and_render_mapping(self) -> None:
+        self.use_local_object_numbers()
+        original = copy.deepcopy(self.document)
+        baseline = copy.deepcopy(self.document)
+        for item in baseline["boundaries"] + baseline["elements"]:
+            del item["displayId"]
+        self.assertEqual(self.verifier.validate_document(self.document), [])
+        validator = sys.modules[self.verifier.validate_document.__module__]
+        errors: list[str] = []
+        validator.check_id_stability(self.document, baseline, errors.append)
+        self.assertEqual(errors, [])
+        rendered = self.verifier.render_documents(self.document)
+        data_flow = rendered["data-flow.md"]
+        self.assertIn('N_P9["P1: Build process [process]"]', data_flow)
+        self.assertIn("participant N_P9 as P1 - Build process", data_flow)
+        self.assertIn('B_TB9["TB1: Build boundary"]', data_flow)
+        for pattern in (
+            r"\|\s*PG2\s*\|\s*P1\s*\|\s*P9\s*\|\s*Build process\s*\|",
+            r"\|\s*PG2\s*\|\s*TB1\s*\|\s*TB9\s*\|\s*Build boundary\s*\|",
+            r"\|\s*PG2\s*\|\s*DS1\s*\|\s*DS9\s*\|\s*Build store\s*\|",
+        ):
+            self.assertRegex(data_flow, pattern)
+        renderer = sys.modules[self.verifier.render_documents.__module__]
+        standalone = renderer.render_threat_model(
+            self.document, "analysis.json", standalone=True
+        )
+        self.assertNotIn("data-flow.md", standalone)
+        self.assertRegex(
+            standalone, r"\|\s*PG2\s*\|\s*P1\s*\|\s*P9\s*\|\s*Build process\s*\|"
+        )
+        self.assertEqual(self.document, original)
+        self.assertEqual(self.verifier.render_documents(self.document), rendered)
+        self.assertEqual(self.document["coverage"], baseline["coverage"])
+        self.assertEqual(self.document["threats"], baseline["threats"])
+
+    def test_object_numbering_requires_pages_and_contiguous_matching_prefixes(self) -> None:
+        original = copy.deepcopy(self.document)
+        for kind in ("boundaries", "elements"):
+            self.document = copy.deepcopy(original)
+            item = self.document[kind][0]
+            item["displayId"] = item["id"]
+            self.assertIn(
+                f"{kind}.{item['id']}: displayId requires a pages declaration",
+                self.verifier.validate_document(self.document),
+            )
+        self.document = original
+        self.use_local_object_numbers()
+        baseline = copy.deepcopy(self.document)
+        for value in ("X1", "X3", "X0", "X01", "P2", "A2", "DS2", None):
+            with self.subTest(value=value):
+                item = next(item for item in self.document["elements"] if item["id"] == "X3")
+                item["displayId"] = value
+                self.assertTrue(self.verifier.validate_document(self.document))
+        del item["displayId"]
+        self.assertTrue(self.verifier.validate_document(self.document))
+        self.document = copy.deepcopy(baseline)
+        for value in ("TB2", "TB0", "TB01", "X1"):
+            with self.subTest(boundary=value):
+                self.document["boundaries"][1]["displayId"] = value
+                self.assertTrue(self.verifier.validate_document(self.document))
+        self.document = copy.deepcopy(baseline)
+        for item in self.document["flows"]:
+            del item["displayId"]
+        store = next(item for item in self.document["elements"] if item["id"] == "DS9")
+        del store["displayId"]
+        self.assertEqual(self.verifier.validate_document(self.document), [])
+
+    def test_native_object_aliases_disambiguate_labels_and_enforce_identity(self) -> None:
+        self.use_local_object_numbers()
+        self.assertEqual(self.check()["status"], "pass", self.check())
+        baseline = copy.deepcopy(self.outputs)
+        for alias_key, identifier, wrong_alias in (
+            ("component-aliases", "p9", "P1"),
+            ("boundary-aliases", "tb9", "TB1"),
+        ):
+            with self.subTest(alias_key=alias_key):
+                self.outputs = copy.deepcopy(baseline)
+                self.outputs[alias_key] = {}
+                self.assertEqual(self.check()["status"], "fail")
+                self.outputs = copy.deepcopy(baseline)
+                self.outputs[alias_key][identifier] = wrong_alias
+                self.assertEqual(self.check()["status"], "fail")
+        for kind, identifier, field, value in (
+            ("components", "p9", "Name", "P9: Build process"),
+            ("components", "p9", "DiagramHeader", "Runtime"),
+            ("boundaries", "tb9", "Name", "TB9: Build boundary"),
+            ("boundaries", "tb9", "DiagramHeader", "Runtime"),
+            ("flows", "f9", "SourceComponentID", "p9"),
+        ):
+            with self.subTest(kind=kind, field=field):
+                self.outputs = copy.deepcopy(baseline)
+                item = next(item for item in self.outputs[kind]["items"] if item["ID"] == identifier)
+                item[field] = value
+                self.assertEqual(self.check()["status"], "fail")
+
     def test_page_local_labels_preserve_stable_references_and_render_mapping(self) -> None:
         baseline = copy.deepcopy(self.document)
         self.use_local_flow_numbers()
@@ -1243,7 +1395,7 @@ class PackageContractTests(unittest.TestCase):
         self.outputs["flows"]["items"][1]["DiagramHeader"] = "Runtime"
         self.assertIn("F9 page differs", self.check()["detail"])
 
-    def test_native_flow_alias_readback_rejects_missing_or_mismatched_objects(self) -> None:
+    def test_native_alias_readback_rejects_missing_or_mismatched_objects(self) -> None:
         flow = self.outputs["flows"]["items"][0]
         detail = {
             "id": flow["ID"], "name": flow["Name"],
@@ -1253,7 +1405,7 @@ class PackageContractTests(unittest.TestCase):
             self.verifier, "run_process",
             return_value=(json.dumps({"data": detail}), None),
         ) as run:
-            aliases, errors = self.verifier.native_flow_aliases(
+            aliases, errors = self.verifier.native_aliases(
                 Path("model.tm7"), self.outputs["flows"], ["mock-tmforge"], 60
             )
         self.assertEqual((aliases, errors), ({"f1": "F1"}, []))
@@ -1271,7 +1423,7 @@ class PackageContractTests(unittest.TestCase):
             with self.subTest(response=response), patch.object(
                 self.verifier, "run_process", return_value=response
             ):
-                aliases, errors = self.verifier.native_flow_aliases(
+                aliases, errors = self.verifier.native_aliases(
                     Path("model.tm7"), self.outputs["flows"], ["mock-tmforge"], 60
                 )
                 self.assertEqual(aliases, {})
@@ -1280,7 +1432,7 @@ class PackageContractTests(unittest.TestCase):
             with self.subTest(inventory=inventory), patch.object(
                 self.verifier, "run_process"
             ) as run:
-                aliases, errors = self.verifier.native_flow_aliases(
+                aliases, errors = self.verifier.native_aliases(
                     Path("model.tm7"), inventory, ["mock-tmforge"], 60
                 )
                 self.assertEqual(aliases, {})
@@ -1554,9 +1706,19 @@ class PackageContractTests(unittest.TestCase):
     def test_local_flow_labels_round_trip_through_real_tmforge(self) -> None:
         self.check_multi_page_round_trip(local_numbering=True)
 
-    def check_multi_page_round_trip(self, local_numbering: bool) -> None:
+    @unittest.skipUnless(
+        os.environ.get("TMFORGE_PLUGIN_TEST_CLI"), "opt-in real CLI round trip"
+    )
+    def test_local_object_labels_round_trip_through_real_tmforge(self) -> None:
+        self.check_multi_page_round_trip(local_numbering=True, local_objects=True)
+
+    def check_multi_page_round_trip(
+        self, local_numbering: bool, local_objects: bool = False
+    ) -> None:
         invocation = shlex.split(os.environ["TMFORGE_PLUGIN_TEST_CLI"])
-        if local_numbering:
+        if local_objects:
+            self.use_local_object_numbers()
+        elif local_numbering:
             self.use_local_flow_numbers()
         else:
             self.document["pages"] = [
@@ -1601,13 +1763,13 @@ class PackageContractTests(unittest.TestCase):
             "version": 1,
             "name": "Multi-page layout regression",
             "boundaries": [
-                {"alias": item["id"], "name": f"{item['id']}: {item['name']}"}
+                {"alias": item["id"], "name": f"{item.get('displayId', item['id'])}: {item['name']}"}
                 for item in self.document["boundaries"]
             ],
             "elements": [
                 {
                     "alias": item["id"],
-                    "name": f"{item['id']}: {item['name']}",
+                    "name": f"{item.get('displayId', item['id'])}: {item['name']}",
                     "kind": {"data-store": "store", "actor": "external"}.get(
                         item["kind"], item["kind"]
                     ),
@@ -1673,7 +1835,10 @@ class PackageContractTests(unittest.TestCase):
             inventories: dict[str, Any] = {}
             checks = self.verifier.tmforge_model_checks(
                 model, package, invocation, 60, inventories,
-                flow_display_ids=local_numbering,
+                display_id_kinds=(
+                    {"boundaries", "components", "flows"} if local_objects
+                    else {"flows"} if local_numbering else set()
+                ),
             )
             self.assertTrue(all(check["status"] == "pass" for check in checks), checks)
             parity = self.verifier.model_inventory_check(self.document, inventories)
@@ -1693,13 +1858,13 @@ class PackageContractTests(unittest.TestCase):
                 ]
             )
             actual = json.loads(exported.read_text(encoding="utf-8"))
-            for kind in ("elements", "flows"):
+            for kind in ("boundaries", "elements", "flows"):
                 restored = {item["alias"]: item for item in actual[kind]}
                 for original in manifest[kind]:
                     self.assertEqual(
                         restored[original["alias"]]["name"], original["name"]
                     )
-                    for property_name, value in original["props"].items():
+                    for property_name, value in original.get("props", {}).items():
                         self.assertEqual(
                             restored[original["alias"]]["props"][property_name], value
                         )

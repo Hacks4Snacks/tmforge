@@ -33,6 +33,7 @@ machine-readable output shapes, authoring, update, validation, and troubleshooti
    data-flow document. Update those sources before adding a new diagram object or connector.
 5. **Exclude nonmaterial nodes.** Do not add probes, schedulers, observers, or convenience nodes unless they create a
    material flow, privileged action, or trust-boundary effect represented in the ledger.
+   This is not permission to collapse distinct resources already evidenced in scope.
 6. **Use a candidate workflow.** Create or update a temporary candidate first. Do not replace the owned artifact until
    the candidate opens, inventories, renders, analyzes, and threat-lists successfully.
 7. **Read mutations back.** After every property change, removal, connection, layout, apply, or threat operation, use
@@ -52,7 +53,8 @@ Do not assume an index, manifest, sidecar, schema, suppression file, or gate exi
    than treating them as ground truth.
 3. Otherwise follow the nearest established convention for the owned model.
 4. If a declarative `*.tm.json` exists, treat it as source and retain the sibling `.tm7` as generated output.
-5. If only a committed `.tm7` exists, use direct mode and preserve it unless migration was requested.
+5. If an existing `.tm7` has no authoritative manifest, use direct mode whether or not the file is committed.
+   Preserve that authoring convention unless migration was requested.
 6. For a new model with no convention, default to a declarative `model.tm.json` source and generate `model.tm7` as an
    output. Create companion artifacts required by the selected threat-modeling mode; do not invent repository-specific
    lifecycle files.
@@ -108,15 +110,19 @@ exception to explicit user approval and local security policy. Never clear attri
 
 1. **Preflight**: record tool version; query stencils and properties; inspect local artifact convention.
 2. **Baseline existing artifacts**: capture metadata, page names, boundaries, elements, flows, generated threats,
-   persisted threats, stable IDs, and rendered boundary membership before mutation.
+   persisted threats, stable IDs, and rendered boundary membership before mutation. Keep the original as the comparison
+   source when recovery or conversion is needed; account for conversion losses separately from intended model changes.
 3. **Map the ledger**: map aliases and flows 1:1; set properties only from evidence; encode unknown or weak values
    honestly.
 4. **Create the candidate**: prefer declarative apply when the convention supports it; otherwise use tmforge verbs by
-   GUID. Keep the candidate outside the owned artifact path.
+   GUID. On update, start from the existing manifest or a copy of the direct-mode model, not an empty model rebuilt from
+   a summary. Keep the candidate outside the owned artifact path.
 5. **Analyze and reconcile**: inspect rule reports and generated instances separately; mirror every accepted or open
    material finding in the canonical STRIDE ledger.
 6. **Validate**: open, list, show material properties, render, analyze, list generated threats, and list persisted
-   threats. Compare final IDs and counts with the candidate and canonical ledger.
+   threats. Compare the candidate with the original by resource, page, endpoint, properties, and boundary membership,
+   applying the core skill's removal and consolidation rules. Then compare final IDs and counts with the candidate and
+   canonical ledger. Passing ledger parity alone does not establish a faithful update.
 7. **Promote**: replace the owned sibling `.tm7` only after all required checks pass. Preserve the authoritative
    manifest and require candidate/final byte equivalence. A persistent formal package is incomplete without the
    generated `.tm7`.

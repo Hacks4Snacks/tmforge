@@ -340,8 +340,13 @@
           "type": "string",
           "pattern": "^TB[0-9]+$"
         },
+        "displayId": {
+          "description": "Optional page-local diagram label. Requires declared pages and complete TB1..TBn numbering on an opted-in page. References and manifest aliases continue to use the stable id.",
+          "type": "string",
+          "pattern": "^TB[1-9][0-9]*$"
+        },
         "name": {
-          "description": "Bare descriptive name, without the stable ID prefix. Renderers add 'ID: ' exactly once.",
+          "description": "Bare descriptive name, without an ID prefix. Renderers add displayId when present, otherwise the stable id, exactly once.",
           "type": "string",
           "minLength": 1
         },
@@ -383,8 +388,13 @@
           "type": "string",
           "pattern": "^(A|X|P|DS)[0-9]+$"
         },
+        "displayId": {
+          "description": "Optional page-local diagram label with the same prefix as the stable id. Requires declared pages and complete numbering from 1 for that prefix on an opted-in page. References and manifest aliases continue to use id.",
+          "type": "string",
+          "pattern": "^(A|X|P|DS)[1-9][0-9]*$"
+        },
         "name": {
-          "description": "Bare descriptive name, without the stable ID prefix. Renderers add 'ID: ' exactly once.",
+          "description": "Bare descriptive name, without an ID prefix. Renderers add displayId when present, otherwise the stable id, exactly once.",
           "type": "string",
           "minLength": 1
         },
