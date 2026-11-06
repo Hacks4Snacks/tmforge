@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.2](https://github.com/Hacks4Snacks/tmforge/compare/v0.14.1...v0.14.2) (2026-11-06)
+
+
+### Bug Fixes
+
+* Adjust threat model update logic and boundary handling ([#150](https://github.com/Hacks4Snacks/tmforge/issues/150)) ([6290e93](https://github.com/Hacks4Snacks/tmforge/commit/6290e93e2443ec5eca4c81d6ea816cd3c2dc833f))
+
 ## [0.14.1](https://github.com/Hacks4Snacks/tmforge/compare/v0.14.0...v0.14.1) (2026-11-05)
 
 
