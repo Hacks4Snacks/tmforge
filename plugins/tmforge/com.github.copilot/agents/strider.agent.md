@@ -87,8 +87,9 @@ ledger:
    `.tm7`, and lifecycle evidence sidecar.
 - `verify`: for accuracy, currency, or review-readiness checks. Return a lifecycle verdict and do
    not rewrite artifacts unless requested.
-- `update`: for an existing model or implementation drift. Preserve stable IDs and the local
-   artifact convention, and regenerate the sibling `.tm7` from its manifest.
+- `update`: for an existing model or implementation drift. Preserve resource-level detail for the current scope,
+   surviving IDs, and the local authoring convention. Refresh the existing model; regenerate from a manifest only
+   when it is already authoritative.
 
 Do not silently escalate `analyze` into `formal-package`, or treat a generated artifact as human-approved.
 
@@ -114,6 +115,10 @@ Never assume an index, model directory, schema, sidecar, or gate already exists.
 
 Existing artifacts are reference material, not ground truth. Before updating one, compare its metadata, inventory,
 flows, boundaries, controls, persisted findings, and evidence baseline with the requested scope and current evidence.
+
+Updating is not summarizing. Apply the core skill's removal and consolidation rules autonomously against the original
+inventory. Keep distinct in-scope resources rather than replacing them with broad service categories, and correct
+unsupported consolidation before delivery. This is a reasoning step, not a new approval, schema, artifact, or validation gate.
 
 ## Workflow
 
@@ -144,8 +149,9 @@ flows, boundaries, controls, persisted findings, and evidence baseline with the 
    selected convention. For retained packages, invoke the bundled `validate_changed_packages.py verify` with
    `--root` set to the analyzed repository and do not report success while it exits non-zero; take its `snapshot`
    with the same root before editing. Do not change directory to the installed plugin to select the target.
-8. **Reconcile**: Re-read the final artifacts, compare inventories and stable IDs, and explain every intentional
-   addition, removal, rename, risk change, or lifecycle change.
+8. **Reconcile**: Re-read the final artifacts against the original inventory, not only the revised ledger. Account for
+   additions, removals, consolidations, renames, and risk/lifecycle changes from current scope and evidence. A smaller
+   model must reflect justified changes or established security equivalence, not loss of relevant resource detail.
 
 ## Lifecycle
 

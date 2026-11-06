@@ -142,6 +142,7 @@ def render_flowchart(document: JsonObject) -> list[str]:
     flows = as_object_list(document.get("flows")) or []
 
     grouped: dict[str, list[JsonObject]] = {str(item["id"]): [] for item in boundaries}
+    boundary_labels = {str(item["id"]): display_id(item) for item in boundaries}
     unbounded: list[JsonObject] = []
     for element in elements:
         boundary_ids = as_string_list(element.get("boundaryIds")) or []
@@ -155,7 +156,7 @@ def render_flowchart(document: JsonObject) -> list[str]:
     def append_node(element: JsonObject, indent: str = "  ") -> None:
         element_id = str(element["id"])
         label = mermaid_label(
-            f"{element_id}: {text(element.get('name'))} [{text(element.get('kind'))}]"
+            f"{display_id(element)}: {text(element.get('name'))} [{text(element.get('kind'))}]"
         )
         lines.append(f'{indent}N_{element_id}["{label}"]')
 
@@ -164,9 +165,9 @@ def render_flowchart(document: JsonObject) -> list[str]:
     for boundary in boundaries:
         boundary_id = str(boundary["id"])
         parent = boundary.get("parentId")
-        parent_suffix = f"; parent {parent}" if parent else ""
+        parent_suffix = f"; parent {boundary_labels[str(parent)]}" if parent else ""
         label = mermaid_label(
-            f"{boundary_id}: {text(boundary.get('name'))}{parent_suffix}"
+            f"{display_id(boundary)}: {text(boundary.get('name'))}{parent_suffix}"
         )
         lines.append(f'  subgraph B_{boundary_id}["{label}"]')
         members = grouped[boundary_id]
@@ -201,7 +202,7 @@ def render_sequence(document: JsonObject) -> list[str]:
     lines = ["```mermaid", "sequenceDiagram"]
     for element in elements:
         element_id = str(element["id"])
-        label = sequence_label(f"{element_id}: {text(element.get('name'))}")
+        label = sequence_label(f"{display_id(element)}: {text(element.get('name'))}")
         lines.append(f"  participant N_{element_id} as {label}")
     for flow in flows:
         flow_id = display_id(flow)
@@ -224,6 +225,8 @@ def render_data_flow(document: JsonObject, ledger_name: str) -> str:
     threat_actors = as_object_list(document.get("threatActors")) or []
     evidence = as_object_list(document.get("evidence")) or []
     local_numbering = any("displayId" in flow for flow in flows)
+    local_boundaries = any("displayId" in item for item in boundaries)
+    local_elements = any("displayId" in item for item in elements)
     element_pages = {str(item["id"]): item.get("pageId") for item in elements}
 
     lines = [
@@ -282,11 +285,26 @@ def render_data_flow(document: JsonObject, ledger_name: str) -> str:
         )
 
     lines.extend(("## Trust Boundaries", ""))
+    if local_boundaries or local_elements:
+        lines.extend(
+            (
+                "Object display IDs restart per prefix within each numbered page. "
+                "Use the page and display ID together (for example PG1/P1). "
+                "Parent, membership, endpoint and finding references retain their "
+                "stable IDs; the tables below map them to diagram labels.",
+                "",
+            )
+        )
     append_table(
         lines,
-        ("ID", "Name", "Axis", "Parent", "Evidence"),
+        (
+            *(("Page", "Display ID") if local_boundaries else ()),
+            "Stable ID" if local_boundaries else "ID",
+            "Name", "Axis", "Parent", "Evidence",
+        ),
         (
             (
+                *((item.get("pageId"), display_id(item)) if local_boundaries else ()),
                 item.get("id"),
                 item.get("name"),
                 item.get("axis"),
@@ -300,9 +318,14 @@ def render_data_flow(document: JsonObject, ledger_name: str) -> str:
     lines.extend(("## Elements", ""))
     append_table(
         lines,
-        ("ID", "Name", "Kind", "Boundaries", "Material", "Evidence"),
+        (
+            *(("Page", "Display ID") if local_elements else ()),
+            "Stable ID" if local_elements else "ID",
+            "Name", "Kind", "Boundaries", "Material", "Evidence",
+        ),
         (
             (
+                *((item.get("pageId"), display_id(item)) if local_elements else ()),
                 item.get("id"),
                 item.get("name"),
                 item.get("kind"),
@@ -615,13 +638,24 @@ def render_threat_model(
     )
 
     lines.extend(("## Threat Register", ""))
-    if any("displayId" in flow for flow in flows):
+    local_objects = any("displayId" in item for item in [*boundaries, *elements])
+    if local_objects or any("displayId" in flow for flow in flows):
         lines.extend(
             (
-                "Flow targets retain their stable IDs. The page-local diagram "
-                "label mapping appears "
+                (
+                    "Targets retain their stable IDs. Page-local object and flow "
+                    "label mappings appear "
+                    if local_objects else
+                    "Flow targets retain their stable IDs. The page-local diagram "
+                    "label mapping appears "
+                )
                 + (
-                    "in the Data Flows table of [data-flow.md](./data-flow.md)."
+                    (
+                        "in the Trust Boundaries, Elements and Data Flows tables "
+                        "of [data-flow.md](./data-flow.md)."
+                        if local_objects else
+                        "in the Data Flows table of [data-flow.md](./data-flow.md)."
+                    )
                     if not standalone else "below."
                 ),
                 "",
@@ -632,9 +666,12 @@ def render_threat_model(
                 lines,
                 ("Page", "Display ID", "Stable ID", "Name"),
                 (
-                    (page["id"], display_id(flow), flow["id"], flow["name"])
+                    (page["id"], display_id(item), item["id"], item["name"])
                     for page, view in page_views(document)
-                    for flow in as_object_list(view.get("flows")) or []
+                    for kind in (
+                        ("boundaries", "elements", "flows") if local_objects else ("flows",)
+                    )
+                    for item in as_object_list(view.get(kind)) or []
                 ),
             )
     append_table(

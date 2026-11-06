@@ -836,6 +836,7 @@ def page_errors(document: JsonObject) -> list[str]:
             errors.append(f"duplicate page name: {name!r}")
         else:
             names.add(name)
+    numbered_pages: dict[tuple[str, str], list[JsonObject]] = {}
     for kind, items in (("boundaries", boundaries), ("elements", elements)):
         for item in items:
             page_id = item.get("pageId")
@@ -847,6 +848,12 @@ def page_errors(document: JsonObject) -> list[str]:
                 errors.append(
                     f"{kind}.{item.get('id')}: pageId requires a pages declaration"
                 )
+            if "displayId" in item and not pages:
+                errors.append(
+                    f"{kind}.{item.get('id')}: displayId requires a pages declaration"
+                )
+            prefix = re.sub(r"[0-9]+$", "", str(item.get("id", "")))
+            numbered_pages.setdefault((str(page_id), prefix), []).append(item)
     boundary_index = {str(item.get("id")): item for item in boundaries}
     element_index = {str(item.get("id")): item for item in elements}
     for boundary in boundaries:
@@ -864,7 +871,6 @@ def page_errors(document: JsonObject) -> list[str]:
                 errors.append(
                     f"elements.{element.get('id')}: boundary {boundary_id} is on another page"
                 )
-    numbered_pages: dict[str, list[JsonObject]] = {}
     for flow in flows:
         if "displayId" in flow and not pages:
             errors.append(
@@ -882,18 +888,19 @@ def page_errors(document: JsonObject) -> list[str]:
                 f"flows.{flow.get('id')}: endpoints are on different pages; "
                 "tmforge connectors must stay on one page"
             )
-        numbered_pages.setdefault(str(source.get("pageId")), []).append(flow)
-    for page_id, page_flows in numbered_pages.items():
-        if not any("displayId" in flow for flow in page_flows):
+        numbered_pages.setdefault((str(source.get("pageId")), "F"), []).append(flow)
+    for (page_id, prefix), items in numbered_pages.items():
+        if not any("displayId" in item for item in items):
             continue
-        identifiers = [flow.get("displayId") for flow in page_flows]
-        expected = {f"F{index}" for index in range(1, len(page_flows) + 1)}
+        identifiers = [item.get("displayId") for item in items]
+        expected = {f"{prefix}{index}" for index in range(1, len(items) + 1)}
         if any(not isinstance(identifier, str) for identifier in identifiers) or {
             identifier for identifier in identifiers if isinstance(identifier, str)
         } != expected:
+            kind = {"F": "flow", "TB": "boundary"}.get(prefix, f"{prefix} element")
             errors.append(
-                f"page {page_id}: displayId values must number every flow "
-                f"exactly once from F1 to F{len(page_flows)}"
+                f"page {page_id}: displayId values must number every {kind} "
+                f"exactly once from {prefix}1 to {prefix}{len(items)}"
             )
     return errors
 

@@ -88,11 +88,11 @@ Models are owned by a bounded workflow or trust boundary, not an individual chan
 - `create` for materially distinct actors, entry points, boundaries, lifecycle, or ownership.
 - `replace` only when scope drift or stale structure makes an in-place update misleading.
 
-Before `verify` or `update`, compare model metadata, scope inputs, boundaries, elements, flows, controls, and persisted
-findings with current evidence and the recorded baseline. Review changes since the baseline that can affect actors,
-entry points, data flows, boundaries, privileges, credentials, protocols, validation, logging, storage, or recovery.
-Mark the model `stale` when material drift remains unmodeled. Record the selected action, existing model reference when
-applicable, and rationale.
+Before `verify` or `update`, compare scope, metadata, boundaries, elements, flows, controls, and persisted findings with current evidence and the baseline. Review changes affecting actors, entry points, privileges, credentials, protocols, validation, logging, storage, and recovery. Mark unmodeled material drift `stale`; record the action, existing model reference, and rationale.
+
+- **Removal:** on update, remove obsolete, out-of-scope, or no-longer-observed resources after scoped discovery; unavailable evidence or absence from one source is not enough. Keep resource-level detail for what remains in scope.
+- **Consolidation:** combine resources only when evidence establishes equivalent identities, permissions, data, trust relationships, and lifecycle, without hiding material flows or controls. Similar names, types, or finding descriptions, including across pages or deployments, do not establish equivalence; diagram cleanup does not justify aggregation.
+- **Agent reconciliation:** account for removed or combined resources against the original using existing scope rationale, evidence, and unknowns. Resolve this yourself; retain uncertain distinctions without requesting approval or adding artifacts, schema fields, or gates. Counts are a signal, not a target.
 
 ## 2. Build the Evidence Ledger
 
@@ -217,11 +217,11 @@ natural ID order. Sort coverage by natural target ID and STRIDE order `S`, `T`, 
 Use bare, terse ledger names: `{"id":"F1","name":"Submit request"}` displays as `F1: Submit request` exactly once.
 Put fuller explanations in linked evidence claims or threat descriptions; the renderer includes them in the report.
 
-Opt into per-page flow numbering with `displayId` in a declared `pages` view. Number every flow on that page
-uniquely and contiguously from `F1` to `Fn`; other pages may repeat labels. `{"id":"F68","displayId":"F1","name":"Action results"}`
-displays `F1: Action results` while manifest aliases, coverage, evidence, and threat targets retain global `F68`.
-Display IDs are references, not execution order; never renumber stable IDs for presentation. Documents map
-page/display IDs to stable IDs. Without `displayId`, labels and rendering are unchanged.
+Use `displayId` in declared `pages` for local labels: `{"id":"F68","displayId":"F1","name":"Action results"}` shows
+`F1: Action results`. Per page, opt in by prefix (`A`, `X`, `P`, `DS`, `TB`, `F`); label every object of that prefix
+contiguously from 1 with the stable ID's prefix. Pages may reuse labels; omitted `displayId` preserves rendering.
+Labels are references, not execution order. Keep IDs, aliases, endpoints, memberships, evidence, coverage and threat
+targets global. Use page-qualified review references and generated mappings; native checks read aliases by GUID.
 
 For new threat IDs:
 
