@@ -898,6 +898,51 @@ class NestedBoundaryTests(unittest.TestCase):
         report = self.check()
         self.assertTrue(report["ok"], report["failures"])
 
+    def test_skinny_boundary_warns_even_when_the_canvas_is_balanced(self) -> None:
+        self.geometry = {
+            "boundaries": {
+                "skinny": {"left": 0, "top": 0, "width": 250, "height": 1500},
+                "wide": {"left": 400, "top": 0, "width": 800, "height": 500},
+            },
+            "elements": {},
+            "connectors": [],
+        }
+        self.ledger = {}
+        report = self.check()
+        self.assertTrue(report["ok"], report["failures"])
+        self.assertLess(report["canvas"]["aspect"], check_layout.MAX_ASPECT)
+        self.assertEqual(report["boundaryAspects"]["skinny"], 6.0)
+        self.assertEqual(report["maxBoundaryAspect"], 6.0)
+        self.assertTrue(
+            any(
+                "boundary skinny aspect ratio 6.00" in item
+                for item in report["warnings"]
+            ),
+            report["warnings"],
+        )
+
+    def test_boundary_proportions_are_reported_per_native_page(self) -> None:
+        self.geometry["pages"] = [
+            {**copy.deepcopy(self.geometry), "id": "page-one", "name": "Page 1"},
+            {**copy.deepcopy(self.geometry), "id": "page-two", "name": "Page 2"},
+        ]
+        self.geometry["pages"][1]["boundaries"] = {
+            "skinny": {"left": 0, "top": 0, "width": 250, "height": 1500}
+        }
+        self.geometry["pages"][1]["elements"] = {}
+        report = self.check()
+        self.assertTrue(report["ok"], report["failures"])
+        self.assertEqual(report["maxBoundaryAspect"], 6.0)
+        self.assertEqual(
+            [page["maxBoundaryAspect"] for page in report["pages"]], [1.0, 6.0]
+        )
+        self.assertTrue(
+            any(
+                item.startswith("Page 2: boundary skinny")
+                for item in report["warnings"]
+            )
+        )
+
     def test_native_pages_have_independent_coordinate_systems(self) -> None:
         root = ET.Element(check_layout.MODEL + "ThreatModel")
         surfaces = ET.SubElement(root, check_layout.MODEL + "DrawingSurfaceList")
@@ -2589,6 +2634,145 @@ class FlowLabelSpacingTests(unittest.TestCase):
         ]
         self.flow = {"id": "F1", "name": "x" * 150, "sourceId": "P1", "targetId": "P3"}
 
+
+    def test_tall_boundary_uses_multiple_columns_without_changing_the_inventory(
+        self,
+    ) -> None:
+        document = {
+            "boundaries": [{"id": "TB1", "name": "Publisher tenant"}],
+            "elements": [
+                {"id": f"P{index}", "boundaryIds": ["TB1"]} for index in range(1, 13)
+            ],
+            "flows": [],
+        }
+        original = copy.deepcopy(document)
+        layout = self.layout.compute_pages(document)[0]
+        boxes = layout["boxes"]
+        self.assertEqual(
+            set(boxes), {"TB1", *(item["id"] for item in document["elements"])}
+        )
+        self.assertGreater(
+            len({boxes[item["id"]][0] for item in document["elements"]}), 1
+        )
+        self.assertLessEqual(layout["maxBoundaryAspect"], 3.0)
+        self.assertLessEqual(layout["width"], self.layout.MAX_CANVAS_X)
+        self.assertLessEqual(layout["height"], self.layout.MAX_CANVAS_Y)
+        self.assertEqual(document, original)
+        self.assertEqual(self.layout.compute_pages(document), [layout])
+
+    def test_nested_packing_preserves_ancestors_membership_and_header_clearance(
+        self,
+    ) -> None:
+        document = {
+            "boundaries": [
+                {"id": "TB1", "name": "Publisher tenant"},
+                {
+                    "id": "TB2",
+                    "name": "Publisher-managed resource group storing artifacts",
+                    "parentId": "TB1",
+                },
+                {"id": "TB3", "name": "Metadata", "parentId": "TB1"},
+                {"id": "TB4", "name": "Artifact collections", "parentId": "TB2"},
+            ],
+            "elements": [
+                {
+                    "id": f"P{index}",
+                    "name": f"Worker {index}",
+                    "boundaryIds": ["TB4", "TB2", "TB1"],
+                }
+                for index in range(1, 11)
+            ]
+            + [
+                {"id": "P11", "name": "Store", "boundaryIds": ["TB2", "TB1"]},
+                {"id": "P12", "name": "Writer", "boundaryIds": ["TB2", "TB1"]},
+                {"id": "P13", "name": "Reader", "boundaryIds": ["TB3", "TB1"]},
+                {"id": "P14", "name": "Client", "boundaryIds": []},
+            ],
+            "flows": [
+                {"id": "F1", "name": "Upload", "sourceId": "P14", "targetId": "P1"},
+                {"id": "F2", "name": "Read", "sourceId": "P1", "targetId": "P13"},
+            ],
+        }
+        original = copy.deepcopy(document)
+        layout = self.layout.compute_pages(document)[0]
+        boxes = layout["boxes"]
+        self.assertEqual(
+            set(boxes),
+            {
+                item["id"]
+                for kind in ("boundaries", "elements")
+                for item in document[kind]
+            },
+        )
+        geometry = {
+            kind: {
+                item["id"]: dict(
+                    zip(("left", "top", "width", "height"), boxes[item["id"]])
+                )
+                for item in document[kind]
+            }
+            for kind in ("boundaries", "elements")
+        }
+        report = check_layout._check_geometry(
+            Path("preview.tm7"), {**geometry, "connectors": []}, document
+        )
+        self.assertTrue(report["ok"], report["failures"])
+        for item in document["boundaries"] + document["elements"]:
+            parent_id = item.get("parentId") or next(
+                iter(item.get("boundaryIds", [])), None
+            )
+            if parent_id is None:
+                continue
+            x, y, width, height = boxes[item["id"]]
+            px, py, parent_width, parent_height = boxes[parent_id]
+            self.assertGreaterEqual(x, px + self.layout.PAD)
+            self.assertGreaterEqual(y, py + self.layout.PAD + self.layout.HEADER_H)
+            self.assertLessEqual(x + width, px + parent_width - self.layout.PAD)
+            self.assertLessEqual(y + height, py + parent_height - self.layout.PAD)
+        for boundary in document["boundaries"]:
+            self.assertGreaterEqual(
+                boxes[boundary["id"]][2],
+                self.layout._label_width(boundary) + 2 * self.layout.PAD,
+            )
+        manifest = {
+            "boundaries": [
+                {"alias": item["id"], "name": f"{item['id']}: {item['name']}"}
+                for item in document["boundaries"]
+            ],
+            "elements": [
+                {
+                    "alias": item["id"],
+                    "name": f"{item['id']}: {item['name']}",
+                    "boundary": next(iter(item["boundaryIds"]), None),
+                    "kind": "process",
+                    "props": {"AuthenticationScheme": "Unknown"},
+                }
+                for item in document["elements"]
+            ],
+            "flows": [
+                {
+                    "alias": item["id"],
+                    "name": f"{item['id']}: {item['name']}",
+                    "from": item["sourceId"],
+                    "to": item["targetId"],
+                }
+                for item in document["flows"]
+            ],
+        }
+        refreshed = self.layout.manifest_with_layout(document, manifest, [layout])
+        for kind in ("boundaries", "elements"):
+            for before, after in zip(manifest[kind], refreshed[kind]):
+                self.assertEqual(
+                    {
+                        key: value
+                        for key, value in after.items()
+                        if key not in ("x", "y", "width", "height")
+                    },
+                    before,
+                )
+        self.assertEqual(refreshed["flows"], manifest["flows"])
+        self.assertEqual(document, original)
+
     def test_nonadjacent_label_increases_all_spanned_gaps(self) -> None:
         gaps = self.layout.column_gaps(self.members, self.columns, [self.flow])
         self.assertEqual(gaps, [384.0, 384.0])
@@ -3062,6 +3246,48 @@ class FlowLabelSpacingTests(unittest.TestCase):
                 self.layout.select_native_layout(
                     baseline, restarted, Path("analysis.json"), ["chosen"]
                 )
+
+
+    def test_native_proportion_preference_balances_routing_and_each_page(self) -> None:
+        def page(crossings: int, excess: float) -> dict[str, Any]:
+            return {
+                "crossings": crossings,
+                "obstructedLabels": 0,
+                "failures": [],
+                "canvas": {"width": 1200, "height": 1600},
+                "boundaryAspectExcess": excess,
+            }
+
+        def report(pages: list[dict[str, Any]]) -> dict[str, Any]:
+            return {
+                **page(sum(item["crossings"] for item in pages), 0),
+                "pages": pages,
+            }
+
+        baseline = report([page(6, 1.0), page(6, 0.5)])
+        cases = [
+            (report([page(6, 0.2), page(6, 0.5)]), True),
+            (report([page(6, 1.0), page(4, 0.6)]), True),
+            (report([page(6, 1.0), page(5, 2.0)]), False),
+            (report([page(6, 0.0), page(6, 0.6)]), False),
+            (report([page(7, 0.0), page(6, 0.0)]), False),
+        ]
+        for candidate, expected in cases:
+            with (
+                self.subTest(candidate=candidate),
+                patch.object(
+                    self.layout,
+                    "native_layout_report",
+                    side_effect=[baseline, candidate],
+                ),
+            ):
+                selected, _ = self.layout.select_native_layout(
+                    {"name": "baseline"},
+                    {"name": "candidate"},
+                    Path("analysis.json"),
+                    ["chosen"],
+                )
+                self.assertEqual(selected, expected)
 
     def test_restarted_manifest_requires_native_validation_before_writing(self) -> None:
         arguments = [

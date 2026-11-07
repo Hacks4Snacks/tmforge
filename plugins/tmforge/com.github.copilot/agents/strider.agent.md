@@ -140,8 +140,9 @@ unsupported consolidation before delivery. This is a reasoning step, not a new a
    so the result is reviewable; a diagram is an argument, and one that stacks shapes or misplaces them argues badly.
    Keep the stable flow ID in `id` and a bare phrase in the ledger's `name`; only the manifest and diagram name add
    `F1: ` once. Keep explanations in evidence claims and threat descriptions. Derive geometry with the core skill's
-   layout generator rather than choosing coordinates by hand: it avoids label-on-shape obstructions and wraps wide
-   columns into rows. Declare `pages` and boundary/element `pageId` values for page-local views when needed; preserve
+   layout generator and follow its human-review layout policy rather than choosing coordinates by hand. Inspect
+   boundary proportions, captions and routing in every affected native view. Declare `pages` and boundary/element
+   `pageId` values for page-local views when needed; preserve
    directionality and every material flow. Do not merge reverse flows or drop content merely to fit the canvas.
 7. **Validate**: Run the core skill's unified package verifier for retained packages, including explicit
    candidate/final paths when promotion occurs. When tmforge is involved, also follow the tmforge skill's candidate

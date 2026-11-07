@@ -20,6 +20,7 @@ from validate_analysis import as_object_list, display_id, load_document, page_vi
 ELEMENT_W = 190
 ELEMENT_H = 70
 PAD = 30  # boundary padding around its elements
+HEADER_H = 30  # reserved title space in addition to padding
 COL_GAP = 110  # minimum horizontal gap between columns
 ROW_GAP = 34  # vertical gap between elements inside a boundary
 GROUP_GAP = 56  # vertical gap between boundaries stacked in one column
@@ -46,6 +47,10 @@ MAX_CANVAS_Y = 2090
 # Permuting a group is factorial, so only search groups small enough to stay instant.
 MAX_PERMUTATION_GROUP = 6
 MAX_REFINEMENT_PASSES = 12
+MAX_GROUP_COLUMNS = 6
+# One unit beyond the preferred aspect ratio costs ten predicted crossings.
+# This remains a soft tradeoff; label clearance and canvas limits take precedence.
+ASPECT_CROSSING_WEIGHT = 10.0
 
 
 def _groups(elements: list[dict[str, Any]]) -> dict[str, list[str]]:
@@ -67,6 +72,43 @@ def _groups(elements: list[dict[str, Any]]) -> dict[str, list[str]]:
 
 def _group_of(members: dict[str, list[str]]) -> dict[str, str]:
     return {alias: group for group, aliases in members.items() for alias in aliases}
+
+
+def _group_order(
+    elements: list[dict[str, Any]], boundaries: list[dict[str, Any]]
+) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, float]]:
+    order = _groups(elements)
+    declared = {boundary["id"]: boundary for boundary in boundaries}
+    nested: set[str] = set()
+    titles: dict[str, float] = {}
+    for alias, boundary in declared.items():
+        order.setdefault(alias, [])
+        titles[alias] = _label_width(boundary)
+        parent = boundary.get("parentId")
+        if parent:
+            if parent not in declared:
+                raise ValueError(f"boundary {alias} parent {parent} is not declared")
+            order.setdefault(parent, []).append(alias)
+            nested.add(alias)
+    order = {alias: sorted(items) for alias, items in order.items()}
+
+    def leaves(alias: str, ancestors: set[str]) -> list[str]:
+        if alias not in order:
+            return [alias]
+        if alias in ancestors:
+            raise ValueError(f"boundary {alias} has a cyclic parent hierarchy")
+        return [
+            leaf
+            for child in order[alias]
+            for leaf in leaves(child, ancestors | {alias})
+        ]
+
+    members = {alias: leaves(alias, set()) for alias in order}
+    return (
+        {alias: members[alias] for alias in sorted(set(order) - nested)},
+        order,
+        titles,
+    )
 
 
 def derive_columns(
@@ -170,12 +212,92 @@ def column_gaps(
     return gaps
 
 
-def _column_height(column: list[str], members: dict[str, list[str]]) -> float:
-    total = 0.0
-    for group in column:
-        count = len(members.get(group, []))
-        total += count * ELEMENT_H + max(0, count - 1) * ROW_GAP + 2 * PAD
+def _column_height(column: list[str], sizes: dict[str, tuple[float, float]]) -> float:
+    total = sum(sizes[group][1] for group in column)
     return total + max(0, len(column) - 1) * GROUP_GAP
+
+
+def _pack_group(
+    group: str,
+    order: dict[str, list[str]],
+    grid: dict[str, int],
+    titles: dict[str, float],
+) -> tuple[dict[str, tuple[float, float, float, float]], tuple[float, float]]:
+    if group not in order:
+        return {group: (0.0, 0.0, float(ELEMENT_W), float(ELEMENT_H))}, (
+            float(ELEMENT_W),
+            float(ELEMENT_H),
+        )
+    items = [_pack_group(alias, order, grid, titles) for alias in order[group]]
+    columns = min(grid.get(group, 1), max(1, len(items)))
+    column_widths = [
+        max((size[0] for _, size in items[index::columns]), default=0.0)
+        for index in range(columns)
+    ]
+    row_heights = [
+        max(size[1] for _, size in items[index : index + columns])
+        for index in range(0, len(items), columns)
+    ]
+    row_gap = GROUP_GAP if any(alias in order for alias in order[group]) else ROW_GAP
+    header = 0 if group.startswith("_") else HEADER_H
+    width = (
+        max(
+            float(ELEMENT_W),
+            titles.get(group, 0.0),
+            sum(column_widths) + max(0, columns - 1) * COL_GAP,
+        )
+        + 2 * PAD
+    )
+    height = (
+        sum(row_heights) + max(0, len(row_heights) - 1) * row_gap + 2 * PAD + header
+    )
+    boxes = {} if group.startswith("_") else {group: (0.0, 0.0, width, height)}
+    for index, (child_boxes, (child_width, child_height)) in enumerate(items):
+        row, column = divmod(index, columns)
+        x = PAD + sum(column_widths[:column]) + column * COL_GAP
+        y = PAD + header + sum(row_heights[:row]) + row * row_gap
+        x += (column_widths[column] - child_width) / 2
+        y += (row_heights[row] - child_height) / 2
+        boxes.update(
+            {
+                alias: (x + box[0], y + box[1], box[2], box[3])
+                for alias, box in child_boxes.items()
+            }
+        )
+    return boxes, (width, height)
+
+
+def _compact_grid(
+    order: dict[str, list[str]], titles: dict[str, float]
+) -> dict[str, int]:
+    grid: dict[str, int] = {}
+
+    def choose(group: str) -> None:
+        if group not in order or group in grid:
+            return
+        for child in order[group]:
+            choose(child)
+        best: tuple[float, ...] | None = None
+        selected = 1
+        for columns in range(1, min(MAX_GROUP_COLUMNS, len(order[group])) + 1):
+            grid[group] = columns
+            _, (width, height) = _pack_group(group, order, grid, titles)
+            aspect = max(width, height) / min(width, height)
+            score = (
+                max(0.0, width + ORIGIN_X - MAX_CANVAS_X)
+                + max(0.0, height + ORIGIN_Y - MAX_CANVAS_Y),
+                max(0.0, aspect - check_layout.MAX_BOUNDARY_ASPECT),
+                aspect,
+                width * height,
+            )
+            if best is None or score < best:
+                best, selected = score, columns
+        grid[group] = selected
+
+    for group in sorted(order):
+        if not group.startswith("__col"):
+            choose(group)
+    return grid
 
 
 def _place(
@@ -183,13 +305,22 @@ def _place(
     members: dict[str, list[str]],
     columns: list[list[str]],
     gaps: list[float] | None = None,
+    grid: dict[str, int] | None = None,
+    titles: dict[str, float] | None = None,
 ) -> dict[str, tuple[float, float, float, float]]:
     """Compute rectangles, wrapping complete columns before the canvas edge."""
     boxes: dict[str, tuple[float, float, float, float]] = {}
-    width = ELEMENT_W + 2 * PAD
+    packed = {
+        group: _pack_group(group, order, grid or {}, titles or {}) for group in members
+    }
+    sizes = {group: size for group, (_, size) in packed.items()}
+    column_widths = [
+        max((sizes[group][0] for group in column), default=0.0) for column in columns
+    ]
     rows: list[list[int]] = [[]]
     column_x = float(ORIGIN_X)
     for index in range(len(columns)):
+        width = column_widths[index]
         if rows[-1] and column_x + width > MAX_CANVAS_X:
             rows.append([])
             column_x = float(ORIGIN_X)
@@ -199,34 +330,25 @@ def _place(
     row_y = float(ORIGIN_Y)
     for row in rows:
         row_height = max(
-            (_column_height(columns[index], members) for index in row), default=0.0
+            (_column_height(columns[index], sizes) for index in row), default=0.0
         )
         column_x = float(ORIGIN_X)
         for index in row:
             stack = order.get(f"__col{index}", columns[index])
-            heights = [
-                len(members[group]) * ELEMENT_H
-                + max(0, len(members[group]) - 1) * ROW_GAP
-                + 2 * PAD
-                for group in stack
-            ]
+            heights = [sizes[group][1] for group in stack]
             total = sum(heights) + max(0, len(stack) - 1) * GROUP_GAP
             group_y = row_y + (row_height - total) / 2
             for group, height in zip(stack, heights):
-                if not group.startswith("_"):
-                    boxes[group] = (column_x, group_y, width, height)
-                element_y = group_y + PAD
-                for alias in order.get(group, members[group]):
-                    boxes[alias] = (
-                        column_x + PAD,
-                        element_y,
-                        float(ELEMENT_W),
-                        float(ELEMENT_H),
-                    )
-                    element_y += ELEMENT_H + ROW_GAP
+                group_x = column_x + (column_widths[index] - sizes[group][0]) / 2
+                boxes.update(
+                    {
+                        alias: (group_x + box[0], group_y + box[1], box[2], box[3])
+                        for alias, box in packed[group][0].items()
+                    }
+                )
                 group_y += height + GROUP_GAP
             gap = gaps[index] if gaps and index < len(gaps) else float(COL_GAP)
-            column_x += width + gap
+            column_x += column_widths[index] + gap
         row_y += row_height + GROUP_GAP
     return boxes
 
@@ -299,8 +421,10 @@ def _score(
     gaps: list[float] | None = None,
     elements: list[dict[str, Any]] | None = None,
     flows: list[dict[str, Any]] | None = None,
-) -> tuple[int, int, float]:
-    boxes = _place(order, members, columns, gaps)
+    grid: dict[str, int] | None = None,
+    titles: dict[str, float] | None = None,
+) -> tuple[float, int, float, int, float]:
+    boxes = _place(order, members, columns, gaps, grid, titles)
     segments = [
         (_centre(boxes[source]), _centre(boxes[target]))
         for source, target in edges
@@ -315,7 +439,29 @@ def _score(
             if _crosses(segment, other):
                 crossings += 1
     obstructions = len(label_obstructions(elements or [], flows or [], boxes))
-    return obstructions, crossings, round(length, 3)
+    excess = sum(
+        max(
+            0.0,
+            max(box[2], box[3]) / min(box[2], box[3])
+            - check_layout.MAX_BOUNDARY_ASPECT,
+        )
+        for alias, box in boxes.items()
+        if alias in order and not alias.startswith("_")
+    )
+    overflow = max(
+        (max(0.0, box[0] + box[2] - MAX_CANVAS_X) for box in boxes.values()),
+        default=0.0,
+    ) + max(
+        (max(0.0, box[1] + box[3] - MAX_CANVAS_Y) for box in boxes.values()),
+        default=0.0,
+    )
+    return (
+        overflow,
+        obstructions,
+        crossings + ASPECT_CROSSING_WEIGHT * excess,
+        crossings,
+        round(length, 3),
+    )
 
 
 def _refine(
@@ -326,25 +472,55 @@ def _refine(
     gaps: list[float] | None = None,
     elements: list[dict[str, Any]] | None = None,
     flows: list[dict[str, Any]] | None = None,
-) -> tuple[int, int, float]:
-    """Descend to a local optimum by permuting one group at a time, in place."""
-    best = _score(order, members, columns, edges, gaps, elements, flows)
+    grid: dict[str, int] | None = None,
+    titles: dict[str, float] | None = None,
+) -> tuple[float, int, float, int, float]:
+    """Refine member order and grid widths together without changing the hierarchy."""
+    if grid is None:
+        grid = {key: 1 for key in order if not key.startswith("__col")}
+    best = _score(order, members, columns, edges, gaps, elements, flows, grid, titles)
     for _ in range(MAX_REFINEMENT_PASSES):
         improved = False
         keys = sorted(key for key in order if not key.startswith("__col"))
         keys += sorted(key for key in order if key.startswith("__col"))
         for key in keys:
             current = order[key]
-            if not 2 <= len(current) <= MAX_PERMUTATION_GROUP:
+            if len(current) < 2:
                 continue
-            for candidate in sorted(permutations(current)):
+            candidates = (
+                sorted(permutations(current))
+                if len(current) <= MAX_PERMUTATION_GROUP
+                else [
+                    (
+                        *current[:index],
+                        current[index + 1],
+                        current[index],
+                        *current[index + 2 :],
+                    )
+                    for index in range(len(current) - 1)
+                ]
+            )
+            for candidate in candidates:
                 if list(candidate) == current:
                     continue
                 order[key] = list(candidate)
-                score = _score(order, members, columns, edges, gaps, elements, flows)
+                score = _score(
+                    order, members, columns, edges, gaps, elements, flows, grid, titles
+                )
                 if score < best:
                     best, current, improved = score, list(candidate), True
                 order[key] = current
+            if key.startswith("_"):
+                continue
+            current_columns = grid[key]
+            for count in range(1, min(MAX_GROUP_COLUMNS, len(current)) + 1):
+                grid[key] = count
+                score = _score(
+                    order, members, columns, edges, gaps, elements, flows, grid, titles
+                )
+                if score < best:
+                    best, current_columns, improved = score, count, True
+                grid[key] = current_columns
         if not improved:
             break
     return best
@@ -356,19 +532,22 @@ def compute(
     columns: list[list[str]] | None = None,
     restarts: int = 0,
     seed: int = 0,
+    *,
+    boundaries: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, tuple[float, float, float, float]], tuple[int, float]]:
     """Return ``({alias: (x, y, width, height)}, (crossings, length))``.
 
     Pass ``columns`` to override the derived layering when a specific narrative order
-    reads better than the one implied by flow direction. Complete columns wrap before
-    the canvas edge; label-on-shape collisions are minimized before crossings and length.
+    reads better than the one implied by flow direction. Boundaries pack recursively
+    into rows/columns, with title space and padding. Canvas limits and label clearance
+    precede a soft proportion/crossing cost, then crossings and length.
 
     Restarts vary cycle-breaking and column assignment as well as within-group order.
     Explicit columns remain fixed. The baseline is always a candidate, so more restarts
     cannot worsen the score for a fixed seed. Repeated output is deterministic but does
     not prove optimality or that remaining crossings are inherent in the topology.
     """
-    members = _groups(elements)
+    members, groups, titles = _group_order(elements, boundaries or [])
     edges = [(flow["sourceId"], flow["targetId"]) for flow in flows]
     automatic_columns = columns is None
     if columns is None:
@@ -382,16 +561,16 @@ def compute(
         if missing:
             columns = columns + [missing]
 
-    order: dict[str, list[str]] = {
-        group: list(aliases) for group, aliases in members.items()
-    }
+    order = {group: list(aliases) for group, aliases in groups.items()}
+    grid = _compact_grid(order, titles)
     for index, column in enumerate(columns):
         order[f"__col{index}"] = list(column)
 
     gaps = column_gaps(members, columns, flows)
-    best = _refine(order, members, columns, edges, gaps, elements, flows)
+    best = _refine(order, members, columns, edges, gaps, elements, flows, grid, titles)
     best_order = {key: list(value) for key, value in order.items()}
     best_columns, best_gaps = columns, gaps
+    best_grid = dict(grid)
 
     if restarts > 0:
         rng = random.Random(seed)
@@ -401,11 +580,12 @@ def compute(
                 if automatic_columns
                 else columns
             )
-            candidate = {key: list(members[key]) for key in sorted(members)}
+            candidate = {key: list(groups[key]) for key in sorted(groups)}
             for index, column in enumerate(candidate_columns):
                 candidate[f"__col{index}"] = list(column)
             for key in sorted(candidate):
                 rng.shuffle(candidate[key])
+            candidate_grid = _compact_grid(candidate, titles)
             candidate_gaps = column_gaps(members, candidate_columns, flows)
             score = _refine(
                 candidate,
@@ -415,13 +595,19 @@ def compute(
                 candidate_gaps,
                 elements,
                 flows,
+                candidate_grid,
+                titles,
             )
             if score < best:
                 best = score
                 best_order = {key: list(value) for key, value in candidate.items()}
                 best_columns, best_gaps = candidate_columns, candidate_gaps
+                best_grid = dict(candidate_grid)
 
-    return _place(best_order, members, best_columns, best_gaps), (best[1], best[2])
+    return _place(best_order, members, best_columns, best_gaps, best_grid, titles), (
+        best[3],
+        best[4],
+    )
 
 
 def compute_pages(
@@ -449,14 +635,28 @@ def compute_pages(
         views = matches
     layouts: list[dict[str, Any]] = []
     for metadata, view in views:
+        boundaries: list[dict[str, Any]] = as_object_list(view.get("boundaries")) or []
         elements = as_object_list(view.get("elements")) or []
         flows = as_object_list(view.get("flows")) or []
         boxes, (crossings, length) = compute(
-            elements, flows, restarts=restarts, seed=seed
+            elements, flows, restarts=restarts, seed=seed, boundaries=boundaries
         )
         width = max((box[0] + box[2] for box in boxes.values()), default=0.0)
         height = max((box[1] + box[3] for box in boxes.values()), default=0.0)
         warnings = label_obstructions(elements, flows, boxes)
+        proportions, proportion_warnings = check_layout.boundary_proportions(
+            {
+                boundary["id"]: {
+                    "width": boxes[boundary["id"]][2],
+                    "height": boxes[boundary["id"]][3],
+                    "name": f"{display_id(boundary)}: {boundary.get('name', '')}".rstrip(
+                        ": "
+                    ),
+                }
+                for boundary in boundaries
+            }
+        )
+        warnings.extend(proportion_warnings)
         if width > MAX_CANVAS_X or height > MAX_CANVAS_Y:
             warnings.append(
                 f"canvas exceeds the tool's limit of {MAX_CANVAS_X}x{MAX_CANVAS_Y} "
@@ -473,6 +673,7 @@ def compute_pages(
                 "height": height,
                 "crossings": crossings,
                 "length": length,
+                **proportions,
                 "warnings": warnings,
             }
         )
@@ -590,6 +791,8 @@ def native_layout_metrics(report: dict[str, Any]) -> tuple[float, ...]:
             page["crossings"],
             page["canvas"]["width"],
             page["canvas"]["height"],
+            page["crossings"]
+            + ASPECT_CROSSING_WEIGHT * page.get("boundaryAspectExcess", 0.0),
         )
     )
 
@@ -629,11 +832,13 @@ def select_native_layout(
             "crossings": baseline_report["crossings"],
             "obstructedLabels": baseline_report["obstructedLabels"],
             "canvas": baseline_report["canvas"],
+            "maxBoundaryAspect": baseline_report.get("maxBoundaryAspect", 0.0),
         },
         "restarted": {
             "crossings": restarted_report["crossings"],
             "obstructedLabels": restarted_report["obstructedLabels"],
             "canvas": restarted_report["canvas"],
+            "maxBoundaryAspect": restarted_report.get("maxBoundaryAspect", 0.0),
         },
     }
 
