@@ -165,11 +165,14 @@ Consequences for authoring:
 - **The flow name is a label, not a sentence.** Write the display ID (the stable ID by default) plus a terse phrase, and keep the sentence in the
   diagram name only. The canonical ledger holds the bare phrase, and fuller explanations belong in linked evidence
   claims or threat descriptions. Long labels need more space, but a collision does not imply that names are wrong.
-- **Derive geometry; do not invent it.** The layout generator provided by the loaded `threat-modeling` skill sizes each
-  column gap from labels, wraps complete columns into rows, and optimizes label-on-shape obstructions before crossings
-  and length. Preview warnings are stderr diagnostics with exit `0`, so subprocess `check=True` is supported.
+- **Derive geometry; do not invent it.** The layout generator provided by the loaded `threat-modeling` skill recursively
+  packs the existing boundary tree into rows/columns, reserves title space and padding, sizes column gaps from labels,
+  and wraps complete columns into rows. Follow the loaded core skill's human-review layout policy:
+  proportions are a soft preference considered alongside routing, not permission to simplify the architecture.
+  Canvas limits and label clearance precede the combined crossing/proportion cost and connector length.
+  Preview warnings are stderr diagnostics with exit `0`, so subprocess `check=True` is supported.
   Add `--strict` to return `1` on warnings; malformed input returns `2`. Seeded restarts explore alternate automatic
-  cycle-breaking/layering and within-group order; explicitly supplied columns stay fixed. Equal output across seeds
+  cycle-breaking/layering, within-group order and grid widths; explicitly supplied root columns stay fixed. Equal output across seeds
   means no better candidate was found, not that the remaining crossings are unavoidable. More restarts may not help.
 - **Let tmforge place new labels, then verify.** CLI authoring and structural `.tm7` exports try to place new flow
   labels clear of shapes and other labels by adjusting curve handles. This is not a guarantee that every label fits.
@@ -199,8 +202,10 @@ name, or endpoint mismatches and preserves properties. With `--strict`, warnings
 Preview improvements can become worse native diagrams. For `--manifest` with `--restarts`, pass the same selected
 CLI via `--tmforge '<complete command>'`. The generator applies unseeded and restarted candidates in temporary
 directories and uses the native layout checker. Restarted output must pass and improve without worsening crossings,
-label obstructions, width, or height on any page; otherwise the unseeded candidate is emitted. The comparison is
-reported on stderr. This is final-candidate comparison, not native scoring of every internal permutation.
+label obstructions, width, height or the combined proportion/crossing cost on any page; otherwise the unseeded candidate
+is emitted. The checker reports each boundary's aspect ratio and per-page maxima; the comparison includes proportion
+metrics without weakening the existing routing guards. This is final-candidate comparison, not native scoring of every
+internal permutation, and does not replace visual review of captions and connector density.
 
 When invoking layout via `rebuild_package.py --manifest-command`, that command runs in candidate staging cwd.
 Keep package input/output paths relative (for example `--manifest model.tm.json --out model.tm.json`); absolute

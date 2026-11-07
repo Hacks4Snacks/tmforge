@@ -23,6 +23,8 @@ SHAPE_TYPES = {"StencilRectangle", "StencilParallelLines", "StencilEllipse"}
 
 # A diagram much taller or wider than this does not fit a review screen.
 MAX_ASPECT = 3.0
+# Boundary proportions are a review preference, not a containment requirement.
+MAX_BOUNDARY_ASPECT = 3.0
 # Boundary left edges within this many units are treated as the same visual column.
 COLUMN_TOLERANCE = 40.0
 
@@ -239,6 +241,33 @@ def _covers(outer: dict[str, object], inner: dict[str, object]) -> bool:
     return ox1 <= ix1 and oy1 <= iy1 and ox2 >= ix2 and oy2 >= iy2
 
 
+def boundary_proportions(
+    boundaries: dict[str, dict[str, object]],
+) -> tuple[dict[str, object], list[str]]:
+    aspects: dict[str, float] = {}
+    warnings: list[str] = []
+    for alias, box in sorted(boundaries.items()):
+        width, height = float(box["width"]), float(box["height"])  # type: ignore[arg-type]
+        aspect = (
+            max(width, height) / min(width, height) if min(width, height) > 0 else 0.0
+        )
+        aspects[alias] = aspect
+        if aspect > MAX_BOUNDARY_ASPECT:
+            name = f" ({box['name']})" if box.get("name") else ""
+            warnings.append(
+                f"boundary {alias}{name} aspect ratio {aspect:.2f} exceeds the preferred "
+                f"{MAX_BOUNDARY_ASPECT:g}:1; consider rows/columns, or record a "
+                "routing or architecture reason for the exception"
+            )
+    return {
+        "boundaryAspects": {alias: round(value, 3) for alias, value in aspects.items()},
+        "maxBoundaryAspect": round(max(aspects.values(), default=0.0), 3),
+        "boundaryAspectExcess": round(
+            sum(max(0.0, value - MAX_BOUNDARY_ASPECT) for value in aspects.values()), 6
+        ),
+    }, warnings
+
+
 def check(model_path: Path, analysis_path: Path | None) -> dict[str, object]:
     """Return a machine-readable layout report for one ``.tm7``."""
     geometry = read_geometry(model_path)
@@ -284,6 +313,12 @@ def check(model_path: Path, analysis_path: Path | None) -> dict[str, object]:
         "canvas": {
             field: max(canvas[field] for canvas in canvases) for field in canvases[0]
         },
+        "maxBoundaryAspect": max(
+            cast(float, report["maxBoundaryAspect"]) for report in reports
+        ),
+        "boundaryAspectExcess": sum(
+            cast(float, report["boundaryAspectExcess"]) for report in reports
+        ),
         "failures": failures,
         "warnings": warnings,
         "ok": not failures,
@@ -428,6 +463,8 @@ def _check_geometry(
         )
 
     aspect = (max(width, height) / min(width, height)) if width and height else 0.0
+    proportions, proportion_warnings = boundary_proportions(boundaries)
+    warnings.extend(proportion_warnings)
 
     # Auto-placement stacks every shape at one x-offset. Counting distinct column bands
     # detects that directly, whereas aspect ratio only notices it on large models.
@@ -476,6 +513,7 @@ def _check_geometry(
             "right": round(right, 2),
             "bottom": round(bottom, 2),
         },
+        **proportions,
         "failures": failures,
         "warnings": warnings,
         "ok": not failures,

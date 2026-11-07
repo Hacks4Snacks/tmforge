@@ -464,20 +464,20 @@ material store either receives a modelled write or records `producerRationale`, 
 `not-applicable` has no threat contradicting it. Pass `--baseline <previous-analysis.json>` when rebuilding an existing
 ledger to catch positional ID renumbering before it invalidates manifests, sidecars, or published references.
 
-The package verifier runs that contract, compares generated Markdown with deterministic expected bytes, checks
-Markdown, Mermaid, local links, IDs, and counts, validates included `.tm7` artifacts through tmforge, checks stale
-persisted object references, verifies explicit candidate/final equivalence, and checks diagram geometry. It fails a
-package whose diagram draws an element outside its boundary or overlaps shapes, because a reader takes containment as
-a trust claim; it warns on single-column stacking, connector crossings, and unreadable aspect ratios. Fix the
-canonical ledger, rerender, and rerun the verifier before delivery.
+The package verifier checks deterministic documents, Mermaid, links, IDs/counts, native validity, stale references,
+candidate/final equivalence and geometry. Out-of-boundary elements and shape overlaps fail; single-column stacking,
+crossings and canvas/boundary aspect ratios warn. Fix the canonical source, rerender and rerun before delivery.
 
-[The layout generator](./scripts/layout.py) derives page-local geometry, wraps columns, and minimizes predicted label
-obstructions before crossings/length. `--manifest model.tm.json --out candidate.tm.json` preserves controls, stencils,
-and direction; `--page PG1` selects a preview. Restarted manifest output requires `--tmforge "<selected command>"`:
-native unseeded/restarted candidates are compared, retaining unseeded on worse crossings, labels, or page dimensions.
-Preview improvements can invert in native output. Check the artifact with [the layout checker](./scripts/check_layout.py).
-Previews and unseeded generation need no CLI. Preview warnings exit `0`; `--strict` returns `1` without writing `--out`;
-input/evaluation errors return `2`. Use the tmforge skill's labels-only workflow for already-correct shape placement.
+[The layout generator](./scripts/layout.py) packs page-local rows/columns, including nested boundaries with title space and padding.
+Prefer compact rectangles: 3:1 is a soft review preference, not an architectural law. Judge proportions with labels,
+crossings, routing density and canvas bounds; never rename, flatten, merge or remove semantic content for geometry.
+Review each affected native view at a readable scale and record routing/architecture reasons for exceptions.
+`--manifest model.tm.json --out candidate.tm.json` preserves controls, stencils and direction; `--page PG1` selects a preview.
+Restarted manifest output requires `--tmforge "<selected command>"`; native candidates retain the unseeded layout on worse
+crossings, labels, page dimensions or per-page soft proportion/routing cost. Previews can invert after serialization.
+Check with [the layout checker](./scripts/check_layout.py). Previews and unseeded generation need no CLI.
+Preview warnings exit `0`; `--strict` exits `1` without writing `--out`; input/evaluation errors exit `2`. Use the
+tmforge skill's labels-only workflow for already-correct shape placement.
 
 [The rebuild driver](./scripts/rebuild_package.py) runs manifest generation, ledger validation, apply, native layout,
 suppression verification, rendering, and package verification in a candidate before promotion. Defaults are
