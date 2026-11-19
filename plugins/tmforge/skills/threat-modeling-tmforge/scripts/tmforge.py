@@ -96,11 +96,16 @@ def cache_root(explicit: Path | None = None) -> Path:
     elif sys.platform == "darwin":
         root = Path.home() / "Library" / "Caches" / "tmforge" / "copilot"
     elif sys.platform == "win32":
-        root = (
-            Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-            / "tmforge"
-            / "copilot"
-        )
+        local = os.environ.get("LOCALAPPDATA")
+        base = Path(local or os.path.expanduser("~"))
+        if not base.is_absolute() or base == base.parent or ".." in base.parts:
+            raise ValueError(
+                "LOCALAPPDATA or the user profile must be an absolute directory below "
+                "the drive or share root; select a private directory with --cache-dir"
+            )
+        if not local:
+            base = base / "AppData" / "Local"
+        root = base / "tmforge" / "copilot"
     else:
         root = (
             Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
@@ -182,22 +187,14 @@ def validate_cache_entry(
         raise ValueError("Cannot verify cache permissions on this operating system")
 
 
-def validate_cache_directories(
-    root: Path, version: str, rid: str, create: bool = False
-) -> bool:
+def validate_cache_directories(root: Path, version: str, rid: str) -> bool:
     target = root / version / rid
     for directory in [*reversed(target.parents), target]:
         private = directory == root or directory.is_relative_to(root)
         try:
             validate_cache_entry(directory, private)
         except FileNotFoundError:
-            if not create:
-                return False
-            try:
-                directory.mkdir(mode=0o700)
-            except FileExistsError:
-                pass
-            validate_cache_entry(directory, private)
+            return False
     return True
 
 
@@ -223,10 +220,8 @@ def sha256(path: Path) -> str:
 
 
 @contextmanager
-def windows_cache_handle(
-    path: Path, directory: bool = False
-) -> Generator[int, None, None]:
-    """Hold a non-reparse entry without permitting replacement or file writes."""
+def windows_cache_handle(path: Path) -> Generator[int, None, None]:
+    """Hold a non-reparse file without permitting replacement or writes."""
     if sys.platform != "win32":
         raise ValueError("Windows cache handles require Windows")
     import ctypes
@@ -253,15 +248,7 @@ def windows_cache_handle(
     kernel.GetFileInformationByHandleEx.restype = wintypes.BOOL
     kernel.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel.CloseHandle.restype = wintypes.BOOL
-    handle = kernel.CreateFileW(
-        str(path),
-        0x81 if directory else 0x80000000,
-        3 if directory else 1,
-        None,
-        3,
-        0x02200000,
-        None,
-    )
+    handle = kernel.CreateFileW(str(path), 0x80000000, 1, None, 3, 0x02200000, None)
     if handle == ctypes.c_void_p(-1).value:
         raise ctypes.WinError(ctypes.get_last_error())
     descriptor = None
@@ -271,15 +258,12 @@ def windows_cache_handle(
             handle, 9, ctypes.byref(attributes), ctypes.sizeof(attributes)
         ):
             raise ctypes.WinError(ctypes.get_last_error())
-        if attributes[0] & 0x400 or bool(attributes[0] & 0x10) != directory:
+        if attributes[0] & (0x400 | 0x10):
             raise ValueError(
                 f"Cache paths must not be symlinks or reparse points: {path}"
             )
-        if directory:
-            yield handle
-        else:
-            descriptor = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
-            yield descriptor
+        descriptor = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+        yield descriptor
     finally:
         if descriptor is None:
             kernel.CloseHandle(handle)
@@ -295,12 +279,11 @@ def cache_directory(
     with ExitStack() as stack:
         if os.name == "nt":
             for directory in [*reversed(path.parents), path]:
-                if create and not directory.exists():
-                    try:
-                        directory.mkdir(mode=0o700)
-                    except FileExistsError:
-                        pass
-                stack.enter_context(windows_cache_handle(directory, directory=True))
+                stack.enter_context(
+                    windows_permissions_module().windows_storage_directory(
+                        directory, create
+                    )
+                )
                 validate_cache_entry(
                     directory,
                     private=directory == root or directory.is_relative_to(root),
@@ -388,7 +371,9 @@ def installation_directory(
     try:
         with ExitStack() as stack:
             if directory is None:
-                stack.enter_context(windows_cache_handle(path, directory=True))
+                stack.enter_context(
+                    windows_permissions_module().windows_directory_handle(path)
+                )
                 staged = None
                 info = path.lstat()
             else:

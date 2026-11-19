@@ -6,6 +6,9 @@ from contextlib import contextmanager
 from pathlib import Path
 
 INHERIT_ONLY_ACE = 0x08
+FILE_TRAVERSE = 0x20
+FILE_LIST_DIRECTORY = 0x01
+FILE_READ_ATTRIBUTES = 0x80
 
 
 @contextmanager
@@ -36,9 +39,21 @@ def windows_directory_handle(path: Path) -> Generator[None, None, None]:
     kernel.GetFileInformationByHandleEx.restype = wintypes.BOOL
     kernel.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel.CloseHandle.restype = wintypes.BOOL
-    handle = kernel.CreateFileW(str(path), 0x81, 3, None, 3, 0x02200000, None)
-    if handle == ctypes.c_void_p(-1).value:
-        raise ctypes.WinError(ctypes.get_last_error())
+
+    def open_directory(access: int) -> int:
+        return kernel.CreateFileW(
+            str(path), access | FILE_READ_ATTRIBUTES, 3, None, 3, 0x02200000, None
+        )
+
+    # Traverse, like list access, enforces delete sharing; attributes alone do not.
+    invalid = ctypes.c_void_p(-1).value
+    handle = open_directory(FILE_TRAVERSE)
+    if handle == invalid and ctypes.get_last_error() == 5:
+        handle = open_directory(FILE_LIST_DIRECTORY)
+    if handle == invalid:
+        error = ctypes.WinError(ctypes.get_last_error())
+        error.filename = str(path)
+        raise error
     try:
         attributes = (wintypes.DWORD * 2)()
         if not kernel.GetFileInformationByHandleEx(
@@ -52,6 +67,21 @@ def windows_directory_handle(path: Path) -> Generator[None, None, None]:
         yield
     finally:
         kernel.CloseHandle(handle)
+
+
+@contextmanager
+def windows_storage_directory(path: Path, create: bool) -> Generator[None, None, None]:
+    """Pin one storage component; a drive or share root is only ever inspected."""
+    if create and path != path.parent:
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            try:
+                path.mkdir(mode=0o700)
+            except FileExistsError:
+                pass  # The handle below checks the entry that won the race.
+    with windows_directory_handle(path):
+        yield
 
 
 def windows_permissions(path: Path, private: bool) -> None:
@@ -141,7 +171,9 @@ def windows_permissions(path: Path, private: bool) -> None:
         ctypes.byref(descriptor),
     )
     if result:
-        raise ctypes.WinError(result)
+        error = ctypes.WinError(result)
+        error.filename = str(path)
+        raise error
     try:
         entries: list[tuple[int, int, int, str]] = []
         if acl.value is None:
@@ -161,7 +193,11 @@ def windows_permissions(path: Path, private: bool) -> None:
                     f"Cannot verify this Windows storage ACL entry: {path}"
                 )
             entries.append((kind, flags, mask, sid_text(pointer(address.value + 8))))
-        validate_windows_acl(sid_text(owner), current_user, entries, private)
+        try:
+            validate_windows_acl(sid_text(owner), current_user, entries, private)
+        except ValueError as exc:
+            role = "private storage" if private else "storage ancestor"
+            raise ValueError(f"{exc} ({role}: {path})") from exc
     finally:
         kernel.LocalFree(descriptor)
 

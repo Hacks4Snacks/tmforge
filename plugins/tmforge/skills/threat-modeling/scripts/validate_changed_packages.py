@@ -130,26 +130,15 @@ def windows_state_permissions(path: Path, private: bool = True) -> None:
 
 @contextmanager
 def windows_state_directory(path: Path, create: bool) -> Generator[None, None, None]:
+    absolute = path.absolute()
     with ExitStack() as handles:
-        for directory in [*reversed(path.absolute().parents), path.absolute()]:
-            try:
-                info = directory.lstat()
-            except FileNotFoundError:
-                if not create:
-                    raise
-                directory.mkdir(mode=0o700)
-                info = directory.lstat()
+        for directory in [*reversed(absolute.parents), absolute]:
             handles.enter_context(
-                windows_permissions_module().windows_directory_handle(directory)
-            )
-            reparse = getattr(info, "st_file_attributes", 0) & getattr(
-                stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0
-            )
-            if reparse or not stat.S_ISDIR(info.st_mode):
-                raise ValueError(
-                    "validation state must use directories, not links or reparse points"
+                windows_permissions_module().windows_storage_directory(
+                    directory, create
                 )
-            windows_state_permissions(directory, private=directory == path.absolute())
+            )
+            windows_state_permissions(directory, private=directory == absolute)
         yield
 
 
