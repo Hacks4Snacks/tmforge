@@ -193,6 +193,47 @@ class BinaryLauncherTests(unittest.TestCase):
         )
         download.assert_not_called()
 
+    def test_windows_default_cache_is_user_local_even_without_localappdata(self):
+        redirected = self.directory / "redirected Local"
+        fallback = self.directory / "AppData" / "Local"
+        for value, expected in (
+            (str(redirected), redirected),
+            ("", fallback),
+            (None, fallback),
+        ):
+            with (
+                self.subTest(localappdata=value),
+                patch.object(launcher.sys, "platform", "win32"),
+                patch.dict(
+                    os.environ,
+                    {"USERPROFILE": str(self.directory), "HOME": str(self.directory)},
+                ),
+            ):
+                if value is None:
+                    os.environ.pop("LOCALAPPDATA", None)
+                else:
+                    os.environ["LOCALAPPDATA"] = value
+                self.assertEqual(
+                    launcher.cache_root(), expected / "tmforge" / "copilot"
+                )
+                self.assertFalse(expected.exists())
+
+    def test_windows_rejects_ambiguous_or_root_localappdata_before_use(self):
+        for value in (
+            "relative",
+            self.directory.anchor,
+            str(self.directory / ".." / ".."),
+        ):
+            with (
+                self.subTest(localappdata=value),
+                patch.object(launcher.sys, "platform", "win32"),
+                patch.dict(os.environ, {"LOCALAPPDATA": value}),
+                patch.object(launcher, "validate_cache_entry") as validate,
+                self.assertRaisesRegex(ValueError, "LOCALAPPDATA.*--cache-dir"),
+            ):
+                launcher.cache_root()
+            validate.assert_not_called()
+
     def test_plugin_update_installs_only_the_matching_release(self):
         (self.installed_plugin / "plugin.json").write_text(
             json.dumps({"name": "tmforge", "version": "99.0.0"})
@@ -361,6 +402,31 @@ class BinaryLauncherTests(unittest.TestCase):
         with patch.object(launcher, "cache_output", side_effect=output):
             self.assertEqual(self.install_fixture("win-x64").read_bytes(), self.payload)
         self.assertEqual(len(checked), 3)
+
+    @unittest.skipUnless(os.name == "nt", "native Windows DACLs")
+    def test_windows_installs_below_an_ancestor_that_cannot_be_listed(self):
+        parent = self.directory / "traverse only"
+        parent.mkdir(mode=0o700)
+        self.cache = parent / "cache"
+        subprocess.run(
+            ["icacls", str(parent), "/deny", "*S-1-1-0:(RD)"],
+            check=True,
+            capture_output=True,
+        )
+        try:
+            with self.assertRaises(PermissionError):
+                list(parent.iterdir())
+            rid = "win-x64"
+            binary = self.install_fixture(rid)
+            self.assertEqual(
+                launcher.cached_binary(self.cache, self.version, rid), binary
+            )
+        finally:
+            subprocess.run(
+                ["icacls", str(parent), "/remove:d", "*S-1-1-0"],
+                check=True,
+                capture_output=True,
+            )
 
     def test_checksum_failure_does_not_publish_a_binary(self):
         with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
@@ -753,10 +819,18 @@ class BinaryLauncherTests(unittest.TestCase):
                     True,
                 )
 
-    def test_windows_directory_handles_request_read_access(self):
+    def test_windows_directory_handles_pin_without_listing(self):
         permissions = launcher.windows_permissions_module()
         kernel = Mock()
-        kernel.CreateFileW.return_value = 123
+
+        def open_directory(path, access, share, security, disposition, flags, template):
+            if access & 1:
+                raise PermissionError("this directory can be traversed but not listed")
+            self.assertTrue(access & 0x20)  # Traverse participates in share checks.
+            self.assertFalse(share & 4)  # No delete sharing.
+            return 123
+
+        kernel.CreateFileW.side_effect = open_directory
 
         def file_information(
             handle: int, kind: int, attributes: Any, size: int
@@ -768,23 +842,13 @@ class BinaryLauncherTests(unittest.TestCase):
             return True
 
         kernel.GetFileInformationByHandleEx.side_effect = file_information
-        for opener, options in (
-            (permissions.windows_directory_handle, {}),
-            (launcher.windows_cache_handle, {"directory": True}),
+        with (
+            patch.object(permissions.sys, "platform", "win32"),
+            patch.object(ctypes, "WinDLL", return_value=kernel, create=True),
         ):
-            kernel.reset_mock()
-            with (
-                self.subTest(opener=opener.__name__),
-                patch.object(permissions.sys, "platform", "win32"),
-                patch.object(ctypes, "WinDLL", return_value=kernel, create=True),
-                patch.dict(sys.modules, {"msvcrt": Mock()}),
-            ):
-                with opener(self.directory, **options):
-                    kernel.CreateFileW.assert_called_once_with(
-                        str(self.directory), 0x81, 3, None, 3, 0x02200000, None
-                    )
-                    kernel.CloseHandle.assert_not_called()
-            kernel.CloseHandle.assert_called_once_with(123)
+            with permissions.windows_directory_handle(self.directory):
+                kernel.CloseHandle.assert_not_called()
+        kernel.CloseHandle.assert_called_once_with(123)
 
     def test_windows_cache_creation_does_not_recreate_existing_ancestors(self):
         original_mkdir = Path.mkdir
@@ -805,7 +869,9 @@ class BinaryLauncherTests(unittest.TestCase):
             patch.object(launcher, "os", SimpleNamespace(name="nt")),
             patch.object(Path, "mkdir", mkdir),
             patch.object(
-                launcher, "windows_cache_handle", return_value=nullcontext(123)
+                launcher.windows_permissions_module(),
+                "windows_directory_handle",
+                return_value=nullcontext(),
             ) as handles,
             patch.object(launcher, "validate_cache_entry") as validate,
         ):
@@ -816,6 +882,23 @@ class BinaryLauncherTests(unittest.TestCase):
         self.assertEqual([entry.args[0] for entry in handles.call_args_list], expected)
         self.assertEqual([entry.args[0] for entry in validate.call_args_list], expected)
         validate.assert_called_with(self.cache, private=True)
+
+    def test_windows_install_never_tries_to_create_an_unavailable_volume(self):
+        volume = Path(self.directory.anchor)
+        with (
+            patch.object(launcher, "os", SimpleNamespace(name="nt")),
+            patch.object(Path, "lstat", side_effect=FileNotFoundError(str(volume))),
+            patch.object(Path, "mkdir") as mkdir,
+            patch.object(
+                launcher.windows_permissions_module(),
+                "windows_directory_handle",
+                side_effect=FileNotFoundError(str(volume)),
+            ),
+            self.assertRaises(FileNotFoundError),
+        ):
+            with launcher.cache_directory(self.cache, self.cache, create=True):
+                self.fail("unavailable volume accepted")
+        mkdir.assert_not_called()
 
     def test_windows_token_user_passes_sid_pointer_to_conversion(self):
         import struct
@@ -888,8 +971,9 @@ class BinaryLauncherTests(unittest.TestCase):
                 ),
             ):
                 if effective:
-                    with self.assertRaisesRegex(ValueError, "write access"):
+                    with self.assertRaisesRegex(ValueError, "write access") as failure:
                         permissions.windows_permissions(self.cache, private=True)
+                    self.assertIn(str(self.cache), str(failure.exception))
                 else:
                     permissions.windows_permissions(self.cache, private=True)
             expected = [sid_pointer.value]

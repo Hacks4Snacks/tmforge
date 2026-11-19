@@ -1815,9 +1815,9 @@ describe('Editor preflight review', () => {
         { code: 'conversion.knowledge-base', severity: 'warning', path: '$.knowledgeBase', message: 'Template omitted.' },
         { code: 'conversion.generated-register', severity: 'warning', path: '$.threats', message: 'Register omitted.' },
       ] });
-      await waitFor(() => expect(readFile).toHaveBeenCalledOnce());
+      await screen.findByText('Imported Alpha');
+      expect(readFile).toHaveBeenCalledOnce();
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-      expect(screen.getByText('Imported Alpha')).toBeInTheDocument();
     } finally {
       Reflect.deleteProperty(window, 'showOpenFilePicker');
     }

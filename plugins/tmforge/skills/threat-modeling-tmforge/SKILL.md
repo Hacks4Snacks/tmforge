@@ -89,6 +89,12 @@ The launcher requires matching release metadata and verifies its archive SHA-256
 binary digest checked on reuse. It supports Linux (glibc), macOS, and Windows on x64 and arm64. Use `--cache-dir` before
 `--` to select a different writable cache outside the plugin; use the same location for every invocation.
 
+On Windows the default is `%LOCALAPPDATA%\tmforge\copilot` (or `%USERPROFILE%\AppData\Local\tmforge\copilot` when
+`LOCALAPPDATA` is unset or empty). `--status` reports the full binary path without creating it. A permission error
+naming `C:\` can refer to an ancestor check, not the download destination. Do not elevate or grant write access to
+the drive root. If the launcher or baseline validator reports an unsafe ACL, inspect the named path and use a
+private cache (`--cache-dir`) or baseline directory (`--state-dir`) with trusted ancestors.
+
 Status checks and normal CLI invocations never download. A missing or modified cache entry fails with an installation
 hint; a plugin version change requires approval for that version's first download. Never fall back to an older CLI when the matching release is unavailable. No `PATH`, system installation,
 or .NET runtime changes are made. A user-selected existing CLI remains available for offline or restricted hosts.
