@@ -21,6 +21,8 @@ try {
     vscodeExecutablePath: executable,
     extensionDevelopmentPath: root,
     extensionTestsPath: resolve(root, 'out/test/extension.test.js'),
+    // Keep fixtures with the profile so they are deleted only after VS Code exits.
+    extensionTestsEnv: { TMFORGE_TEST_RUN_DIR: directory },
     launchArgs: [
       '--user-data-dir=' + resolve(directory, 'profile'),
       '--extensions-dir=' + resolve(directory, 'extensions'),
@@ -30,6 +32,6 @@ try {
   });
   passed = true;
 } finally {
-  if (passed) await rm(directory, { recursive: true, force: true });
+  if (passed) await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   else console.error('Extension-host failure logs:', directory);
 }

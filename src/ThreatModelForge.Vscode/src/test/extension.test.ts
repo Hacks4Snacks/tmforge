@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import * as vscode from 'vscode';
 import { EngineWorker, type Inspection } from '../engine';
@@ -19,7 +18,9 @@ export async function run(): Promise<void> {
 	}>('hacks4snacks.tmforge');
 	assert.ok(extension, 'Extension was not loaded');
 	const api = await extension.activate();
-	const directory = await mkdtemp(join(tmpdir(), 'tmforge-vscode-test-'));
+	const runDirectory = process.env.TMFORGE_TEST_RUN_DIR;
+	assert.ok(runDirectory, 'Launch extension-host tests with npm run test:extension');
+	const directory = await mkdtemp(join(runDirectory, 'fixtures-'));
 	try {
 		await verifyCopilotTools(api, directory);
 		if (process.env.TMFORGE_TEST_COPILOT === '1') return;
@@ -250,7 +251,6 @@ export async function run(): Promise<void> {
 		throw error;
 	} finally {
 		await vscode.commands.executeCommand('workbench.action.closeAllEditors');
-		await rm(directory, { recursive: true, force: true });
 	}
 }
 
