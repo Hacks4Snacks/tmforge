@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.3](https://github.com/Hacks4Snacks/tmforge/compare/v0.14.2...v0.14.3) (2026-11-19)
+
+
+### Bug Fixes
+
+* flow-aware boundary grids, preserved nesting, title/padding clearance ([#152](https://github.com/Hacks4Snacks/tmforge/issues/152)) ([eedb67e](https://github.com/Hacks4Snacks/tmforge/commit/eedb67edf9799557883fc66c29bc56a9d53da748))
+* windows permission adjustments ([#157](https://github.com/Hacks4Snacks/tmforge/issues/157)) ([7c587d3](https://github.com/Hacks4Snacks/tmforge/commit/7c587d3526c8110cfcbacffc73af5a8d2a536389))
+
 ## [0.14.2](https://github.com/Hacks4Snacks/tmforge/compare/v0.14.1...v0.14.2) (2026-11-06)
 
 
